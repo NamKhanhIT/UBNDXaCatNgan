@@ -1,0 +1,33 @@
+using System;
+using Quanlycongviec.Domain.Common;
+using Quanlycongviec.Domain.Enums;
+
+namespace Quanlycongviec.Domain.Entities
+{
+    public class InboxDocument : BaseEntity
+    {
+        public string DocumentNumber { get; set; } = string.Empty; // Mã công văn: 88/UBND-VP
+        public string Subject { get; set; } = string.Empty; // Tiêu đề công văn
+        public string Category { get; set; } = string.Empty; // Chỉ đạo / Tờ trình / Công văn
+        public string Sender { get; set; } = string.Empty; // Đơn vị gửi
+        public DateTime ReceivedDate { get; set; } = DateTime.UtcNow;
+        public bool IsUrgent { get; set; } = false; // Thượng khẩn / Khẩn
+        
+        /// <summary>
+        /// Phân luồng theo Luật 72/2025: Internal (chỉ đạo nội bộ) | PublicService (TTHC công dân)
+        /// </summary>
+        public InboxChannel Channel { get; set; } = InboxChannel.Internal;
+
+        // ── Thông tin TTHC công dân (chỉ dùng khi Channel = PublicService) ──
+        public string? CitizenName { get; set; }     // Tên công dân nộp hồ sơ
+        public string? CitizenPhone { get; set; }    // SĐT liên hệ
+        public string? ServiceCode { get; set; }     // Mã TTHC (VD: DK-001, XD-003)
+        
+        public bool IsScheduled { get; set; } = false; // Trạng thái đã xếp lịch
+        public DateTime? ScheduledDate { get; set; }
+        public string? ScheduledShift { get; set; } // Sang / Chieu / Toi
+        public Guid? ScheduledTaskId { get; set; } // TaskItem liên kết
+        public TaskItem? ScheduledTask { get; set; }
+    }
+}
+

@@ -1,0 +1,73 @@
+# ==========================================
+# Comprehensive .gitignore for UBNDXaCN
+# Includes .NET 8, Next.js, VS, Secrets & OS
+# ==========================================
+
+# ------------------------------------------
+# 1. Environment & Secrets (Bảo mật 100%)
+# ------------------------------------------
+.env
+.env.*
+!.env.example
+appsettings.Secrets.json
+appsettings.*.user.json
+appsettings.Production.json
+*.pem
+*.pfx
+*.key
+*.crt
+
+# ------------------------------------------
+# 2. Backup Archives & Large Files
+# ------------------------------------------
+*.zip
+*.7z
+*.rar
+*.tar.gz
+UBNDXaCN.zip
+
+# ------------------------------------------
+# 3. .NET / C# Build Artifacts & IDE Files
+# ------------------------------------------
+bin/
+obj/
+[B|b]in/
+[O|o]bj/
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.userprefs
+TestResults/
+[T|t]est[R|r]esults/
+*.DotSettings.user
+*.pidb
+*.ide/
+
+# ------------------------------------------
+# 4. Frontend (Node.js / Next.js / React)
+# ------------------------------------------
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+tsconfig.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.eslintcache
+
+# ------------------------------------------
+# 5. OS & Temporary Files
+# ------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*.log
+*.tmp
+tmp/
+scratch/
