@@ -8,10 +8,12 @@
 # ------------------------------------------
 .env
 .env.*
-!.env.example
+appsettings.Development.json
+appsettings.Development.*.json
 appsettings.Secrets.json
 appsettings.*.user.json
 appsettings.Production.json
+launchSettings.json
 *.pem
 *.pfx
 *.key
