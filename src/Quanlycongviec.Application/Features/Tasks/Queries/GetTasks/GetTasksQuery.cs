@@ -5,31 +5,52 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Quanlycongviec.Application.Common;
 using Quanlycongviec.Application.Common.Interfaces;
 using Quanlycongviec.Application.Features.Tasks.DTOs;
 using Quanlycongviec.Domain.Enums;
 
 namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
 {
-    public class GetTasksQuery : IRequest<List<TaskItemDto>>
+    public class GetTasksQuery : IRequest<PaginatedResult<TaskItemDto>>
     {
         public Guid? UserId { get; set; }
         public int? RankLevel { get; set; }
         public string? StatusFilter { get; set; }
         public Guid? DepartmentId { get; set; }
         public string? SearchQuery { get; set; }
+        public int Page { get; set; } = 1;
+        public int PageSize { get; set; } = 25;
+        public DateTime? DueDate { get; set; }
+        public DateTime? DueDateFrom { get; set; }
+        public DateTime? DueDateTo { get; set; }
 
-        public GetTasksQuery(Guid? userId = null, int? rankLevel = null, string? statusFilter = null, Guid? departmentId = null, string? searchQuery = null)
+        public GetTasksQuery(
+            Guid? userId = null,
+            int? rankLevel = null,
+            string? statusFilter = null,
+            Guid? departmentId = null,
+            string? searchQuery = null,
+            int page = 1,
+            int pageSize = 25,
+            DateTime? dueDate = null,
+            DateTime? dueDateFrom = null,
+            DateTime? dueDateTo = null)
         {
             UserId = userId;
             RankLevel = rankLevel;
             StatusFilter = statusFilter;
             DepartmentId = departmentId;
             SearchQuery = searchQuery;
+            Page = page;
+            PageSize = pageSize;
+            DueDate = dueDate;
+            DueDateFrom = dueDateFrom;
+            DueDateTo = dueDateTo;
         }
     }
 
-    public class GetTasksQueryHandler : IRequestHandler<GetTasksQuery, List<TaskItemDto>>
+    public class GetTasksQueryHandler : IRequestHandler<GetTasksQuery, PaginatedResult<TaskItemDto>>
     {
         private readonly IApplicationDbContext _context;
 
@@ -38,7 +59,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
             _context = context;
         }
 
-        public async Task<List<TaskItemDto>> Handle(GetTasksQuery request, CancellationToken cancellationToken)
+        public async Task<PaginatedResult<TaskItemDto>> Handle(GetTasksQuery request, CancellationToken cancellationToken)
         {
             var query = _context.TaskItems
                 .Include(t => t.Assigner)
@@ -85,8 +106,32 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
                     t.Assigner.FullName.ToLower().Contains(q));
             }
 
+            // Filter: DueDate (exact day for "Hôm nay" tab)
+            if (request.DueDate.HasValue)
+            {
+                var date = request.DueDate.Value.Date;
+                query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value.Date == date);
+            }
+
+            // Filter: DueDate range (for "Tuần này" tab)
+            if (request.DueDateFrom.HasValue && request.DueDateTo.HasValue)
+            {
+                var from = request.DueDateFrom.Value.Date;
+                var to = request.DueDateTo.Value.Date;
+                query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value.Date >= from && t.DueDate.Value.Date <= to);
+            }
+
+            // Count total before pagination
+            var totalCount = await query.CountAsync(cancellationToken);
+
+            // Paginate
+            var page = Math.Max(1, request.Page);
+            var pageSize = Math.Clamp(request.PageSize, 1, 100);
+
             var list = await query
                 .OrderByDescending(t => t.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .Select(t => new TaskItemDto
                 {
                     Id = t.Id,
@@ -110,7 +155,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
                 })
                 .ToListAsync(cancellationToken);
 
-            return list;
+            return new PaginatedResult<TaskItemDto>(list, totalCount, page, pageSize);
         }
     }
 }

@@ -7,9 +7,13 @@ using Quanlycongviec.Application;
 using Quanlycongviec.Infrastructure;
 using Quanlycongviec.Infrastructure.Hubs;
 using Quanlycongviec.Infrastructure.Persistence;
+using Quanlycongviec.Application.Common.Options;
 using Quanlycongviec.Api.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Options setup
+builder.Services.Configure<RatingRevisionOptions>(builder.Configuration.GetSection(RatingRevisionOptions.SectionName));
 
 // Add services to the container.
 builder.Services.AddControllers()

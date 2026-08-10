@@ -389,10 +389,14 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 new InboxDocument
                 {
                     Id = Guid.Parse("D0000000-0000-0000-0000-000000000001"),
-                    DocumentNumber = "88/UBND-VP",
+                    DocumentNumber = "88",
+                    DocumentSymbol = "UBND-VP",
+                    IssuingAgency = "UBND Huyện Đức Thọ",
+                    SignerName = "Nguyễn Văn A",
+                    IssuedDate = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(-2), DateTimeKind.Utc),
                     Subject = "Yêu cầu Phòng Địa chính phối hợp kiểm tra hiện trạng sử dụng đất khu vực cầu Cát Ngạn",
                     Category = "Chỉ đạo",
-                    Sender = "UBND Huyện",
+                    Sender = "UBND Huyện Đức Thọ",
                     ReceivedDate = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(-1), DateTimeKind.Utc),
                     IsUrgent = true,
                     IsScheduled = false
@@ -400,7 +404,11 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 new InboxDocument
                 {
                     Id = Guid.Parse("D0000000-0000-0000-0000-000000000002"),
-                    DocumentNumber = "102/TB-UBND",
+                    DocumentNumber = "102",
+                    DocumentSymbol = "SNNPTNT-TL",
+                    IssuingAgency = "Sở Nông nghiệp & PTNT",
+                    SignerName = "Lê Văn B",
+                    IssuedDate = DateTime.SpecifyKind(DateTime.UtcNow.AddDays(-3), DateTimeKind.Utc),
                     Subject = "Báo cáo rà soát hiện trạng các công trình thủy lợi phục vụ tưới tiêu sản xuất vụ Mùa 2026",
                     Category = "Báo cáo",
                     Sender = "Sở Nông nghiệp & PTNT",

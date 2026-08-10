@@ -16,5 +16,7 @@ namespace Quanlycongviec.Application.Features.Users.DTOs
         public int RankLevel { get; set; }
         public double AssignedHours { get; set; }
         public double MaxHours { get; set; }
+        public double UtilizationRate { get; set; }
+        public bool IsOverloaded { get; set; }
     }
 }

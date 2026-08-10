@@ -27,10 +27,69 @@ namespace Quanlycongviec.Infrastructure.Persistence
         public DbSet<InboxDocument> InboxDocuments => Set<InboxDocument>();
         public DbSet<ActivityLog> ActivityLogs => Set<ActivityLog>();
         public DbSet<ReadReceipt> ReadReceipts => Set<ReadReceipt>();
+        public DbSet<OutgoingDocument> OutgoingDocuments => Set<OutgoingDocument>();
+        public DbSet<RatingHistory> RatingHistories => Set<RatingHistory>();
+        public DbSet<DocumentNumberSequence> DocumentNumberSequences => Set<DocumentNumberSequence>();
+        public DbSet<DocumentAttachment> DocumentAttachments => Set<DocumentAttachment>();
+        public DbSet<DocumentVersion> DocumentVersions => Set<DocumentVersion>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // ── DocumentVersion: Indexes cho tra cứu lịch sử phiên bản ──
+            modelBuilder.Entity<DocumentVersion>(entity =>
+            {
+                entity.HasIndex(v => new { v.DocumentId, v.VersionNumber });
+                entity.HasIndex(v => v.ChangedByUserId);
+            });
+
+            // ── DocumentAttachment: Indexes cho tra cứu theo DocumentId + TargetType ──
+            modelBuilder.Entity<DocumentAttachment>(entity =>
+            {
+                entity.HasIndex(a => new { a.DocumentId, a.TargetType });
+                entity.HasIndex(a => a.UploadedByUserId);
+            });
+
+            // ── DocumentNumberSequence: Unique constraint chống trùng số theo (Year + Symbol) ──
+            modelBuilder.Entity<DocumentNumberSequence>(entity =>
+            {
+                entity.HasIndex(s => new { s.Year, s.Symbol })
+                    .IsUnique();
+            });
+
+            // ── RatingHistory: Enum conversions & Indexes ──
+            modelBuilder.Entity<RatingHistory>(entity =>
+            {
+                entity.Property(r => r.ApprovalStatus)
+                    .HasConversion<string>()
+                    .HasMaxLength(30);
+
+                entity.HasIndex(r => r.TaskItemId);
+                entity.HasIndex(r => r.ApprovalStatus);
+                entity.HasIndex(r => r.ChangedByUserId);
+
+                entity.HasOne(r => r.TaskItem)
+                    .WithMany()
+                    .HasForeignKey(r => r.TaskItemId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── OutgoingDocument: Enum conversions & Indexes ──
+            modelBuilder.Entity<OutgoingDocument>(entity =>
+            {
+                entity.Property(o => o.DocumentType)
+                    .HasConversion<string>()
+                    .HasMaxLength(30);
+
+                entity.Property(o => o.Status)
+                    .HasConversion<string>()
+                    .HasMaxLength(30);
+
+                entity.HasIndex(o => o.Status);
+                entity.HasIndex(o => o.DocumentType);
+                entity.HasIndex(o => o.DraftedByUserId);
+            });
 
             // ── Enum → string conversions (tránh sai lệch khi enum bị chỉnh sửa) ──
             modelBuilder.Entity<TaskItem>(entity =>
@@ -74,6 +133,12 @@ namespace Quanlycongviec.Infrastructure.Persistence
                     .HasConversion<string>()
                     .HasMaxLength(20)
                     .HasDefaultValue(Quanlycongviec.Domain.Enums.InboxChannel.Internal);
+
+                // ── Indexes cho phân trang / lọc hiệu năng cao ──
+                entity.HasIndex(d => d.IsScheduled);
+                entity.HasIndex(d => d.ReceivedDate);
+                entity.HasIndex(d => d.Channel);
+                entity.HasIndex(d => d.IsUrgent);
             });
 
             // ── ReadReceipt: Unique constraint (1 user chỉ đọc 1 entity 1 lần) ──
@@ -81,6 +146,25 @@ namespace Quanlycongviec.Infrastructure.Persistence
             {
                 entity.HasIndex(r => new { r.UserId, r.TargetEntityType, r.TargetEntityId })
                     .IsUnique();
+            });
+
+            // ── TaskItem: Composite index cho lọc phổ biến (AssigneeId + Status + DueDate) ──
+            modelBuilder.Entity<TaskItem>(entity =>
+            {
+                entity.HasIndex(t => new { t.AssigneeId, t.Status, t.DueDate });
+            });
+
+            // ── User: Index phục vụ tìm kiếm theo tên ──
+            modelBuilder.Entity<User>(entity =>
+            {
+                entity.HasIndex(u => u.FullName);
+            });
+
+            // ── UserRole: Indexes phục vụ lọc theo phòng ban / vai trò ──
+            modelBuilder.Entity<UserRole>(entity =>
+            {
+                entity.HasIndex(ur => ur.DepartmentId);
+                entity.HasIndex(ur => ur.RoleId);
             });
 
             // ── WorkloadCapacity: Ignore computed properties (runtime-only) ──

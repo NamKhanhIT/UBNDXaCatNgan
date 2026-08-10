@@ -76,7 +76,7 @@ Giải pháp phần mềm Quản lý công việc và Điều hành tác nghiệ
 
 #### Bước 1: Cấu hình Môi trường Backend (.NET 8)
 1. Di chuyển vào thư mục API:
-   ```bash
+   ```bash 
    cd src/Quanlycongviec.Api
    ```
 2. Cấu hình Chuỗi kết nối Database & JWT Key bằng **.NET User Secrets** (bảo mật không lộ key trên Git):

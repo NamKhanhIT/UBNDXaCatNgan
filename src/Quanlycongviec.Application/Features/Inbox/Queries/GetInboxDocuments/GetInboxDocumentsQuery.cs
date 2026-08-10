@@ -54,7 +54,12 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocuments
                     IsScheduled = d.IsScheduled,
                     ScheduledDate = d.ScheduledDate,
                     ScheduledShift = d.ScheduledShift,
-                    ScheduledTaskId = d.ScheduledTaskId
+                    ScheduledTaskId = d.ScheduledTaskId,
+                    DocumentSymbol = d.DocumentSymbol,
+                    IssuingAgency = d.IssuingAgency,
+                    SignerName = d.SignerName,
+                    AttachmentUrl = d.AttachmentUrl,
+                    IssuedDate = d.IssuedDate
                 })
                 .ToListAsync(cancellationToken);
 

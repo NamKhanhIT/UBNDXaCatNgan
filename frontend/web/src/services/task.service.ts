@@ -69,14 +69,38 @@ export interface DepartmentDto {
   memberCount: number;
 }
 
-export async function getTasksApi(status?: string, departmentId?: string, query?: string) {
-  const params = new URLSearchParams();
-  if (status) params.append('status', status);
-  if (departmentId) params.append('departmentId', departmentId);
-  if (query) params.append('q', query);
+export interface PaginatedTasksResponse {
+  items: TaskItemDto[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
 
-  const url = `/api/v1/Tasks${params.toString() ? `?${params.toString()}` : ''}`;
-  return await apiFetch<TaskItemDto[]>(url, { method: 'GET' });
+export interface GetTasksParams {
+  status?: string;
+  departmentId?: string;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  dueDate?: string;
+  dueDateFrom?: string;
+  dueDateTo?: string;
+}
+
+export async function getTasksApi(params?: GetTasksParams) {
+  const searchParams = new URLSearchParams();
+  if (params?.status) searchParams.append('status', params.status);
+  if (params?.departmentId) searchParams.append('departmentId', params.departmentId);
+  if (params?.q) searchParams.append('q', params.q);
+  if (params?.page) searchParams.append('page', String(params.page));
+  if (params?.pageSize) searchParams.append('pageSize', String(params.pageSize));
+  if (params?.dueDate) searchParams.append('dueDate', params.dueDate);
+  if (params?.dueDateFrom) searchParams.append('dueDateFrom', params.dueDateFrom);
+  if (params?.dueDateTo) searchParams.append('dueDateTo', params.dueDateTo);
+
+  const qs = searchParams.toString();
+  const url = `/api/v1/Tasks${qs ? `?${qs}` : ''}`;
+  return await apiFetch<PaginatedTasksResponse>(url, { method: 'GET' });
 }
 
 export async function updateTaskStatusApi(

@@ -9,14 +9,47 @@ import { getInboxDocumentsApi, scheduleInboxDocumentApi } from '../services/inbo
 import type { InboxDocumentDto } from '../services/inbox.service';
 import { createReport, reviewReport, getPendingReports, getGRADReportApi, PROGRESS_STATUS_LABELS, REPORT_STATUS_LABELS } from '../services/report.service';
 import type { ProgressReport, TaskProgressStatus, ReportStatus, OfficerGRADScoreDto, DepartmentGRADSummaryDto } from '../services/report.service';
-import { createScheduleFromInbox, createManualSchedule, autoScheduleFromInbox, createReminder, getWeekSchedules, formatReminderLabel } from '../services/schedule.service';
-import type { ScheduleEntry, Reminder } from '../services/schedule.service';
+import { createReminder, formatReminderLabel } from '../services/schedule.service';
+import type { Reminder } from '../services/schedule.service';
 import { getNotifications, markNotificationRead, markAllNotificationsRead, initSignalRConnection, stopSignalRConnection } from '../services/notification.service';
 import type { NotificationItem } from '../services/notification.service';
 import { getCommentsApi, createCommentApi, TaskCommentDto } from '../services/comment.service';
 import { getActivityLogApi, ActivityLogItemDto } from '../services/activity-log.service';
 import { getAuditLogApi, AuditLogItemDto } from '../services/audit-log.service';
 import { markReadReceiptApi, getReadReceiptsApi } from '../services/read-receipt.service';
+import { getUsersPaginatedApi } from '../services/user.service';
+import type { UserDto as PaginatedUserDto } from '../services/user.service';
+import {
+  getOutgoingDocumentsApi,
+  getOutgoingDocumentByIdApi,
+  createOutgoingDocumentApi,
+  updateOutgoingDocumentApi,
+  submitOutgoingDocumentForSignatureApi,
+  signAndIssueOutgoingDocumentApi,
+  rejectOutgoingDocumentApi,
+  revokeOutgoingDocumentApi,
+  revokeIssuedOutgoingDocumentApi,
+} from '../services/outgoing-document.service';
+import type {
+  OutgoingDocumentDto,
+  DocumentTypeEnum,
+  OutgoingDocumentStatusEnum,
+} from '../services/outgoing-document.service';
+import {
+  submitRatingRevisionApi,
+  getTaskRatingHistoryApi,
+  getPendingRatingRevisionsApi,
+  approveRatingRevisionApi,
+  rejectRatingRevisionApi,
+} from '../services/rating-history.service';
+import type {
+  RatingHistoryDto,
+  RatingApprovalStatusEnum,
+} from '../services/rating-history.service';
+import { DocumentViewerModal } from '../components/DocumentViewerModal';
+import { RevokeDocumentModal } from '../components/RevokeDocumentModal';
+import { DocumentHistoryModal } from '../components/DocumentHistoryModal';
+import { getFileViewUrl } from '../services/files.service';
 
 /* ═══════════════════════════════════════════════════════════════
    FONTAWESOME 6 HELPER COMPONENT
@@ -41,7 +74,8 @@ type RoleCode =
   | 'TruongPhong'
   | 'PhoPhong'
   | 'ChuyenVien';
-type ModuleKey = 'overview' | 'inbox' | 'tasks' | 'departments' | 'create-task' | 'reports' | 'my-day' | 'activity-log';
+type ModuleKey = 'overview' | 'workcenter' | 'departments' | 'create-task' | 'reports' | 'activity-log';
+type WorkcenterTab = 'incoming' | 'scheduled' | 'today' | 'week' | 'outgoing';
 type DeptSubTab = 'phongban' | 'canbo' | 'taiviec';
 type TaskStatus = 'Chua_Lam' | 'Dang_Xu_Ly' | 'Cho_Duyet' | 'Hoan_Thanh' | 'Tu_Choi';
 type TaskPriority = 'Khan' | 'Cao' | 'Trung_Binh' | 'Thuong';
@@ -879,15 +913,47 @@ export interface InboxItem {
   folder: InboxFolder;
   isStarred: boolean;
   isUrgent: boolean;
-  attachments: { name: string; size: string; type: string }[];
+  attachments: { name: string; size: string; type: string; url?: string }[];
   deadline?: string;
+  documentNumber?: string;
+  documentSymbol?: string;
+  issuingAgency?: string;
+  signerName?: string;
+  issuedDate?: string;
+  category?: string;
 }
 
 const SAMPLE_INBOX: InboxItem[] = [
   {
-    id: 'MAIL-001',
+    id: 'd0000000-0000-0000-0000-000000000001',
+    senderName: 'Vũ Đức Đam',
+    senderOrg: 'UBND Huyện Đức Thọ',
+    documentNumber: '125',
+    documentSymbol: 'UBND-VP',
+    issuingAgency: 'UBND Huyện Đức Thọ',
+    signerName: 'Nguyễn Văn A',
+    issuedDate: '2026-08-05',
+    category: 'Công văn',
+    date: '05/08/2026 08:30',
+    subject: 'Yêu cầu phối hợp kiểm tra hiện trạng sử dụng đất khu vực cầu Cát Ngạn',
+    content: 'Yêu cầu UBND Xã Cát Ngạn khẩn trương rà soát hiện trạng sử dụng đất tại khu vực cầu Cát Ngạn, lập danh sách các trường hợp vi phạm và báo cáo về UBND Huyện trước ngày 25/08/2026.',
+    status: 'scheduled',
+    folder: 'scheduled',
+    isStarred: true,
+    isUrgent: true,
+    deadline: '2026-08-21',
+    attachments: [{ name: 'CongVan_125_UBND_VP.pdf', size: '2.4 MB', type: 'pdf' }]
+  },
+  {
+    id: 'd0000000-0000-0000-0000-000000000002',
     senderName: 'Vũ Đức Đam',
     senderOrg: 'UBND Tỉnh',
+    documentNumber: '03',
+    documentSymbol: 'CĐ-UBND',
+    issuingAgency: 'UBND Tỉnh Hà Tĩnh',
+    signerName: 'Vũ Đức Đam',
+    issuedDate: '2026-08-05',
+    category: 'Công điện',
     date: '05/08/2026 08:30',
     subject: 'Công điện khẩn về việc phòng chống bão số 3',
     content: 'Yêu cầu các địa phương khẩn trương rà soát các hộ dân vùng trũng, lên phương án sơ tán an toàn trước 17h chiều nay. Đảm bảo lực lượng túc trực 24/24 tại trụ sở.',
@@ -895,13 +961,19 @@ const SAMPLE_INBOX: InboxItem[] = [
     folder: 'inbox',
     isStarred: true,
     isUrgent: true,
-    deadline: '05/08/2026',
+    deadline: '2026-08-05',
     attachments: [{ name: 'CongDien_BaoSo3.pdf', size: '2.4 MB', type: 'pdf' }]
   },
   {
-    id: 'MAIL-002',
+    id: 'd0000000-0000-0000-0000-000000000003',
     senderName: 'Nguyễn Văn A',
     senderOrg: 'Sở Tài Nguyên & Môi Trường',
+    documentNumber: '48',
+    documentSymbol: 'STNMT-QLĐĐ',
+    issuingAgency: 'Sở Tài Nguyên & Môi Trường',
+    signerName: 'Nguyễn Văn A',
+    issuedDate: '2026-08-04',
+    category: 'Thông báo',
     date: '04/08/2026 14:15',
     subject: 'Hướng dẫn mới về phân loại rác thải tại nguồn',
     content: 'Gửi UBND Xã tài liệu hướng dẫn phân loại rác thải tại nguồn áp dụng từ quý 4/2026. Đề nghị chủ tịch phân công cán bộ chuyên môn nghiên cứu và triển khai đến từng thôn bản.',
@@ -909,13 +981,19 @@ const SAMPLE_INBOX: InboxItem[] = [
     folder: 'inbox',
     isStarred: false,
     isUrgent: false,
-    deadline: '15/08/2026',
+    deadline: '2026-08-15',
     attachments: [{ name: 'HD_PhanLoaiRac.docx', size: '1.1 MB', type: 'doc' }, { name: 'Poster_TuyenTruyen.png', size: '4.5 MB', type: 'image' }]
   },
   {
-    id: 'MAIL-003',
+    id: 'd0000000-0000-0000-0000-000000000004',
     senderName: 'Trần Thị B',
     senderOrg: 'Phòng Tài Chính - Kế Hoạch Huyện',
+    documentNumber: '89',
+    documentSymbol: 'STC-HCSN',
+    issuingAgency: 'Phòng Tài Chính - Kế Hoạch Huyện',
+    signerName: 'Trần Thị B',
+    issuedDate: '2026-08-03',
+    category: 'Báo cáo',
     date: '03/08/2026 09:00',
     subject: 'Báo cáo giải ngân vốn đầu tư công tháng 7',
     content: 'Yêu cầu UBND Xã khẩn trương tổng hợp số liệu giải ngân vốn đầu tư công các công trình trên địa bàn trong tháng 7/2026. Nộp báo cáo trước ngày mùng 5.',
@@ -923,21 +1001,8 @@ const SAMPLE_INBOX: InboxItem[] = [
     folder: 'assigned',
     isStarred: false,
     isUrgent: true,
-    deadline: '05/08/2026',
+    deadline: '2026-08-05',
     attachments: [{ name: 'MauBaoCao_GiaiNgan.xlsx', size: '120 KB', type: 'excel' }]
-  },
-  {
-    id: 'MAIL-004',
-    senderName: 'Người Dân',
-    senderOrg: 'Hệ thống phản ánh kiến nghị',
-    date: '05/08/2026 10:20',
-    subject: 'Phản ánh tình trạng lấn chiếm lòng lề đường tại Chợ Xã',
-    content: 'Kính gửi UBND Xã, hiện nay tại khu vực ngã ba Chợ Xã có tình trạng một số tiểu thương lấn chiếm lòng đường để buôn bán gây ách tắc giao thông vào giờ cao điểm.',
-    status: 'read',
-    folder: 'inbox',
-    isStarred: false,
-    isUrgent: false,
-    attachments: []
   }
 ];
 
@@ -952,7 +1017,14 @@ export default function DashboardPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeRole, setActiveRole] = useState<RoleCode>('BiThuDU');
   const [activeModule, setActiveModule] = useState<ModuleKey>('overview');
+  const [workcenterTab, setWorkcenterTab] = useState<WorkcenterTab>('incoming');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  // Workcenter / Inbox Pagination States
+  const [inboxPage, setInboxPage] = useState(1);
+  const [inboxTotalCount, setInboxTotalCount] = useState(0);
+  const [inboxHasMore, setInboxHasMore] = useState(true);
+  const [inboxLoading, setInboxLoading] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(SAMPLE_TASKS);
 
   // ── Flag Ẩn/Hiện Nhật Ký Hoạt Động trên Tổng Quan (Giao diện đơn giản & gọn gàng) ──
@@ -1036,6 +1108,58 @@ export default function DashboardPage() {
   const [shiftFilter, setShiftFilter] = useState<ShiftType | 'all'>('all');
   const [selectedDeptFilter, setSelectedDeptFilter] = useState<DepartmentCode | 'ALL'>('ALL');
   const [deptSubTab, setDeptSubTab] = useState<DeptSubTab>('phongban');
+
+  // ── Staff Module Paginated & Filter States ──
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [debouncedUserSearch, setDebouncedUserSearch] = useState('');
+  const [roleCodeFilter, setRoleCodeFilter] = useState('ALL');
+  const [workloadFilter, setWorkloadFilter] = useState('ALL');
+  const [userPage, setUserPage] = useState(1);
+  const [paginatedUsersList, setPaginatedUsersList] = useState<PaginatedUserDto[]>([]);
+  const [userTotalCount, setUserTotalCount] = useState(0);
+  const [userHasMore, setUserHasMore] = useState(false);
+  const [userLoading, setUserLoading] = useState(false);
+  const [overloadedCountBadge, setOverloadedCountBadge] = useState(0);
+
+  // ── Outgoing Documents (Văn Bản Đi) States ──
+  const [outgoingDocsList, setOutgoingDocsList] = useState<OutgoingDocumentDto[]>([]);
+  const [outgoingSearch, setOutgoingSearch] = useState('');
+  const [debouncedOutgoingSearch, setDebouncedOutgoingSearch] = useState('');
+  const [outgoingStatusFilter, setOutgoingStatusFilter] = useState<string>('ALL');
+  const [outgoingTypeFilter, setOutgoingTypeFilter] = useState<string>('ALL');
+  const [outgoingPage, setOutgoingPage] = useState(1);
+  const [outgoingTotalCount, setOutgoingTotalCount] = useState(0);
+  const [outgoingHasMore, setOutgoingHasMore] = useState(false);
+  const [outgoingLoading, setOutgoingLoading] = useState(false);
+
+  // Outgoing Modals State
+  const [showCreateOutgoingModal, setShowCreateOutgoingModal] = useState(false);
+  const [editingOutgoingDoc, setEditingOutgoingDoc] = useState<OutgoingDocumentDto | null>(null);
+  const [formDocType, setFormDocType] = useState<DocumentTypeEnum>('CongVan');
+  const [formDocTitle, setFormDocTitle] = useState('');
+  const [formDocContent, setFormDocContent] = useState('');
+  const [formDocRecipient, setFormDocRecipient] = useState('');
+  const [formDocIsUrgent, setFormDocIsUrgent] = useState(false);
+  const [formDocRelatedTaskId, setFormDocRelatedTaskId] = useState('');
+  const [formDocIsCorrection, setFormDocIsCorrection] = useState(false);
+  const [formDocOriginalId, setFormDocOriginalId] = useState('');
+
+  // Detail & Sign Modal State
+  const [showDetailOutgoingModal, setShowDetailOutgoingModal] = useState(false);
+  const [selectedOutgoingDoc, setSelectedOutgoingDoc] = useState<OutgoingDocumentDto | null>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+  const [showRejectInput, setShowRejectInput] = useState(false);
+
+  // ── Rating Revision (Sửa Đánh Giá Chống Thiên Vị) States ──
+  const [showRatingRevisionModal, setShowRatingRevisionModal] = useState(false);
+  const [ratingRevisionNewScore, setRatingRevisionNewScore] = useState(8.0);
+  const [ratingRevisionReason, setRatingRevisionReason] = useState('');
+  const [ratingRevisionEvidenceUrl, setRatingRevisionEvidenceUrl] = useState('');
+  const [taskRatingHistory, setTaskRatingHistory] = useState<RatingHistoryDto[]>([]);
+  const [pendingRatingRevisions, setPendingRatingRevisions] = useState<RatingHistoryDto[]>([]);
+  const [showPendingRatingRevisionsModal, setShowPendingRatingRevisionsModal] = useState(false);
+  const [rejectingRevisionHistoryId, setRejectingRevisionHistoryId] = useState<string | null>(null);
+  const [rejectingRevisionReasonInput, setRejectingRevisionReasonInput] = useState('');
   const [inboxChannelTab, setInboxChannelTab] = useState<'Internal' | 'PublicService'>('Internal');
   const [actSubTab, setActSubTab] = useState<'timeline' | 'audit'>('timeline');
   const [activityLogs, setActivityLogs] = useState<ActivityLogItemDto[]>([]);
@@ -1115,6 +1239,15 @@ export default function DashboardPage() {
   const [aiExtracting, setAiExtracting] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [ocrText, setOcrText] = useState('');
+  // Document Viewer state
+  const [showViewerModal, setShowViewerModal] = useState<boolean>(false);
+  const [viewerMail, setViewerMail] = useState<InboxItem | null>(null);
+  // Revoke Document state
+  const [showRevokeModal, setShowRevokeModal] = useState<boolean>(false);
+  const [revokeDocItem, setRevokeDocItem] = useState<any>(null);
+  // Document History state
+  const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
+  const [historyDocItem, setHistoryDocItem] = useState<any>(null);
 
   // New comment state
   const [newComment, setNewComment] = useState('');
@@ -1132,6 +1265,7 @@ export default function DashboardPage() {
 
   // Inbox State
   const [inboxItems, setInboxItems] = useState<InboxItem[]>(SAMPLE_INBOX);
+  const unprocessedCount = useMemo(() => inboxItems.filter(m => !m.deadline || m.status !== 'scheduled').length, [inboxItems]);
   const [activeFolder, setActiveFolder] = useState<InboxFolder>('inbox');
   const [selectedMailId, setSelectedMailId] = useState<string | null>(null);
   const selectedMail = useMemo(() => inboxItems.find(m => m.id === selectedMailId) || null, [inboxItems, selectedMailId]);
@@ -1190,8 +1324,8 @@ export default function DashboardPage() {
     if (isLoggedIn) {
       // 1. Fetch real tasks from PostgreSQL API
       getTasksApi().then(res => {
-        if (res.success && res.data && res.data.length > 0) {
-          const mapped: Task[] = res.data.map(t => ({
+        if (res.success && res.data && res.data.items && res.data.items.length > 0) {
+          const mapped: Task[] = res.data.items.map(t => ({
             id: t.id,
             title: t.title,
             description: t.description,
@@ -1222,20 +1356,26 @@ export default function DashboardPage() {
 
       // 2. Fetch Inbox Documents from PostgreSQL
       getInboxDocumentsApi().then(res => {
-        if (res.success && res.data && res.data.length > 0) {
-          const mappedDocs: InboxItem[] = res.data.map(d => ({
+        if (res.success && res.data && res.data.items && res.data.items.length > 0) {
+          const mappedDocs: InboxItem[] = res.data.items.map(d => ({
             id: d.id,
             senderName: d.sender,
-            senderOrg: d.sender,
+            senderOrg: d.issuingAgency || d.sender,
+            documentNumber: d.documentNumber,
+            documentSymbol: d.documentSymbol || 'UBND-VP',
+            issuingAgency: d.issuingAgency || d.sender,
+            signerName: d.signerName,
+            issuedDate: d.issuedDate ? d.issuedDate.split('T')[0] : d.receivedDate ? d.receivedDate.split('T')[0] : undefined,
+            category: d.category,
             date: d.receivedDate ? d.receivedDate.split('T')[0] : '2026-08-07',
             subject: d.subject,
-            content: `Văn bản chỉ đạo số ${d.documentNumber} gửi từ ${d.sender}. Thể loại: ${d.category}. Yêu cầu xem xét và xử lý.`,
+            content: `Văn bản số ${d.documentNumber}${d.documentSymbol ? '/' + d.documentSymbol : ''} gửi từ ${d.issuingAgency || d.sender}. Thể loại: ${d.category}. Trích yếu: ${d.subject}`,
             status: d.isScheduled ? 'scheduled' : 'read',
             folder: d.isScheduled ? 'scheduled' : 'inbox',
             isStarred: d.isUrgent,
             isUrgent: d.isUrgent,
             deadline: d.scheduledDate ? d.scheduledDate.split('T')[0] : undefined,
-            attachments: [{ name: `CongVan_${d.documentNumber.replace(/[\/\s]/g, '_')}.pdf`, size: '1.8 MB', type: 'pdf' }]
+            attachments: d.attachmentUrl ? [{ name: `CongVan_${d.documentNumber.replace(/[\/\s]/g, '_')}.pdf`, size: '1.8 MB', type: 'pdf', url: d.attachmentUrl }] : [{ name: `CongVan_${d.documentNumber.replace(/[\/\s]/g, '_')}.pdf`, size: '1.8 MB', type: 'pdf' }]
           }));
           setInboxItems(mappedDocs);
         }
@@ -1291,6 +1431,128 @@ export default function DashboardPage() {
     }
   }, [isLoggedIn]);
 
+  // ── Debounce 300ms cho ô Tìm kiếm Cán Bộ ──
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedUserSearch(userSearchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [userSearchQuery]);
+
+  // Reset userPage về 1 khi người dùng thay đổi từ khóa hoặc bộ lọc
+  useEffect(() => {
+    setUserPage(1);
+  }, [debouncedUserSearch, selectedDeptFilter, roleCodeFilter, workloadFilter]);
+
+  // ── Fetch Cán Bộ Server-side Paginated ──
+  useEffect(() => {
+    let isMounted = true;
+    const fetchPaginatedUsers = async () => {
+      setUserLoading(true);
+      const res = await getUsersPaginatedApi({
+        page: userPage,
+        pageSize: 20,
+        search: debouncedUserSearch,
+        departmentId: selectedDeptFilter !== 'ALL' ? selectedDeptFilter : undefined,
+        roleCode: roleCodeFilter !== 'ALL' ? roleCodeFilter : undefined,
+        workloadStatus: workloadFilter !== 'ALL' ? workloadFilter : undefined,
+      });
+
+      if (isMounted && res.success && res.data) {
+        if (userPage === 1) {
+          setPaginatedUsersList(res.data?.items || []);
+        } else {
+          setPaginatedUsersList(prev => [...prev, ...(res.data?.items || [])]);
+        }
+        setUserTotalCount(res.data.totalCount || 0);
+        setUserHasMore((userPage * 20) < (res.data.totalCount || 0));
+      }
+      if (isMounted) setUserLoading(false);
+    };
+
+    fetchPaginatedUsers();
+    return () => { isMounted = false; };
+  }, [userPage, debouncedUserSearch, selectedDeptFilter, roleCodeFilter, workloadFilter]);
+
+  // ── Fetch Badge Quá tải (Đọc 1 lần khi vào / khi tasks thay đổi) ──
+  useEffect(() => {
+    getUsersPaginatedApi({ page: 1, pageSize: 1, workloadStatus: 'Overloaded' }).then(res => {
+      if (res.success && res.data) {
+        setOverloadedCountBadge(res.data.totalCount || 0);
+      }
+    });
+  }, [tasks]);
+
+  // ── Outgoing Documents (Văn Bản Đi) Debounce 300ms ──
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedOutgoingSearch(outgoingSearch);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [outgoingSearch]);
+
+  // Reset page về 1 khi người dùng đổi bộ lọc văn bản đi
+  useEffect(() => {
+    setOutgoingPage(1);
+  }, [debouncedOutgoingSearch, outgoingStatusFilter, outgoingTypeFilter]);
+
+  // Fetch Văn Bản Đi từ server API
+  const fetchOutgoingDocs = async () => {
+    setOutgoingLoading(true);
+    const res = await getOutgoingDocumentsApi({
+      page: outgoingPage,
+      pageSize: 15,
+      search: debouncedOutgoingSearch,
+      status: outgoingStatusFilter !== 'ALL' ? (outgoingStatusFilter as OutgoingDocumentStatusEnum) : undefined,
+      documentType: outgoingTypeFilter !== 'ALL' ? (outgoingTypeFilter as DocumentTypeEnum) : undefined,
+    });
+
+    if (res.success && res.data) {
+      if (outgoingPage === 1) {
+        setOutgoingDocsList(res.data?.items || []);
+      } else {
+        setOutgoingDocsList(prev => [...prev, ...(res.data?.items || [])]);
+      }
+      setOutgoingTotalCount(res.data?.totalCount || 0);
+      setOutgoingHasMore(outgoingPage * 15 < (res.data?.totalCount || 0));
+    }
+    setOutgoingLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeModule === 'workcenter' && workcenterTab === 'outgoing') {
+      fetchOutgoingDocs();
+    }
+  }, [activeModule, workcenterTab, outgoingPage, debouncedOutgoingSearch, outgoingStatusFilter, outgoingTypeFilter]);
+
+  // ── Fetch Lịch Sử Đánh Giá khi chọn Task Detail ──
+  const fetchTaskRatingHistory = async (taskId: string) => {
+    const res = await getTaskRatingHistoryApi(taskId);
+    if (res.success && res.data) {
+      setTaskRatingHistory(res.data);
+    } else {
+      setTaskRatingHistory([]);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedTaskId) {
+      fetchTaskRatingHistory(selectedTaskId);
+    }
+  }, [selectedTaskId]);
+
+  // ── Fetch Danh Sách Chờ Cấp Trên Phê Duyệt ──
+  const fetchPendingRatingRevisions = async () => {
+    const res = await getPendingRatingRevisionsApi();
+    if (res.success && res.data) {
+      setPendingRatingRevisions(res.data);
+    }
+  };
+
+  useEffect(() => {
+    fetchPendingRatingRevisions();
+  }, [activeRole]);
+
   const handleMarkNotificationRead = async (id: string) => {
     setNotificationsList(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
     setUnreadNotifCount(prev => Math.max(0, prev - 1));
@@ -1302,6 +1564,22 @@ export default function DashboardPage() {
     setUnreadNotifCount(0);
     await markAllNotificationsRead();
     addToast('Đã đọc tất cả', 'Đã đánh dấu tất cả thông báo là đã đọc.', 'info');
+  };
+
+  const handleNotificationClick = async (n: NotificationItem) => {
+    await handleMarkNotificationRead(n.id);
+    setShowNotifDropdown(false);
+
+    if (n.taskItemId) {
+      setActiveModule('workcenter');
+      setWorkcenterTab('today');
+      setSelectedTaskId(n.taskItemId);
+    } else if (n.type === 'Escalation' || n.type === 'Inbox') {
+      setActiveModule('workcenter');
+      setWorkcenterTab('incoming');
+    } else {
+      setActiveModule('workcenter');
+    }
   };
 
   // --- Data filtering based on Role Context & Filters ---
@@ -1530,6 +1808,80 @@ export default function DashboardPage() {
     setSelectedTaskId(null);
   };
 
+  // ── Rating Revision Handlers (Sửa Đánh Giá Chống Thiên Vị) ──
+  const handleOpenRatingRevisionModal = (task: any) => {
+    const currentScore = task.rating !== undefined && task.rating !== null ? task.rating : (task.ratingScore ?? 8.0);
+    setRatingRevisionNewScore(currentScore);
+    setRatingRevisionReason('');
+    setRatingRevisionEvidenceUrl('');
+    setShowRatingRevisionModal(true);
+  };
+
+  const handleSubmitRatingRevision = async () => {
+    if (!selectedTaskId) return;
+    if (ratingRevisionReason.trim().length < 30) {
+      addToast('Chưa đủ độ dài lý do', 'Lý do thay đổi đánh giá phải chứa ít nhất 30 ký tự!', 'warning');
+      return;
+    }
+    if (!ratingRevisionEvidenceUrl.trim()) {
+      addToast('Thiếu minh chứng', 'Vui lòng cung cấp đường dẫn / tài liệu minh chứng đính kèm!', 'warning');
+      return;
+    }
+
+    const res = await submitRatingRevisionApi(selectedTaskId, {
+      newScore: ratingRevisionNewScore,
+      reason: ratingRevisionReason.trim(),
+      evidenceUrl: ratingRevisionEvidenceUrl.trim(),
+    });
+
+    if (res.success && res.data) {
+      if (res.data.approvalStatus === 'Applied') {
+        addToast('Đã áp dụng điểm mới', `Đã điều chỉnh điểm đánh giá thành ${ratingRevisionNewScore.toFixed(1)}/10 điểm (Áp dụng ngay).`, 'success');
+        setTasks(prev => prev.map(t => t.id === selectedTaskId ? { ...t, rating: ratingRevisionNewScore, ratingScore: ratingRevisionNewScore } : t));
+      } else {
+        addToast('Đã gửi đề xuất', `Đề xuất điều chỉnh điểm (${ratingRevisionNewScore.toFixed(1)} điểm) đã chuyển sang trạng thái CHỜ CẤP TRÊN DUYỆT do chênh lệch > 1.0 điểm.`, 'info');
+      }
+      setShowRatingRevisionModal(false);
+      fetchTaskRatingHistory(selectedTaskId);
+      fetchPendingRatingRevisions();
+    } else {
+      addToast('Lỗi gửi đề xuất', res.error || 'Có lỗi xảy ra khi gửi đề xuất điều chỉnh điểm.', 'danger');
+    }
+  };
+
+  const handleApprovePendingRevision = async (historyId: string) => {
+    const res = await approveRatingRevisionApi(historyId);
+    if (res.success) {
+      addToast('Phê duyệt thành công', 'Đã phê duyệt đề xuất điều chỉnh điểm. Điểm số mới đã chính thức được áp dụng.', 'success');
+      fetchPendingRatingRevisions();
+      if (selectedTaskId) {
+        fetchTaskRatingHistory(selectedTaskId);
+      }
+    } else {
+      addToast('Thất bại', res.error || 'Không thể phê duyệt đề xuất này.', 'danger');
+    }
+  };
+
+  const handleRejectPendingRevision = async () => {
+    if (!rejectingRevisionHistoryId) return;
+    if (rejectingRevisionReasonInput.trim().length < 10) {
+      addToast('Cảnh báo', 'Lý do từ chối phải chứa ít nhất 10 ký tự!', 'warning');
+      return;
+    }
+    const res = await rejectRatingRevisionApi(rejectingRevisionHistoryId, rejectingRevisionReasonInput.trim());
+    if (res.success) {
+      addToast('Đã từ chối', 'Đã từ chối đề xuất điều chỉnh điểm. Điểm cũ được giữ nguyên.', 'info');
+      setRejectingRevisionHistoryId(null);
+      setRejectingRevisionReasonInput('');
+      fetchPendingRatingRevisions();
+      if (selectedTaskId) {
+        fetchTaskRatingHistory(selectedTaskId);
+      }
+    } else {
+      addToast('Thất bại', res.error || 'Không thể từ chối đề xuất này.', 'danger');
+    }
+  };
+
   const handleSubmitTask = (taskId: string) => {
     setSelectedTaskId(taskId);
     setSubmitNote('');
@@ -1601,8 +1953,8 @@ export default function DashboardPage() {
       addToast('Phản biện UBMTTQ', res.message || 'Đã lưu ý kiến phản biện UBMTTQ thành công.', 'success');
       setUbmttqContent('');
       const tasksRes = await getTasksApi();
-      if (tasksRes.success && tasksRes.data) {
-        const mapped: Task[] = tasksRes.data.map(t => ({
+      if (tasksRes.success && tasksRes.data && tasksRes.data.items) {
+        const mapped: Task[] = tasksRes.data.items.map(t => ({
           id: t.id,
           title: t.title,
           description: t.description,
@@ -1704,7 +2056,8 @@ export default function DashboardPage() {
     setTasks(prev => [newTask, ...prev]);
     setNewTitle(''); setNewDesc(''); setNewAssignee(''); setNewDueDate('2026-07-29'); setNewEffort('8'); setAttachedFiles([]);
     addToast('Giao việc thành công', `Đã giao việc "${newTask.title}" cho đ/c ${newAssignee} (Đã đồng bộ PostgreSQL)`, 'success');
-    setActiveModule('tasks');
+    setActiveModule('workcenter');
+    setWorkcenterTab('today');
   };
 
   // Voice simulation
@@ -1761,9 +2114,7 @@ export default function DashboardPage() {
      ═══════════════════════════════════════════════════════════════ */
   const sidebarMenuItems: { key: ModuleKey; icon: string; label: string; badge?: number }[] = [
     { key: 'overview', icon: 'table-columns', label: 'Tổng Quan', badge: sidebarBadges.overview },
-    { key: 'my-day', icon: 'sun', label: 'Việc Của Tôi Hôm Nay' },
-    { key: 'inbox', icon: 'envelope-open-text', label: 'Hộp Thư Văn Bản', badge: 3 },
-    { key: 'tasks', icon: 'calendar-days', label: 'Lịch Công Tác Tuần', badge: sidebarBadges.tasks },
+    { key: 'workcenter', icon: 'briefcase', label: 'Trung Tâm Điều Hành', badge: unprocessedCount > 0 ? unprocessedCount : undefined },
     { key: 'departments', icon: 'sitemap', label: 'Nhân Sự & Phòng Ban', badge: sidebarBadges.departments },
     // Chuyên viên (scopeLevel=3) KHÔNG có quyền giao việc → ẩn module
     ...(canCreateTask(activeRole) ? [{ key: 'create-task' as ModuleKey, icon: 'circle-plus', label: 'Giao Việc Mới', badge: sidebarBadges['create-task'] }] : []),
@@ -1773,9 +2124,7 @@ export default function DashboardPage() {
 
   const moduleTitles: Record<ModuleKey, string> = {
     'overview': 'Tổng Quan Hệ Thống',
-    'my-day': 'Việc Của Tôi Hôm Nay',
-    'inbox': 'Hộp Thư Văn Bản & Yêu Cầu',
-    'tasks': 'Lịch Công Tác Tuần',
+    'workcenter': 'Trung Tâm Điều Hành Công Việc',
     'departments': 'Nhân Sự & Phòng Ban',
     'create-task': 'Giao Việc Mới',
     'reports': 'Báo Cáo & Đánh Giá Năng Lực',
@@ -1909,6 +2258,34 @@ export default function DashboardPage() {
               <Icon name="magnifying-glass" size={13} style={{ position: 'absolute', left: 10, top: 10, color: 'var(--text-muted)' }} />
             </div>
 
+            {/* Pending Rating Revisions Button for Superior Leaders */}
+            {pendingRatingRevisions.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-warning btn-sm"
+                style={{
+                  position: 'relative',
+                  padding: '6px 12px',
+                  background: '#fffbeb',
+                  borderColor: '#fef3c7',
+                  color: '#b45309',
+                  fontWeight: 700,
+                  fontSize: '0.78rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+                onClick={() => setShowPendingRatingRevisionsModal(true)}
+                title="Các đề xuất sửa điểm đánh giá chờ Cấp trên duyệt"
+              >
+                <Icon name="clock" size={13} style={{ color: '#d97706' }} />
+                <span>Chờ duyệt sửa điểm</span>
+                <span className="badge" style={{ background: '#d97706', color: '#fff', fontSize: '0.7rem', padding: '1px 5px', borderRadius: 10 }}>
+                  {pendingRatingRevisions.length}
+                </span>
+              </button>
+            )}
+
             {/* Notification Bell Icon & Dropdown */}
             <div style={{ position: 'relative' }}>
               <button
@@ -1987,7 +2364,7 @@ export default function DashboardPage() {
                             cursor: 'pointer',
                             transition: 'background 0.15s'
                           }}
-                          onClick={() => handleMarkNotificationRead(n.id)}
+                          onClick={() => handleNotificationClick(n)}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
                             <span style={{ fontSize: '0.82rem', fontWeight: 700, color: n.type === 'Escalation' ? '#dc2626' : n.type === 'Overdue' ? '#d97706' : '#1e293b' }}>
@@ -2008,6 +2385,22 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            {/* Leader Pending Rating Revision Approvals Badge */}
+            {ROLE_CONFIG[activeRole].scopeLevel <= 2.0 && pendingRatingRevisions.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-warning btn-sm"
+                onClick={() => setShowPendingRatingRevisionsModal(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+              >
+                <Icon name="clock-rotate-left" size={13} />
+                <span>Duyệt sửa điểm</span>
+                <span className="badge" style={{ background: '#ffffff', color: '#d97706', fontSize: '0.7rem', padding: '1px 6px' }}>
+                  {pendingRatingRevisions.length}
+                </span>
+              </button>
+            )}
 
             {/* Print button */}
             <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowPrintModal(true)}>
@@ -2105,51 +2498,53 @@ export default function DashboardPage() {
 
               {/* Quick Actions & Recent Activities */}
               <div style={{ display: 'grid', gridTemplateColumns: SHOW_ACTIVITY_LOG ? '2fr 1fr' : '1fr', gap: 20 }}>
-                {/* Left: Urgent Tasks */}
+                {/* Left: Latest Notifications */}
                 <div className="card">
                   <div className="card-header">
-                    <h2><Icon name="fire" size={18} style={{ color: '#dc2626' }} /> Công Việc Khẩn Cấp & Đột Xuất Tuần Này</h2>
-                    <button type="button" className="btn btn-outline btn-sm" onClick={() => setActiveModule('tasks')}>Xem Tất Cả</button>
+                    <h2><Icon name="bell" size={18} style={{ color: '#2563eb' }} /> Thông Báo Mới Nhất</h2>
+                    <button type="button" className="btn btn-outline btn-sm" onClick={() => setActiveModule('workcenter')}>Trung Tâm Điều Hành</button>
                   </div>
-                  <div className="card-body" style={{ padding: 0 }}>
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">Mã CV / Tiêu đề</th>
-                          <th scope="col">Người thực hiện</th>
-                          <th scope="col">Ca / Thời gian</th>
-                          <th scope="col">Hạn chót</th>
-                          <th scope="col">Trạng thái</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {visibleTasks.slice(0, 5).map(task => (
-                          <tr key={task.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedTaskId(task.id)}>
-                            <td>
-                              <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{task.title}</div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Mã: {task.id} • Giao bởi: {task.assignedBy}</div>
-                            </td>
-                            <td>
-                              <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{task.assignee}</span>
-                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{task.assigneeRole}</div>
-                            </td>
-                            <td>
-                              <span className="badge badge-blue">
-                                <Icon name={SHIFT_CONFIG[task.shift].icon} size={11} /> {SHIFT_CONFIG[task.shift].label} ({task.startTime})
-                              </span>
-                            </td>
-                            <td>
-                              <span style={{ fontWeight: 700, color: getDaysUntilDue(task.dueDate) < 0 ? '#dc2626' : '#d97706' }}>
-                                {task.dueDate}
-                              </span>
-                            </td>
-                            <td>
-                              <span className={`badge ${getStatusBadge(task.status)}`}>{STATUS_LABELS[task.status]}</span>
-                            </td>
-                          </tr>
+                  <div className="card-body" style={{ padding: '8px 16px' }}>
+                    {notificationsList.length === 0 ? (
+                      <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
+                        Không có thông báo mới nào.
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {notificationsList.slice(0, 5).map(n => (
+                          <div
+                            key={n.id}
+                            style={{
+                              padding: '12px 14px',
+                              borderRadius: 8,
+                              border: '1px solid #e2e8f0',
+                              background: n.isRead ? '#ffffff' : '#f0f9ff',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              transition: 'all 0.15s ease'
+                            }}
+                            onClick={() => handleNotificationClick(n)}
+                          >
+                            <div style={{ flex: 1, paddingRight: 12 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                <span style={{ fontWeight: 700, fontSize: '0.88rem', color: n.type === 'Escalation' ? '#dc2626' : n.type === 'Overdue' ? '#d97706' : '#1e293b' }}>
+                                  {n.title}
+                                </span>
+                                {!n.isRead && (
+                                  <span className="badge badge-urgent" style={{ fontSize: '0.68rem', padding: '1px 6px' }}>Mới</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: '0.82rem', color: '#475569', lineHeight: 1.4 }}>{n.message}</div>
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                              {formatDateTimeDisplay(n.createdAt)}
+                            </div>
+                          </div>
                         ))}
-                      </tbody>
-                    </table>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2179,285 +2574,1115 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ═════════════════════════════════════════
-             MODULE: VIỆC CỦA TÔI HÔM NAY (MY DAY)
-             ═════════════════════════════════════════ */}
-          {activeModule === 'my-day' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Icon name="sun" size={20} style={{ color: '#d97706' }} />
-                <div>
-                  <strong>Việc Của Tôi Hôm Nay ({formatDateDisplay(new Date().toISOString())}):</strong> Đang làm việc với vai trò <strong>{ROLE_CONFIG[activeRole].label}</strong>. Danh sách tập trung công việc cần xử lý trong ngày.
-                </div>
+          {/* ═══════════════════════════════════════════════════════════════
+             UNIFIED MODULE: TRUNG TÂM ĐIỀU HÀNH CÔNG VIỆC (WORKCENTER)
+             ═══════════════════════════════════════════════════════════════ */}
+          {activeModule === 'workcenter' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+              {/* Work Center Tab Navigation Bar */}
+              <div className="dept-sub-tabs" role="tablist" aria-label="Các trạng thái vòng đời công việc" style={{ marginBottom: 4 }}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workcenterTab === 'incoming'}
+                  className={`dept-sub-tab ${workcenterTab === 'incoming' ? 'active' : ''}`}
+                  onClick={() => { setWorkcenterTab('incoming'); setSelectedMailId(null); }}
+                >
+                  <Icon name="envelope-open-text" size={14} />
+                  <span>Đến — Chưa xử lý</span>
+                  <span className="badge badge-urgent" style={{ fontSize: '0.7rem', padding: '1px 6px', marginLeft: 4 }}>
+                    {inboxItems.filter(m => m.folder !== 'scheduled' && m.status !== 'scheduled').length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workcenterTab === 'scheduled'}
+                  className={`dept-sub-tab ${workcenterTab === 'scheduled' ? 'active' : ''}`}
+                  onClick={() => { setWorkcenterTab('scheduled'); setSelectedMailId(null); }}
+                >
+                  <Icon name="calendar-check" size={14} />
+                  <span>Đã xếp lịch</span>
+                  <span className="badge badge-success" style={{ fontSize: '0.7rem', padding: '1px 6px', marginLeft: 4 }}>
+                    {inboxItems.filter(m => m.folder === 'scheduled' || m.status === 'scheduled').length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workcenterTab === 'today'}
+                  className={`dept-sub-tab ${workcenterTab === 'today' ? 'active' : ''}`}
+                  onClick={() => setWorkcenterTab('today')}
+                >
+                  <Icon name="sun" size={14} />
+                  <span>Hôm nay</span>
+                  <span className="badge badge-blue" style={{ fontSize: '0.7rem', padding: '1px 6px', marginLeft: 4 }}>
+                    {myDayFilteredTasks.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workcenterTab === 'week'}
+                  className={`dept-sub-tab ${workcenterTab === 'week' ? 'active' : ''}`}
+                  onClick={() => setWorkcenterTab('week')}
+                >
+                  <Icon name="calendar-days" size={14} />
+                  <span>Tuần này (Lưới ca)</span>
+                  <span className="badge badge-medium" style={{ fontSize: '0.7rem', padding: '1px 6px', marginLeft: 4 }}>
+                    {visibleTasks.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workcenterTab === 'outgoing'}
+                  className={`dept-sub-tab ${workcenterTab === 'outgoing' ? 'active' : ''}`}
+                  onClick={() => setWorkcenterTab('outgoing')}
+                >
+                  <Icon name="paper-plane" size={14} />
+                  <span>Văn Bản Đi (Sổ Công Văn Đi)</span>
+                  {outgoingTotalCount > 0 && (
+                    <span className="badge badge-blue" style={{ fontSize: '0.7rem', padding: '1px 6px', marginLeft: 4 }}>
+                      {outgoingTotalCount}
+                    </span>
+                  )}
+                </button>
               </div>
 
-              {/* My Day Summary Cards */}
-              {/* <div className="kpi-grid">
-                <div className="kpi-card">
-                  <div className="kpi-label">Tổng Nhiệm Vụ Được Giao</div>
-                  <div className="kpi-value" style={{ color: '#2563eb' }}>{tasks.length}</div>
-                  <div className="kpi-hint">Toàn bộ công việc hệ thống</div>
-                </div>
-                <div className="kpi-card">
-                  <div className="kpi-label">Đang Xử Lý Hôm Nay</div>
-                  <div className="kpi-value" style={{ color: '#d97706' }}>{tasks.filter(t => t.status === 'Dang_Xu_Ly').length}</div>
-                  <div className="kpi-hint">Cần tập trung giải quyết</div>
-                </div>
-                <div className="kpi-card">
-                  <div className="kpi-label">Chờ Duyệt Nghiệm Thu</div>
-                  <div className="kpi-value" style={{ color: '#8b5cf6' }}>{tasks.filter(t => t.status === 'Cho_Duyet').length}</div>
-                  <div className="kpi-hint">Đã nộp báo cáo kết quả</div>
-                </div>
-                <div className="kpi-card">
-                  <div className="kpi-label">Đã Hoàn Thành</div>
-                  <div className="kpi-value" style={{ color: '#16a34a' }}>{tasks.filter(t => t.status === 'Hoan_Thanh').length}</div>
-                  <div className="kpi-hint">Đạt 100% tiến độ</div>
-                </div>
-              </div> */}
-
-              {/* My Day Task List with Search, Multi-Filter, Indexing & Pagination */}
-              <div className="card">
-                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-                  <h2 style={{ fontSize: '1.05rem', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Icon name="list-check" size={16} style={{ color: '#2563eb' }} />
-                    Danh Sách Nhiệm Vụ Của Tôi
-                  </h2>
-                  <span className="badge badge-primary">
-                    {myDayFilteredTasks.length === tasks.length ? `${tasks.length} việc` : `Tìm thấy ${myDayFilteredTasks.length} / ${tasks.length} việc`}
-                  </span>
+              {/* Shared Search & Filter Bar */}
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', background: '#ffffff', padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border-color)' }}>
+                <div style={{ flex: 1, minWidth: 240, position: 'relative' }}>
+                  <Icon name="magnifying-glass" size={14} style={{ position: 'absolute', left: 12, top: 11, color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder={workcenterTab === 'incoming' || workcenterTab === 'scheduled' ? "Tìm theo số, ký hiệu, trích yếu, cơ quan ban hành..." : "Tìm theo tiêu đề, số ký hiệu, người giao..."}
+                    value={myDaySearchQuery}
+                    onChange={(e) => handleMyDaySearchChange(e.target.value)}
+                    style={{ paddingLeft: 34, height: 36, fontSize: '0.85rem' }}
+                  />
                 </div>
 
-                {/* Filter & Search Bar */}
-                <div style={{ padding: '14px 16px', background: '#f8fafc', borderBottom: '1px solid var(--border-color)', display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-                  {/* Search Input */}
-                  <div className="search-box" style={{ flex: '1 1 240px', margin: 0 }}>
-                    <Icon name="search" size={13} />
-                    <input
-                      type="text"
-                      placeholder="Tìm theo tiêu đề, mã CV, người giao..."
-                      value={myDaySearchQuery}
-                      onChange={e => handleMyDaySearchChange(e.target.value)}
-                      style={{ padding: '7px 10px 7px 30px', fontSize: '0.84rem' }}
-                    />
-                    {myDaySearchQuery && (
-                      <button
-                        type="button"
-                        style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}
-                        onClick={() => handleMyDaySearchChange('')}
+                {workcenterTab === 'today' || workcenterTab === 'week' ? (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label htmlFor="wc-status-select" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, fontWeight: 600 }}>Trạng thái:</label>
+                      <select
+                        id="wc-status-select"
+                        className="form-select"
+                        value={myDayStatusFilter}
+                        onChange={(e) => handleMyDayStatusChange(e.target.value as TaskStatus | 'all')}
+                        style={{ height: 36, fontSize: '0.82rem', padding: '0 8px' }}
                       >
-                        <Icon name="xmark" size={12} />
+                        <option value="all">Tất cả trạng thái</option>
+                        <option value="Chua_Lam">Chờ làm</option>
+                        <option value="Dang_Xu_Ly">Đang xử lý</option>
+                        <option value="Cho_Duyet">Chờ duyệt</option>
+                        <option value="Hoan_Thanh">Hoàn thành</option>
+                        <option value="Tu_Choi">Từ chối</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label htmlFor="wc-priority-select" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, fontWeight: 600 }}>Độ ưu tiên:</label>
+                      <select
+                        id="wc-priority-select"
+                        className="form-select"
+                        value={myDayPriorityFilter}
+                        onChange={(e) => handleMyDayPriorityChange(e.target.value as TaskPriority | 'all')}
+                        style={{ height: 36, fontSize: '0.82rem', padding: '0 8px' }}
+                      >
+                        <option value="all">Tất cả độ ưu tiên</option>
+                        <option value="Khan">Khẩn cấp</option>
+                        <option value="Cao">Ưu tiên cao</option>
+                        <option value="Trung_Binh">Trung bình</option>
+                        <option value="Thuong">Thường</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label htmlFor="wc-shift-select" style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, fontWeight: 600 }}>Ca:</label>
+                      <select
+                        id="wc-shift-select"
+                        className="form-select"
+                        value={myDayShiftFilter}
+                        onChange={(e) => handleMyDayShiftChange(e.target.value as ShiftType | 'all')}
+                        style={{ height: 36, fontSize: '0.82rem', padding: '0 8px' }}
+                      >
+                        <option value="all">Tất cả ca</option>
+                        <option value="Sang">Sáng</option>
+                        <option value="Chieu">Chiều</option>
+                      </select>
+                    </div>
+                  </>
+                ) : null}
+
+                {(myDaySearchQuery || myDayStatusFilter !== 'all' || myDayPriorityFilter !== 'all' || myDayShiftFilter !== 'all') && (
+                  <button type="button" className="btn btn-outline btn-sm" onClick={handleMyDayResetFilters} style={{ height: 36 }}>
+                    <Icon name="rotate-left" size={12} /> Đặt lại
+                  </button>
+                )}
+              </div>
+
+              {/* ── TAB 1: ĐẾN — CHƯA XỬ LÝ (INBOX UNPROCESSED) ── */}
+              {workcenterTab === 'incoming' && (
+                <div className="inbox-container">
+                  {/* Left Pane: Document List */}
+                  <div className="inbox-sidebar" style={{ width: 380 }}>
+                    <div style={{ padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', fontSize: '0.8rem', fontWeight: 700, color: '#475569', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>VĂN BẢN ĐẾN CHƯA XẾP LỊCH ({inboxItems.filter(m => m.folder !== 'scheduled' && m.status !== 'scheduled').length})</span>
+                      <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Ưu tiên khẩn lên đầu</span>
+                    </div>
+
+                    <div className="inbox-mail-list">
+                      {inboxItems
+                        .filter(m => m.folder !== 'scheduled' && m.status !== 'scheduled')
+                        .filter(m => !myDaySearchQuery.trim() ||
+                          m.subject.toLowerCase().includes(myDaySearchQuery.toLowerCase()) ||
+                          m.senderName.toLowerCase().includes(myDaySearchQuery.toLowerCase()) ||
+                          (m.documentNumber && m.documentNumber.toLowerCase().includes(myDaySearchQuery.toLowerCase())) ||
+                          (m.documentSymbol && m.documentSymbol.toLowerCase().includes(myDaySearchQuery.toLowerCase())))
+                        .sort((a, b) => (b.isUrgent ? 1 : 0) - (a.isUrgent ? 1 : 0))
+                        .map(mail => (
+                          <div
+                            key={mail.id}
+                            className={`inbox-mail-card ${selectedMailId === mail.id ? 'active' : ''}`}
+                            onClick={() => {
+                              setSelectedMailId(mail.id);
+                              if (mail.status === 'unread') {
+                                setInboxItems(prev => prev.map(m => m.id === mail.id ? { ...m, status: 'read' } : m));
+                              }
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span className="doc-agency-name">{mail.issuingAgency || mail.senderOrg || mail.senderName}</span>
+                              {mail.isUrgent ? (
+                                <span className="badge badge-urgent" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>THƯỢNG KHẨN</span>
+                              ) : (
+                                <span className="badge" style={{ fontSize: '0.65rem', padding: '1px 6px', background: '#e2e8f0', color: '#475569' }}>THƯỜNG</span>
+                              )}
+                            </div>
+                            <div className="doc-number-symbol">
+                              Số: {mail.documentNumber || '---'}/{mail.documentSymbol || 'UBND-VP'}
+                            </div>
+                            <div className="doc-subject-preview">
+                              {mail.subject}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                              <span>📅 Ban hành: {formatDateDisplay(mail.issuedDate || mail.date)}</span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  {/* Right Pane: Document Details & Actions */}
+                  <div className="inbox-detail">
+                    {selectedMail ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                <span className="doc-number-symbol" style={{ fontSize: '0.85rem' }}>
+                                  Số: {selectedMail.documentNumber || '---'}/{selectedMail.documentSymbol || 'UBND-VP'}
+                                </span>
+                                {selectedMail.isUrgent && <span className="badge badge-urgent">THƯỢNG KHẨN</span>}
+                                <span className="badge" style={{ background: '#f1f5f9', color: '#475569' }}>{selectedMail.category || 'Công văn'}</span>
+                              </div>
+                              <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a', margin: 0, lineHeight: 1.35 }}>
+                                {selectedMail.subject}
+                              </h2>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => {
+                                  setScheduleSourceMail(selectedMail);
+                                  setScheduleTitle(selectedMail.subject);
+                                  setScheduleDescription(`Xếp lịch xử lý văn bản Số: ${selectedMail.documentNumber || '---'}/${selectedMail.documentSymbol || 'UBND-VP'}: ${selectedMail.subject}`);
+                                  setShowScheduleModal(true);
+                                }}
+                              >
+                                <Icon name="calendar-plus" size={13} /> Xếp lịch công tác
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                onClick={async () => {
+                                  const tomorrow = new Date();
+                                  tomorrow.setDate(tomorrow.getDate() + 1);
+                                  const dateStr = tomorrow.toISOString().split('T')[0];
+                                  const shift = selectedMail.isUrgent ? 'Sang' : 'Chieu';
+
+                                  setInboxItems(prev => prev.map(m => m.id === selectedMail.id ? { ...m, folder: 'scheduled', status: 'scheduled', deadline: dateStr } : m));
+                                  addToast('AI tự động xếp lịch', `Đã xếp lịch xử lý "${selectedMail.subject}" vào ca ${shift === 'Sang' ? 'SÁNG' : 'CHIỀU'} ngày ${formatDateDisplay(dateStr)}.`, 'success');
+                                  await scheduleInboxDocumentApi(selectedMail.id, dateStr, shift);
+                                }}
+                              >
+                                <Icon name="wand-magic-sparkles" size={13} style={{ color: '#8b5cf6' }} /> Tự động xếp lịch AI
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                onClick={() => {
+                                  setCreateTaskSource(selectedMail);
+                                  setNewTitle(selectedMail.subject);
+                                  setNewDesc(`Giao việc xử lý công văn Số: ${selectedMail.documentNumber || '---'}/${selectedMail.documentSymbol || 'UBND-VP'}\nTrích yếu: ${selectedMail.subject}\nNội dung chỉ đạo: ${selectedMail.content}`);
+                                  setNewPriority(selectedMail.isUrgent ? 'Khan' : 'Trung_Binh');
+                                  setActiveModule('create-task');
+                                }}
+                              >
+                                <Icon name="user-plus" size={13} /> Giao việc từ văn bản
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Metadata Grid per NĐ 30/2020 */}
+                          <div className="doc-detail-grid" style={{ marginBottom: 0 }}>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Cơ quan ban hành</span>
+                              <span className="doc-meta-value">{selectedMail.issuingAgency || selectedMail.senderOrg || selectedMail.senderName}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Số / Ký hiệu</span>
+                              <span className="doc-meta-value" style={{ color: '#2563eb' }}>{selectedMail.documentNumber || '---'}/{selectedMail.documentSymbol || 'UBND-VP'}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Loại văn bản</span>
+                              <span className="doc-meta-value">{selectedMail.category || 'Công văn'}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Ngày ban hành</span>
+                              <span className="doc-meta-value">{formatDateDisplay(selectedMail.issuedDate || selectedMail.date)}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Người ký</span>
+                              <span className="doc-meta-value">{selectedMail.signerName || 'Lãnh đạo cơ quan'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: 8 }}>Nội dung trích yếu / Chỉ đạo:</div>
+                          <div style={{ fontSize: '0.92rem', color: '#1e293b', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: '#f8fafc', padding: 16, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 20 }}>
+                            {selectedMail.content}
+                          </div>
+
+                          {selectedMail.attachments.length > 0 && (
+                            <div style={{ marginBottom: 20 }}>
+                              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: 10 }}>File đính kèm chính ({selectedMail.attachments.length}):</div>
+                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                {selectedMail.attachments.map((att, idx) => (
+                                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#ffffff', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.85rem' }}>
+                                    <Icon name="file-pdf" size={20} style={{ color: '#dc2626' }} />
+                                    <div>
+                                      <div style={{ fontWeight: 600, color: '#0f172a' }}>{att.name}</div>
+                                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{att.size}</div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="btn btn-outline btn-sm"
+                                      onClick={() => {
+                                        setViewerMail(selectedMail);
+                                        setShowViewerModal(true);
+                                      }}
+                                      style={{ marginLeft: 8, height: 28, fontSize: '0.75rem' }}
+                                    >
+                                      <Icon name="eye" size={12} /> Xem
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', padding: 40 }}>
+                        <Icon name="envelope-open" size={48} style={{ color: '#cbd5e1', marginBottom: 16 }} />
+                        <h3 style={{ fontSize: '1.05rem', color: '#475569', margin: 0 }}>Chưa chọn văn bản</h3>
+                        <p style={{ fontSize: '0.85rem', color: '#64748b', maxWidth: 320, textAlign: 'center', marginTop: 6 }}>
+                          Vui lòng chọn một văn bản từ danh sách bên trái để xem thông tin chi tiết và thực hiện xếp lịch.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── TAB 2: ĐÃ XẾP LỊCH (SCHEDULED INBOX) ── */}
+              {workcenterTab === 'scheduled' && (
+                <div className="inbox-container">
+                  {/* Left Pane: Scheduled Document List */}
+                  <div className="inbox-sidebar" style={{ width: 380 }}>
+                    <div style={{ padding: '10px 14px', background: '#ecfdf5', borderBottom: '1px solid #a7f3d0', fontSize: '0.8rem', fontWeight: 700, color: '#047857', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>VĂN BẢN ĐÃ XẾP LỊCH ({inboxItems.filter(m => m.folder === 'scheduled' || m.status === 'scheduled').length})</span>
+                      <Icon name="circle-check" size={14} style={{ color: '#10b981' }} />
+                    </div>
+
+                    <div className="inbox-mail-list">
+                      {inboxItems
+                        .filter(m => m.folder === 'scheduled' || m.status === 'scheduled')
+                        .filter(m => !myDaySearchQuery.trim() ||
+                          m.subject.toLowerCase().includes(myDaySearchQuery.toLowerCase()) ||
+                          m.senderName.toLowerCase().includes(myDaySearchQuery.toLowerCase()) ||
+                          (m.documentNumber && m.documentNumber.toLowerCase().includes(myDaySearchQuery.toLowerCase())) ||
+                          (m.documentSymbol && m.documentSymbol.toLowerCase().includes(myDaySearchQuery.toLowerCase())))
+                        .map(mail => (
+                          <div
+                            key={mail.id}
+                            className={`inbox-mail-card ${selectedMailId === mail.id ? 'active' : ''}`}
+                            onClick={() => setSelectedMailId(mail.id)}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span className="doc-agency-name">{mail.issuingAgency || mail.senderOrg || mail.senderName}</span>
+                              <span className="badge badge-success" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>ĐÃ XẾP LỊCH</span>
+                            </div>
+                            <div className="doc-number-symbol">
+                              Số: {mail.documentNumber || '---'}/{mail.documentSymbol || 'UBND-VP'}
+                            </div>
+                            <div className="doc-subject-preview">
+                              {mail.subject}
+                            </div>
+                            <div className="doc-schedule-date">
+                              <Icon name="calendar-day" size={12} />
+                              <span>📅 Xử lý: {formatDateDisplay(mail.deadline || mail.date)}</span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+
+                  {/* Right Pane: Scheduled Document Details & Timeline */}
+                  <div className="inbox-detail">
+                    {selectedMail ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                        <div style={{ padding: '16px 20px', borderBottom: '1px solid #e2e8f0', background: '#ffffff' }}>
+                          <div className="alert alert-success" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                            <Icon name="circle-check" size={18} style={{ color: '#10b981' }} />
+                            <div>
+                              <strong>Văn bản đã được xếp lịch xử lý!</strong> Ngày xử lý dự kiến: <strong>{formatDateDisplay(selectedMail.deadline || selectedMail.date)}</strong>. Công việc đã xuất hiện trong Trung tâm điều hành.
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                <span className="doc-number-symbol" style={{ fontSize: '0.85rem' }}>
+                                  Số: {selectedMail.documentNumber || '---'}/{selectedMail.documentSymbol || 'UBND-VP'}
+                                </span>
+                                <span className="badge badge-success">ĐÃ XẾP LỊCH XỬ LÝ</span>
+                                {selectedMail.isUrgent && <span className="badge badge-urgent">KHẨN</span>}
+                              </div>
+                              <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a', margin: 0, lineHeight: 1.35 }}>
+                                {selectedMail.subject}
+                              </h2>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                onClick={() => {
+                                  setViewerMail(selectedMail);
+                                  setShowViewerModal(true);
+                                }}
+                              >
+                                <Icon name="eye" size={13} /> Xem file PDF
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                onClick={() => {
+                                  setHistoryDocItem(selectedMail);
+                                  setShowHistoryModal(true);
+                                }}
+                              >
+                                <Icon name="clock-rotate-left" size={13} /> Lịch sử & Audit Log
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                onClick={() => {
+                                  setActiveModule('workcenter');
+                                  setWorkcenterTab('week');
+                                }}
+                              >
+                                <Icon name="arrow-right" size={13} /> Đến danh sách công việc
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Metadata Grid per NĐ 30/2020 */}
+                          <div className="doc-detail-grid" style={{ marginBottom: 0 }}>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Cơ quan ban hành</span>
+                              <span className="doc-meta-value">{selectedMail.issuingAgency || selectedMail.senderOrg || selectedMail.senderName}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Số / Ký hiệu</span>
+                              <span className="doc-meta-value" style={{ color: '#2563eb' }}>Số: {selectedMail.documentNumber || '---'}/{selectedMail.documentSymbol || 'UBND-VP'}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Loại văn bản</span>
+                              <span className="doc-meta-value">{selectedMail.category || 'Công văn'}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Ngày ban hành</span>
+                              <span className="doc-meta-value">{formatDateDisplay(selectedMail.issuedDate || selectedMail.date)}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Người ký</span>
+                              <span className="doc-meta-value">{selectedMail.signerName || 'Lãnh đạo cơ quan'}</span>
+                            </div>
+                            <div className="doc-meta-item">
+                              <span className="doc-meta-label">Lịch xử lý</span>
+                              <span className="doc-meta-value" style={{ color: '#047857' }}>{formatDateDisplay(selectedMail.deadline || selectedMail.date)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+                          <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: 8 }}>Nội dung trích yếu / Chỉ đạo:</div>
+                          <div style={{ fontSize: '0.92rem', color: '#1e293b', lineHeight: 1.6, whiteSpace: 'pre-wrap', background: '#f8fafc', padding: 16, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 20 }}>
+                            {selectedMail.content}
+                          </div>
+
+                          {/* Attachments Section */}
+                          {selectedMail.attachments.length > 0 && (
+                            <div style={{ marginBottom: 24 }}>
+                              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: 10 }}>File đính kèm chính ({selectedMail.attachments.length}):</div>
+                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                {selectedMail.attachments.map((att, idx) => (
+                                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#ffffff', padding: '10px 14px', borderRadius: 8, border: '1px solid #cbd5e1', fontSize: '0.85rem' }}>
+                                    <Icon name="file-pdf" size={20} style={{ color: '#dc2626' }} />
+                                    <div>
+                                      <div style={{ fontWeight: 600, color: '#0f172a' }}>{att.name}</div>
+                                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>{att.size}</div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="btn btn-outline btn-sm"
+                                      onClick={() => addToast('Xem văn bản', `Đang mở trình xem file cho ${att.name}...`, 'info')}
+                                      style={{ marginLeft: 8, height: 28, fontSize: '0.75rem' }}
+                                    >
+                                      <Icon name="eye" size={12} /> Xem
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Requirement XIII: Processing Timeline */}
+                          <div style={{ background: '#ffffff', padding: 16, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#334155', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="clock-rotate-left" size={14} style={{ color: '#2563eb' }} />
+                              <span>LỊCH SỬ TIẾN TRÌNH XỬ LÝ VĂN BẢN</span>
+                            </div>
+                            <div className="doc-timeline">
+                              <div className="doc-timeline-item completed">
+                                <div className="doc-timeline-title">1. Tiếp nhận văn bản đến</div>
+                                <div className="doc-timeline-date">{formatDateDisplay(selectedMail.date)} — Nhận từ {selectedMail.issuingAgency || selectedMail.senderOrg || selectedMail.senderName}</div>
+                              </div>
+                              <div className="doc-timeline-item completed">
+                                <div className="doc-timeline-title">2. Xếp lịch xử lý công tác</div>
+                                <div className="doc-timeline-date">{formatDateDisplay(selectedMail.deadline || selectedMail.date)} — Đã thêm vào lịch công tác cán bộ</div>
+                              </div>
+                              <div className="doc-timeline-item">
+                                <div className="doc-timeline-title">3. Đang thực hiện xử lý công việc</div>
+                                <div className="doc-timeline-date">Phân công cán bộ chuyên môn phụ trách triển khai</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', padding: 40 }}>
+                        <Icon name="calendar-check" size={48} style={{ color: '#a7f3d0', marginBottom: 16 }} />
+                        <h3 style={{ fontSize: '1.05rem', color: '#475569', margin: 0 }}>Chọn một văn bản đã xếp lịch</h3>
+                        <p style={{ fontSize: '0.85rem', color: '#64748b', maxWidth: 320, textAlign: 'center', marginTop: 6 }}>
+                          Xem thông tin xếp lịch chi tiết và theo dõi tiến độ thực hiện.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── TAB 3: HÔM NAY (MY DAY VIEW) ── */}
+              {workcenterTab === 'today' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Icon name="sun" size={20} style={{ color: '#d97706' }} />
+                    <div>
+                      <strong>Việc Của Tôi Hôm Nay ({formatDateDisplay(new Date().toISOString())}):</strong> Đang làm việc với vai trò <strong>{ROLE_CONFIG[activeRole].label}</strong>. Danh sách tập trung công việc cần xử lý trong ngày.
+                    </div>
+                  </div>
+
+                  <div className="kpi-grid">
+                    <div className="kpi-card">
+                      <div className="kpi-label">Tổng Công Việc Khớp Lọc</div>
+                      <div className="kpi-value" style={{ color: '#2563eb' }}>{myDayFilteredTasks.length}</div>
+                      <div className="kpi-hint">Đang hiển thị trên bảng</div>
+                    </div>
+                    <div className="kpi-card">
+                      <div className="kpi-label">Đang Xử Lý Trong Ca</div>
+                      <div className="kpi-value" style={{ color: '#d97706' }}>{myDayFilteredTasks.filter(t => t.status === 'Dang_Xu_Ly').length}</div>
+                      <div className="kpi-hint">Cần tập trung hoàn thành</div>
+                    </div>
+                    <div className="kpi-card">
+                      <div className="kpi-label">Chờ Phê Duyệt</div>
+                      <div className="kpi-value" style={{ color: '#7c3aed' }}>{myDayFilteredTasks.filter(t => t.status === 'Cho_Duyet').length}</div>
+                      <div className="kpi-hint">Chờ Lãnh đạo nghiệm thu</div>
+                    </div>
+                    <div className="kpi-card">
+                      <div className="kpi-label">Đã Hoàn Thành</div>
+                      <div className="kpi-value" style={{ color: '#16a34a' }}>{myDayFilteredTasks.filter(t => t.status === 'Hoan_Thanh').length}</div>
+                      <div className="kpi-hint">Đã nghiệm thu đạt chuẩn</div>
+                    </div>
+                  </div>
+
+                  <div className="card">
+                    <div className="card-header">
+                      <h2><Icon name="list-check" size={18} style={{ color: '#2563eb' }} /> Danh Sách Công Việc Trong Ngày</h2>
+                      <span className="badge badge-blue">Trang {myDayCurrentPage} / {myDayTotalPages}</span>
+                    </div>
+
+                    <div className="card-body" style={{ padding: 0 }}>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Mã CV / Tiêu đề</th>
+                            <th scope="col">Người thực hiện</th>
+                            <th scope="col">Ca / Giờ</th>
+                            <th scope="col">Độ ưu tiên</th>
+                            <th scope="col">Hạn chót</th>
+                            <th scope="col">Trạng thái</th>
+                            <th scope="col" style={{ textAlign: 'center' }}>Thao tác</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {myDayPaginatedTasks.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>
+                                Không tìm thấy công việc nào phù hợp với bộ lọc.
+                              </td>
+                            </tr>
+                          ) : (
+                            myDayPaginatedTasks.map(task => (
+                              <tr key={task.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedTaskId(task.id)}>
+                                <td>
+                                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a' }}>{task.title}</div>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                                    Mã: <strong>{task.id}</strong> • Giao bởi: {task.assignedBy} ({task.assignedByRole})
+                                  </div>
+                                </td>
+                                <td>
+                                  <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{task.assignee}</span>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{task.assigneeRole}</div>
+                                </td>
+                                <td>
+                                  <span className="badge badge-blue">
+                                    <Icon name={SHIFT_CONFIG[task.shift].icon} size={11} /> {SHIFT_CONFIG[task.shift].label} ({task.startTime})
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className={`badge ${getPriorityBadge(task.priority)}`}>
+                                    {PRIORITY_LABELS[task.priority]}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span style={{ fontWeight: 700, color: getDaysUntilDue(task.dueDate) < 0 ? '#dc2626' : '#d97706' }}>
+                                    {formatDateDisplay(task.dueDate)}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span className={`badge ${getStatusBadge(task.status)}`}>
+                                    {STATUS_LABELS[task.status]}
+                                  </span>
+                                </td>
+                                <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                    <button
+                                      type="button"
+                                      className="btn btn-outline btn-xs"
+                                      onClick={(e) => handleSwapShift(e, task.id, task.shift)}
+                                      title="Đổi ca làm việc"
+                                    >
+                                      <Icon name="arrow-right-arrow-left" size={10} /> Đổi ca
+                                    </button>
+
+                                    {task.status === 'Cho_Duyet' && ROLE_CONFIG[activeRole].scopeLevel <= 2.5 && (
+                                      <button
+                                        type="button"
+                                        className="btn btn-success btn-xs"
+                                        onClick={() => handleApproveTask(task.id)}
+                                      >
+                                        <Icon name="check" size={10} /> Duyệt
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Pagination Footer */}
+                    {myDayTotalPages > 1 && (
+                      <div className="card-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#f8fafc', borderTop: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <label htmlFor="my-day-page-size-wc" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Số dòng/trang:</label>
+                          <select
+                            id="my-day-page-size-wc"
+                            className="form-select"
+                            value={myDayPageSize}
+                            onChange={(e) => { setMyDayPageSize(Number(e.target.value)); setMyDayCurrentPage(1); }}
+                            style={{ height: 30, fontSize: '0.78rem', padding: '0 6px' }}
+                          >
+                            <option value={5}>5</option>
+                            <option value={10}>10</option>
+                            <option value={20}>20</option>
+                          </select>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            Hiển thị {((myDayCurrentPage - 1) * myDayPageSize) + 1} - {Math.min(myDayCurrentPage * myDayPageSize, myDayFilteredTasks.length)} / {myDayFilteredTasks.length}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-xs"
+                            disabled={myDayCurrentPage === 1}
+                            onClick={() => setMyDayCurrentPage(prev => Math.max(1, prev - 1))}
+                          >
+                            <Icon name="chevron-left" size={10} /> Trước
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-xs"
+                            disabled={myDayCurrentPage === myDayTotalPages}
+                            onClick={() => setMyDayCurrentPage(prev => Math.min(myDayTotalPages, prev + 1))}
+                          >
+                            Sau <Icon name="chevron-right" size={10} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── TAB 4: TUẦN NÀY (WEEKLY SHIFT GRID VIEW) ── */}
+              {workcenterTab === 'week' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Controls Bar */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, background: '#ffffff', padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border-color)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <button type="button" className="btn btn-outline btn-sm" onClick={handlePrevWeek} title="Tuần trước">
+                        <Icon name="chevron-left" size={12} /> Tuần Trước
+                      </button>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={handleTodayWeek}>
+                        Hôm Nay
+                      </button>
+                      <button type="button" className="btn btn-outline btn-sm" onClick={handleNextWeek} title="Tuần sau">
+                        Tuần Sau <Icon name="chevron-right" size={12} />
+                      </button>
+                      <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)', marginLeft: 8 }}>
+                        Tuần từ {formatDateDisplay(weekStart)} đến {formatDateDisplay(weekDays[6].dateStr)}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', gap: 12 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="sun" size={12} style={{ color: '#d97706' }} /> Ca Sáng (07:00 - 11:30)
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name="cloud-sun" size={12} style={{ color: '#2563eb' }} /> Ca Chiều (13:00 - 17:00)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Calendar Grid Table */}
+                  <div className="card" style={{ overflow: 'hidden' }}>
+                    <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
+                      <table className="calendar-grid-table">
+                        <thead>
+                          <tr>
+                            <th scope="col" style={{ width: 90, textAlign: 'center', background: '#f8fafc' }}>Ca làm việc</th>
+                            {weekDays.map(day => (
+                              <th
+                                key={day.dateStr}
+                                scope="col"
+                                style={{
+                                  textAlign: 'center',
+                                  background: day.isToday ? '#eff6ff' : '#f8fafc',
+                                  borderBottom: day.isToday ? '2px solid #2563eb' : undefined
+                                }}
+                              >
+                                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: day.isToday ? '#2563eb' : '#1e293b' }}>
+                                  {day.dayName}
+                                </div>
+                                <div style={{ fontSize: '0.75rem', color: day.isToday ? '#2563eb' : '#64748b' }}>
+                                  {day.dayNumber}
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {/* SÁNG SHIFT ROW */}
+                          <tr>
+                            <td style={{ fontWeight: 700, fontSize: '0.82rem', background: '#fffbeb', textAlign: 'center', color: '#b45309', verticalAlign: 'top', paddingTop: 16 }}>
+                              <Icon name="sun" size={14} />
+                              <div style={{ marginTop: 4 }}>CA SÁNG</div>
+                            </td>
+                            {weekDays.map(day => {
+                              const dayTasks = visibleTasks.filter(t => t.dueDate === day.dateStr && t.shift === 'Sang');
+                              return (
+                                <td key={`Sang_${day.dateStr}`} style={{ verticalAlign: 'top', background: day.isToday ? '#f0f9ff' : '#ffffff', minWidth: 160, padding: 8 }}>
+                                  {dayTasks.map(t => (
+                                    <div
+                                      key={t.id}
+                                      className={`shift-task-card ${t.priority === 'Khan' ? 'urgent' : ''}`}
+                                      onClick={() => setSelectedTaskId(t.id)}
+                                      style={{ cursor: 'pointer', marginBottom: 8 }}
+                                    >
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                        <span className={`badge ${getPriorityBadge(t.priority)}`} style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                                          {PRIORITY_LABELS[t.priority]}
+                                        </span>
+                                        <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{t.startTime}</span>
+                                      </div>
+                                      <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#0f172a', lineHeight: 1.3, marginBottom: 4 }}>
+                                        {t.title}
+                                      </div>
+                                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                                        <Icon name="user" size={10} /> {t.assignee}
+                                      </div>
+
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                                        <button
+                                          type="button"
+                                          className="btn btn-ghost btn-xs"
+                                          onClick={(e) => handleSwapShift(e, t.id, t.shift)}
+                                          title="Đổi sang ca Chiều"
+                                        >
+                                          <Icon name="arrow-right-arrow-left" size={10} /> Đổi ca
+                                        </button>
+                                        {t.status === 'Cho_Duyet' && ROLE_CONFIG[activeRole].scopeLevel <= 2.5 && (
+                                          <button
+                                            type="button"
+                                            className="btn btn-success btn-xs"
+                                            onClick={(e) => { e.stopPropagation(); handleApproveTask(t.id); }}
+                                          >
+                                            Duyệt
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </td>
+                              );
+                            })}
+                          </tr>
+
+                          {/* CHIỀU SHIFT ROW */}
+                          <tr>
+                            <td style={{ fontWeight: 700, fontSize: '0.82rem', background: '#eff6ff', textAlign: 'center', color: '#1d4ed8', verticalAlign: 'top', paddingTop: 16 }}>
+                              <Icon name="cloud-sun" size={14} />
+                              <div style={{ marginTop: 4 }}>CA CHIỀU</div>
+                            </td>
+                            {weekDays.map(day => {
+                              const dayTasks = visibleTasks.filter(t => t.dueDate === day.dateStr && t.shift === 'Chieu');
+                              return (
+                                <td key={`Chieu_${day.dateStr}`} style={{ verticalAlign: 'top', background: day.isToday ? '#f0f9ff' : '#ffffff', minWidth: 160, padding: 8 }}>
+                                  {dayTasks.map(t => (
+                                    <div
+                                      key={t.id}
+                                      className={`shift-task-card ${t.priority === 'Khan' ? 'urgent' : ''}`}
+                                      onClick={() => setSelectedTaskId(t.id)}
+                                      style={{ cursor: 'pointer', marginBottom: 8 }}
+                                    >
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                        <span className={`badge ${getPriorityBadge(t.priority)}`} style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                                          {PRIORITY_LABELS[t.priority]}
+                                        </span>
+                                        <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{t.startTime}</span>
+                                      </div>
+                                      <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#0f172a', lineHeight: 1.3, marginBottom: 4 }}>
+                                        {t.title}
+                                      </div>
+                                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                                        <Icon name="user" size={10} /> {t.assignee}
+                                      </div>
+
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
+                                        <button
+                                          type="button"
+                                          className="btn btn-ghost btn-xs"
+                                          onClick={(e) => handleSwapShift(e, t.id, t.shift)}
+                                          title="Đổi sang ca Sáng"
+                                        >
+                                          <Icon name="arrow-right-arrow-left" size={10} /> Đổi ca
+                                        </button>
+                                        {t.status === 'Cho_Duyet' && ROLE_CONFIG[activeRole].scopeLevel <= 2.5 && (
+                                          <button
+                                            type="button"
+                                            className="btn btn-success btn-xs"
+                                            onClick={(e) => { e.stopPropagation(); handleApproveTask(t.id); }}
+                                          >
+                                            Duyệt
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── TAB 5: VĂN BẢN ĐI (SỔ CÔNG VĂN ĐI) ── */}
+              {workcenterTab === 'outgoing' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Banner Info */}
+                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <Icon name="paper-plane" size={20} style={{ color: '#2563eb' }} />
+                      <div>
+                        <strong>Sổ Công Văn Đi — UBND Xã Cát Ngạn:</strong> Quản lý quy trình soạn thảo, trình ký, ký duyệt ban hành và lưu trữ văn bản hành chính gửi đi.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setEditingOutgoingDoc(null);
+                        setFormDocType('CongVan');
+                        setFormDocTitle('');
+                        setFormDocContent('');
+                        setFormDocRecipient('');
+                        setFormDocIsUrgent(false);
+                        setFormDocRelatedTaskId('');
+                        setFormDocIsCorrection(false);
+                        setFormDocOriginalId('');
+                        setShowCreateOutgoingModal(true);
+                      }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontWeight: 600 }}
+                    >
+                      <Icon name="plus" size={14} /> Soạn Văn Bản Đi Mới
+                    </button>
+                  </div>
+
+                  {/* Toolbar Filter */}
+                  <div style={{ background: '#ffffff', padding: '14px 18px', borderRadius: 10, border: '1px solid var(--border-color)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+                    <div style={{ flex: '1 1 240px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <Icon name="search" size={14} style={{ position: 'absolute', left: 12, color: 'var(--text-muted)' }} />
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="Tìm kiếm theo số hiệu, trích yếu, nơi nhận..."
+                        value={outgoingSearch}
+                        onChange={(e) => setOutgoingSearch(e.target.value)}
+                        style={{ paddingLeft: 34, paddingRight: outgoingSearch ? 30 : 12, height: 38, fontSize: '0.88rem' }}
+                      />
+                      {outgoingSearch && (
+                        <button type="button" onClick={() => setOutgoingSearch('')} style={{ position: 'absolute', right: 10, background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                          <Icon name="xmark" size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Loại văn bản:</label>
+                      <select className="form-select" value={outgoingTypeFilter} onChange={(e) => setOutgoingTypeFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', minWidth: 150 }}>
+                        <option value="ALL">Tất cả loại VB</option>
+                        <option value="QuyetDinh">Quyết định (QĐ)</option>
+                        <option value="CongVan">Công văn (CV)</option>
+                        <option value="ThongBao">Thông báo (TB)</option>
+                        <option value="BaoCao">Báo cáo (BC)</option>
+                        <option value="KeHoach">Kế hoạch (KH)</option>
+                        <option value="ToTrinh">Tờ trình (TTr)</option>
+                        <option value="CongDien">Công điện (CĐ)</option>
+                      </select>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Trạng thái:</label>
+                      <select className="form-select" value={outgoingStatusFilter} onChange={(e) => setOutgoingStatusFilter(e.target.value)} style={{ height: 38, fontSize: '0.85rem', minWidth: 160 }}>
+                        <option value="ALL">Tất cả trạng thái</option>
+                        <option value="Draft">Bản nháp (Đang soạn)</option>
+                        <option value="PendingSignature">Chờ ký duyệt</option>
+                        <option value="Issued">Đã ban hành</option>
+                        <option value="Rejected">Bị từ chối ký</option>
+                      </select>
+                    </div>
+
+                    {(outgoingSearch || outgoingStatusFilter !== 'ALL' || outgoingTypeFilter !== 'ALL') && (
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setOutgoingSearch(''); setOutgoingStatusFilter('ALL'); setOutgoingTypeFilter('ALL'); }} style={{ color: '#64748b' }}>
+                        <Icon name="rotate-left" size={12} /> Đặt lại
                       </button>
                     )}
                   </div>
 
-                  {/* Status Filter */}
-                  <select
-                    className="form-select"
-                    style={{ width: 'auto', minWidth: 140, padding: '6px 10px', fontSize: '0.82rem' }}
-                    value={myDayStatusFilter}
-                    onChange={e => handleMyDayStatusChange(e.target.value as TaskStatus | 'all')}
-                    aria-label="Lọc theo trạng thái"
-                  >
-                    <option value="all">Tất cả trạng thái</option>
-                    <option value="Chua_Lam">Chưa làm</option>
-                    <option value="Dang_Xu_Ly">Đang xử lý</option>
-                    <option value="Cho_Duyet">Chờ duyệt</option>
-                    <option value="Hoan_Thanh">Hoàn thành</option>
-                    <option value="Tu_Choi">Từ chối</option>
-                  </select>
-
-                  {/* Priority Filter */}
-                  <select
-                    className="form-select"
-                    style={{ width: 'auto', minWidth: 140, padding: '6px 10px', fontSize: '0.82rem' }}
-                    value={myDayPriorityFilter}
-                    onChange={e => handleMyDayPriorityChange(e.target.value as TaskPriority | 'all')}
-                    aria-label="Lọc theo mức độ ưu tiên"
-                  >
-                    <option value="all">Tất cả mức độ</option>
-                    <option value="Khan">Khẩn cấp</option>
-                    <option value="Cao">Cao</option>
-                    <option value="Trung_Binh">Trung bình</option>
-                    <option value="Thuong">Thường</option>
-                  </select>
-
-                  {/* Shift Filter */}
-                  <select
-                    className="form-select"
-                    style={{ width: 'auto', minWidth: 120, padding: '6px 10px', fontSize: '0.82rem' }}
-                    value={myDayShiftFilter}
-                    onChange={e => handleMyDayShiftChange(e.target.value as ShiftType | 'all')}
-                    aria-label="Lọc theo ca làm việc"
-                  >
-                    <option value="all">Tất cả Ca (Sáng/Chiều)</option>
-                    <option value="Sang">Ca Sáng (07:00 - 11:30)</option>
-                    <option value="Chieu">Ca Chiều (13:00 - 17:00)</option>
-                  </select>
-
-                  {/* Reset Filters Button */}
-                  {(myDaySearchQuery || myDayStatusFilter !== 'all' || myDayPriorityFilter !== 'all' || myDayShiftFilter !== 'all') && (
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-xs"
-                      onClick={handleMyDayResetFilters}
-                      title="Xóa tất cả bộ lọc"
-                      style={{ height: 32, padding: '0 10px', fontSize: '0.78rem', color: '#dc2626', borderColor: '#fca5a5' }}
-                    >
-                      <Icon name="rotate-right" size={11} /> Xóa lọc
-                    </button>
-                  )}
-                </div>
-
-                {/* Table Data */}
-                <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
-                  {myDayFilteredTasks.length === 0 ? (
-                    <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-muted)' }}>
-                      <Icon name="folder-open" size={36} style={{ opacity: 0.3, marginBottom: 12 }} />
-                      <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>Không tìm thấy nhiệm vụ nào</div>
-                      <div style={{ fontSize: '0.82rem', marginTop: 4 }}>Thử thay đổi từ khóa tìm kiếm hoặc chọn lại điều kiện lọc.</div>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        style={{ marginTop: 14 }}
-                        onClick={handleMyDayResetFilters}
-                      >
-                        <Icon name="rotate-right" size={12} /> Đặt lại bộ lọc
-                      </button>
-                    </div>
-                  ) : (
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th style={{ width: 50, textAlign: 'center' }}>STT</th>
-                          <th>Nhiệm vụ / Mã CV</th>
-                          <th>Người giao</th>
-                          <th>Hạn chót</th>
-                          <th>Mức độ</th>
-                          <th>Trạng thái</th>
-                          <th>Tiến độ</th>
-                          <th style={{ textAlign: 'right' }}>Thao tác</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {myDayPaginatedTasks.map((t, idx) => {
-                          const sttIndex = (myDayCurrentPage - 1) * myDayPageSize + idx + 1;
-                          return (
-                            <tr key={t.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedTaskId(t.id)}>
-                              <td style={{ textAlign: 'center', fontWeight: 800, color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                                {sttIndex}
-                              </td>
-                              <td>
-                                <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>{t.title}</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                                  <span>[{t.id.substring(0, 8)}]</span>
-                                  <span>•</span>
-                                  <span style={{ color: '#2563eb', fontWeight: 600 }}>
-                                    <Icon name={SHIFT_CONFIG[t.shift].icon} size={10} /> Ca {SHIFT_CONFIG[t.shift].label} ({t.startTime})
-                                  </span>
-                                  {t.sourceInboxId && (
-                                    <span style={{ color: '#7c3aed', fontWeight: 600 }} title="Nguồn gốc từ Hộp thư công văn">
-                                      • <Icon name="envelope-open-text" size={10} /> Từ công văn
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                              <td>
-                                <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{t.assignedBy}</div>
-                                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{t.assignedByRole}</div>
-                              </td>
-                              <td>
-                                <span style={{ fontWeight: 700, color: t.status === 'Hoan_Thanh' ? '#16a34a' : getDaysUntilDue(t.dueDate) < 0 ? '#dc2626' : '#d97706' }}>
-                                  {formatDateDisplay(t.dueDate)}
-                                </span>
-                              </td>
-                              <td><span className={`badge ${getPriorityBadge(t.priority)}`}>{PRIORITY_LABELS[t.priority]}</span></td>
-                              <td><span className={`badge ${getStatusBadge(t.status)}`}>{STATUS_LABELS[t.status]}</span></td>
-                              <td style={{ minWidth: 100 }}>
-                                <div style={{ fontSize: '0.78rem', fontWeight: 700, marginBottom: 2 }}>{t.progress}%</div>
-                                <div className="progress-bar" style={{ height: 5 }}>
-                                  <div className="progress-bar-fill" style={{ width: `${t.progress}%`, background: t.progress === 100 ? '#16a34a' : '#2563eb' }} />
-                                </div>
-                              </td>
-                              <td style={{ textAlign: 'right' }}>
-                                <button
-                                  type="button"
-                                  className="btn btn-outline btn-xs"
-                                  onClick={(e) => { e.stopPropagation(); setSelectedTaskId(t.id); }}
-                                >
-                                  <Icon name="eye" size={12} /> Chi tiết
-                                </button>
+                  {/* Table of Outgoing Documents */}
+                  <div className="card" style={{ overflow: 'hidden' }}>
+                    <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
+                      <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left', fontSize: '0.82rem', color: '#475569' }}>
+                            <th style={{ padding: '12px 16px', width: 140 }}>SỐ HIỆU / MÃ</th>
+                            <th style={{ padding: '12px 16px' }}>TRÍCH YẾU NỘI DUNG</th>
+                            <th style={{ padding: '12px 16px', width: 130 }}>LOẠI VĂN BẢN</th>
+                            <th style={{ padding: '12px 16px', width: 160 }}>NGƯỜI SOẠN</th>
+                            <th style={{ padding: '12px 16px', width: 160 }}>NƠI NHẬN</th>
+                            <th style={{ padding: '12px 16px', width: 140 }}>TRẠNG THÁI</th>
+                            <th style={{ padding: '12px 16px', width: 140, textAlign: 'center' }}>THAO TÁC</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {outgoingDocsList.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
+                                <Icon name="folder-open" size={36} style={{ marginBottom: 12, opacity: 0.5 }} />
+                                <p style={{ margin: 0, fontSize: '0.9rem' }}>{outgoingLoading ? 'Đang tải danh sách văn bản đi...' : 'Không tìm thấy văn bản đi nào phù hợp.'}</p>
                               </td>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
+                          ) : (
+                            outgoingDocsList.map(doc => {
+                              const getStatusBadge = (status: OutgoingDocumentStatusEnum) => {
+                                switch (status) {
+                                  case 'Draft': return <span className="badge" style={{ background: '#f1f5f9', color: '#475569' }}>Bản nháp</span>;
+                                  case 'PendingSignature': return <span className="badge" style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fef3c7' }}><Icon name="clock" size={10} /> Chờ ký duyệt</span>;
+                                  case 'Issued': return <span className="badge" style={{ background: '#ecfdf5', color: '#16a34a', border: '1px solid #a7f3d0' }}><Icon name="check-double" size={10} /> Đã ban hành</span>;
+                                  case 'Rejected': return <span className="badge" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}><Icon name="xmark" size={10} /> Từ chối ký</span>;
+                                  default: return <span className="badge">{status}</span>;
+                                }
+                              };
 
-                {/* Pagination Controls */}
-                {myDayFilteredTasks.length > 0 && (
-                  <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, background: '#ffffff' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                      <span>
-                        Hiển thị <strong>{Math.min((myDayCurrentPage - 1) * myDayPageSize + 1, myDayFilteredTasks.length)}</strong> - <strong>{Math.min(myDayCurrentPage * myDayPageSize, myDayFilteredTasks.length)}</strong> trên tổng số <strong>{myDayFilteredTasks.length}</strong> nhiệm vụ
-                      </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <label htmlFor="my-day-page-size" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Số dòng/trang:</label>
-                        <select
-                          id="my-day-page-size"
-                          className="form-select"
-                          style={{ width: 'auto', padding: '3px 8px', fontSize: '0.8rem' }}
-                          value={myDayPageSize}
-                          onChange={e => {
-                            setMyDayPageSize(Number(e.target.value));
-                            setMyDayCurrentPage(1);
-                          }}
-                        >
-                          <option value={5}>5</option>
-                          <option value={10}>10</option>
-                          <option value={20}>20</option>
-                          <option value={50}>50</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-xs"
-                        disabled={myDayCurrentPage === 1}
-                        onClick={() => setMyDayCurrentPage(prev => Math.max(1, prev - 1))}
-                        style={{ opacity: myDayCurrentPage === 1 ? 0.5 : 1, cursor: myDayCurrentPage === 1 ? 'not-allowed' : 'pointer' }}
-                      >
-                        <Icon name="chevron-left" size={10} /> Trước
-                      </button>
-
-                      {Array.from({ length: myDayTotalPages }, (_, i) => i + 1).map(page => (
-                        <button
-                          key={page}
-                          type="button"
-                          className={`btn btn-xs ${myDayCurrentPage === page ? 'btn-primary' : 'btn-outline'}`}
-                          style={{ minWidth: 28, height: 26, padding: 0 }}
-                          onClick={() => setMyDayCurrentPage(page)}
-                        >
-                          {page}
-                        </button>
-                      ))}
-
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-xs"
-                        disabled={myDayCurrentPage === myDayTotalPages}
-                        onClick={() => setMyDayCurrentPage(prev => Math.min(myDayTotalPages, prev + 1))}
-                        style={{ opacity: myDayCurrentPage === myDayTotalPages ? 0.5 : 1, cursor: myDayCurrentPage === myDayTotalPages ? 'not-allowed' : 'pointer' }}
-                      >
-                        Sau <Icon name="chevron-right" size={10} />
-                      </button>
+                              return (
+                                <tr key={doc.id} style={{ borderBottom: '1px solid #f1f5f9', fontSize: '0.88rem' }}>
+                                  <td style={{ padding: '12px 16px', fontWeight: 700, color: doc.documentNumber ? '#1e293b' : '#94a3b8' }}>
+                                    {doc.documentNumber || '— (Chờ cấp)'}
+                                  </td>
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 2 }}>
+                                      {doc.title}
+                                      {doc.isUrgent && <span className="badge badge-urgent" style={{ marginLeft: 6, fontSize: '0.65rem', padding: '1px 5px' }}>KHẨN</span>}
+                                      {doc.isCorrectionDocument && <span className="badge" style={{ marginLeft: 6, fontSize: '0.65rem', padding: '1px 5px', background: '#fef3c7', color: '#92400e' }}>ĐÍNH CHÍNH</span>}
+                                    </div>
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                      Nội dung: {doc.content ? (doc.content.length > 70 ? doc.content.substring(0, 70) + '...' : doc.content) : 'Chưa có chi tiết'}
+                                    </div>
+                                  </td>
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <span className="badge" style={{ background: '#f0f9ff', color: '#0284c7', fontWeight: 600 }}>
+                                      {doc.documentTypeName}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '12px 16px' }}>
+                                    <div style={{ fontWeight: 600 }}>{doc.draftedByUserName}</div>
+                                    <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{doc.draftedAt ? new Date(doc.draftedAt).toLocaleDateString('vi-VN') : ''}</div>
+                                  </td>
+                                  <td style={{ padding: '12px 16px', color: '#475569', fontSize: '0.82rem' }}>
+                                    {doc.recipientNote || 'Toàn bộ phòng ban'}
+                                  </td>
+                                  <td style={{ padding: '12px 16px' }}>
+                                    {getStatusBadge(doc.status)}
+                                  </td>
+                                  <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                    <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                      <button
+                                        type="button"
+                                        className="btn btn-outline btn-xs"
+                                        onClick={() => {
+                                          setSelectedOutgoingDoc(doc);
+                                          setShowRejectInput(false);
+                                          setRejectionReasonInput('');
+                                          setShowDetailOutgoingModal(true);
+                                        }}
+                                        title="Xem chi tiết & phê duyệt"
+                                      >
+                                        <Icon name="eye" size={11} /> Chi tiết
+                                      </button>
+                                      {doc.status === 'Draft' && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-ghost btn-xs"
+                                          onClick={() => {
+                                            setEditingOutgoingDoc(doc);
+                                            setFormDocType(doc.documentType);
+                                            setFormDocTitle(doc.title);
+                                            setFormDocContent(doc.content);
+                                            setFormDocRecipient(doc.recipientNote || '');
+                                            setFormDocIsUrgent(doc.isUrgent);
+                                            setFormDocRelatedTaskId(doc.relatedTaskItemId || '');
+                                            setFormDocIsCorrection(doc.isCorrectionDocument);
+                                            setFormDocOriginalId(doc.originalDocumentId || '');
+                                            setShowCreateOutgoingModal(true);
+                                          }}
+                                          title="Sửa bản nháp"
+                                        >
+                                          <Icon name="pen-to-square" size={11} /> Sửa
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                )}
-              </div>
+
+                  {/* Load More Button */}
+                  {outgoingHasMore && (
+                    <div style={{ textAlign: 'center', marginTop: 12 }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        disabled={outgoingLoading}
+                        onClick={() => setOutgoingPage(prev => prev + 1)}
+                        style={{ width: '100%', maxWidth: 360, margin: '0 auto', justifyContent: 'center', padding: '10px 20px', fontWeight: 600 }}
+                      >
+                        {outgoingLoading ? (
+                          <>
+                            <Icon name="spinner" className="fa-spin" size={14} /> Đang tải...
+                          </>
+                        ) : (
+                          <>
+                            <Icon name="angles-down" size={14} /> Xem thêm văn bản đi (Còn {outgoingTotalCount - outgoingDocsList.length} VB)
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
             </div>
           )}
 
@@ -2574,538 +3799,8 @@ export default function DashboardPage() {
              MODULE 2: LỊCH CÔNG TÁC TUẦN (CHIA SÁNG - CHIỀU - TỐI)
              ═════════════════════════════════════════ */}
 
-          {/* ═══════════════════════════════════════════════════════════════
-              INBOX MODULE
-              ═══════════════════════════════════════════════════════════════ */}
-          {activeModule === 'inbox' && (
-            <div className="inbox-container">
-              {/* Left Pane: Folders */}
-              <div className="inbox-sidebar">
-                <div className="inbox-compose-btn">
-                  <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-                    <Icon name="pen" size={14} /> Soạn văn bản
-                  </button>
-                </div>
-                <div className="inbox-folder-list">
-                  {INBOX_FOLDERS.map(f => {
-                    const count = inboxItems.filter(m => m.folder === f.id && m.status === 'unread').length;
-                    return (
-                      <button
-                        key={f.id}
-                        className={`inbox-folder-item ${activeFolder === f.id ? 'active' : ''}`}
-                        onClick={() => { setActiveFolder(f.id as InboxFolder); setSelectedMailId(null); }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Icon name={f.icon} size={14} style={{ color: activeFolder === f.id ? f.color : 'var(--text-muted)' }} />
-                          <span>{f.label}</span>
-                        </div>
-                        {count > 0 && <span className="inbox-badge">{count}</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
 
-              {/* Middle Pane: List */}
-              <div className="inbox-list-pane">
-                <div className="inbox-list-header">
-                  <div className="search-box">
-                    <Icon name="search" size={14} />
-                    <input type="text" placeholder="Tìm kiếm văn bản..." />
-                  </div>
-                </div>
-                <div className="inbox-list-content">
-                  {inboxItems.filter(m => m.folder === activeFolder).map(item => {
-                    const isUrgent = item.isUrgent;
-                    const isStarred = item.isStarred;
-                    const isSelected = selectedMailId === item.id;
-                    const isUnread = item.status === 'unread';
 
-                    let itemBg = undefined;
-                    let borderLeftStyle = undefined;
-
-                    if (isUrgent) {
-                      borderLeftStyle = '4px solid #dc2626';
-                      itemBg = isSelected ? '#fecaca' : '#fef2f2';
-                    } else if (isStarred) {
-                      borderLeftStyle = '4px solid #d97706';
-                      itemBg = isSelected ? '#fef3c7' : '#fffbeb';
-                    }
-
-                    return (
-                      <div
-                        key={item.id}
-                        className={`inbox-list-item ${isSelected ? 'selected' : ''} ${isUnread ? 'unread' : ''} ${isUrgent ? 'urgent' : ''} ${isStarred ? 'starred' : ''}`}
-                        style={{
-                          borderLeft: borderLeftStyle,
-                          background: itemBg,
-                          transition: 'all 0.15s ease',
-                        }}
-                        onClick={() => {
-                          setSelectedMailId(item.id);
-                          if (item.status === 'unread') {
-                            setInboxItems(prev => prev.map(m => m.id === item.id ? { ...m, status: 'read' } : m));
-                          }
-                        }}
-                      >
-                        <div className="inbox-item-top">
-                          <div className="inbox-item-sender" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            {isUrgent && (
-                              <span className="badge badge-urgent" style={{ padding: '2px 6px', fontSize: '0.66rem', fontWeight: 800 }}>
-                                <Icon name="triangle-exclamation" size={10} /> KHẨN CẤP
-                              </span>
-                            )}
-                            {isStarred && !isUrgent && (
-                              <span className="badge badge-warning" style={{ padding: '2px 6px', fontSize: '0.66rem', fontWeight: 800 }}>
-                                <Icon name="star" size={10} style={{ color: '#eab308' }} /> QUAN TRỌNG
-                              </span>
-                            )}
-                            <span>{item.senderOrg}</span>
-                          </div>
-                          <div className="inbox-item-date">{formatDateDisplay(item.date.split(' ')[0])}</div>
-                        </div>
-                        <div className="inbox-item-subject" style={{ color: isUrgent ? '#b91c1c' : isStarred ? '#b45309' : undefined }}>
-                          {item.subject}
-                        </div>
-                        <div className="inbox-item-preview">{item.content.substring(0, 60)}...</div>
-                      </div>
-                    );
-                  })}
-                  {inboxItems.filter(m => m.folder === activeFolder).length === 0 && (
-                    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-                      <Icon name="folder-open" size={40} style={{ opacity: 0.2, marginBottom: 16 }} />
-                      <p>Thư mục trống</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Right Pane: Detail */}
-              <div className="inbox-detail-pane">
-                {selectedMail ? (
-                  <div className="inbox-detail-content">
-                    <div className="inbox-detail-header">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                        <h2 className="inbox-detail-subject">{selectedMail.subject}</h2>
-                        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                          {selectedMail.status !== 'scheduled' && selectedMail.status !== 'assigned' && (
-                            <>
-                              <button
-                                className={`btn ${selectedMail.isUrgent ? 'btn-danger' : 'btn-outline'} btn-sm`}
-                                title="Xếp lịch công tác"
-                                onClick={() => {
-                                  setScheduleSourceMail(selectedMail);
-                                  setScheduleTitle(selectedMail.subject);
-                                  setScheduleDescription(selectedMail.content);
-                                  if (selectedMail.deadline) {
-                                    const parts = selectedMail.deadline.split('/');
-                                    if (parts.length === 3) setScheduleDate(`${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`);
-                                  }
-                                  setShowScheduleModal(true);
-                                }}
-                              >
-                                <Icon name="calendar-plus" size={14} /> Xếp lịch
-                              </button>
-                              <button
-                                className="btn btn-outline btn-sm"
-                                title="Tự động xếp lịch (AI)"
-                                onClick={async () => {
-                                  const [y, m, d] = weekStart.split('-').map(Number);
-                                  const daysOffset = selectedMail.isUrgent ? 1 : 2;
-                                  const targetDate = new Date(Date.UTC(y, m - 1, d + daysOffset));
-                                  const dateStr = targetDate.toISOString().split('T')[0];
-                                  const shift = selectedMail.isUrgent ? 'Sang' : 'Chieu';
-                                  const startTime = selectedMail.isUrgent ? '08:00' : '14:00';
-
-                                  const newTask: Task = {
-                                    id: `TSK-AUTO-${Date.now()}`,
-                                    title: selectedMail.subject,
-                                    description: `Tự động xếp lịch từ công văn: ${selectedMail.content}`,
-                                    assignedBy: ROLE_CONFIG[activeRole].label,
-                                    assignedByRole: ROLE_CONFIG[activeRole].label,
-                                    assignee: 'Nguyễn Đình Hùng',
-                                    assigneeRole: roleInfo.label,
-                                    collaborators: [],
-                                    priority: selectedMail.isUrgent ? 'Khan' : 'Trung_Binh',
-                                    status: 'Chua_Lam',
-                                    category: 'BAU',
-                                    dueDate: dateStr,
-                                    shift: shift,
-                                    startTime: startTime,
-                                    createdDate: new Date().toISOString().split('T')[0],
-                                    progress: 0,
-                                    effortHours: 4,
-                                    attachments: [],
-                                    comments: [],
-                                    statusHistory: [],
-                                    context: activeRole,
-                                    sourceInboxId: selectedMail.id,
-                                  };
-
-                                  await scheduleInboxDocumentApi(selectedMail.id, dateStr, shift);
-                                  setTasks(prev => [newTask, ...prev]);
-                                  setInboxItems(prev => prev.map(m => m.id === selectedMail.id ? { ...m, folder: 'scheduled', status: 'scheduled' } : m));
-                                  addToast('Tự động xếp lịch thành công', `Đã tự động phân bổ công văn vào ca ${SHIFT_CONFIG[shift].label} ngày ${dateStr}`, 'success');
-                                  setSelectedMailId(null);
-                                  setActiveModule('tasks');
-                                  setSelectedTaskId(newTask.id);
-                                }}
-                              >
-                                <Icon name="wand-magic-sparkles" size={14} style={{ color: '#8b5cf6' }} /> Tự động
-                              </button>
-                            </>
-                          )}
-
-                          {selectedMail.status === 'scheduled' && (
-                            <button
-                              className="btn btn-outline btn-sm"
-                              style={{ borderColor: '#2563eb', color: '#2563eb', fontWeight: 700 }}
-                              title="Xem lịch sắp xếp trong Lịch tuần"
-                              onClick={() => {
-                                const matched = tasks.find(t => t.sourceInboxId === selectedMail.id || t.title === selectedMail.subject);
-                                if (matched) setSelectedTaskId(matched.id);
-                                setActiveModule('tasks');
-                              }}
-                            >
-                              <Icon name="calendar-check" size={14} /> Xem lịch sắp xếp
-                            </button>
-                          )}
-
-                          {selectedMail.status === 'assigned' && (
-                            <button
-                              className="btn btn-outline btn-sm"
-                              style={{ borderColor: '#16a34a', color: '#16a34a', fontWeight: 700 }}
-                              title="Xem công việc đã giao"
-                              onClick={() => {
-                                const matched = tasks.find(t => t.sourceInboxId === selectedMail.id || t.title === selectedMail.subject);
-                                if (matched) setSelectedTaskId(matched.id);
-                                setActiveModule('tasks');
-                              }}
-                            >
-                              <Icon name="list-check" size={14} /> Xem công việc đã giao
-                            </button>
-                          )}
-
-                          {/* ⚠️ CHỈ HIỂN THỊ NÚT GIAO VIỆC CHO CẤP TRÊN (scopeLevel < 4.0), CHUYÊN VIÊN KHÔNG ĐƯỢC THẤY */}
-                          {canCreateTask(activeRole) && selectedMail.status !== 'assigned' && (
-                            <button
-                              className="btn btn-primary btn-sm"
-                              title="Giao việc từ công văn này"
-                              onClick={() => {
-                                setCreateTaskSource(selectedMail);
-                                setNewTitle(selectedMail.subject);
-                                setNewDesc(selectedMail.content);
-                                setNewDueDate(selectedMail.deadline || '');
-                                setActiveModule('create-task');
-                              }}
-                            >
-                              <Icon name="paper-plane" size={14} /> Giao việc
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Prominent Alert Banner for Urgent & Important Emails */}
-                      {selectedMail.isUrgent && (
-                        <div className="alert alert-danger" style={{ marginBottom: 16, borderLeft: '4px solid #dc2626', background: '#fef2f2', display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Icon name="triangle-exclamation" size={20} style={{ color: '#dc2626', flexShrink: 0 }} />
-                          <div>
-                            <strong style={{ color: '#991b1b', fontSize: '0.9rem' }}>VĂN BẢN HỎA TỐC / KHẨN CẤP</strong>
-                            <p style={{ fontSize: '0.82rem', marginTop: 2, color: '#7f1d1d' }}>Công văn chỉ đạo khẩn cấp! Yêu cầu ưu tiên xử lý & xếp lịch công tác ngay trên Lịch tuần.</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {selectedMail.isStarred && !selectedMail.isUrgent && (
-                        <div className="alert alert-warning" style={{ marginBottom: 16, borderLeft: '4px solid #d97706', background: '#fffbeb', display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Icon name="star" size={20} style={{ color: '#d97706', flexShrink: 0 }} />
-                          <div>
-                            <strong style={{ color: '#92400e', fontSize: '0.9rem' }}>VĂN BẢN QUAN TRỌNG</strong>
-                            <p style={{ fontSize: '0.82rem', marginTop: 2, color: '#78350f' }}>Văn bản chỉ đạo trọng tâm đã được đánh dấu quan trọng.</p>
-                          </div>
-                        </div>
-                      )}
-                      <div className="inbox-detail-meta">
-                        <div className="inbox-meta-avatar">
-                          <Icon name="building-columns" size={20} style={{ color: '#fff' }} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{selectedMail.senderOrg}</div>
-                          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Người gửi: {selectedMail.senderName}</div>
-                        </div>
-                        <div style={{ textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                          {formatDateDisplay(selectedMail.date)}
-                          <div style={{ marginTop: 4 }}>
-                            <span
-                              style={{ cursor: 'pointer' }}
-                              onClick={() => {
-                                setInboxItems(prev => prev.map(m => m.id === selectedMail.id ? { ...m, isStarred: !m.isStarred } : m));
-                              }}
-                            >
-                              <Icon
-                                name="star"
-                                size={14}
-                                style={{ color: selectedMail.isStarred ? '#eab308' : '#cbd5e1' }}
-                              />
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="inbox-detail-body">
-                      {selectedMail.deadline && (
-                        <div className="alert alert-warning" style={{ marginBottom: 20 }}>
-                          <Icon name="clock" size={14} /> Hạn xử lý công văn: <strong>{formatDateDisplay(selectedMail.deadline)}</strong>
-                        </div>
-                      )}
-
-                      <div className="inbox-body-text" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-                        {selectedMail.content}
-                      </div>
-
-                      {selectedMail.attachments.length > 0 && (
-                        <div className="inbox-attachments">
-                          <h4 style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 12, color: 'var(--text-secondary)' }}>Tệp đính kèm ({selectedMail.attachments.length})</h4>
-                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                            {selectedMail.attachments.map((att, idx) => (
-                              <div key={idx} className="attachment-card">
-                                <div className="att-icon">
-                                  <Icon name={att.type === 'pdf' ? 'file-pdf' : att.type === 'excel' ? 'file-excel' : att.type === 'doc' ? 'file-word' : 'file-image'} size={24} />
-                                </div>
-                                <div className="att-info">
-                                  <div className="att-name">{att.name}</div>
-                                  <div className="att-size">{att.size}</div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="inbox-empty-detail">
-                    <Icon name="envelope-open" size={48} style={{ opacity: 0.1, marginBottom: 24 }} />
-                    <h3 style={{ fontSize: '1.1rem', color: 'var(--text-secondary)' }}>Chưa chọn văn bản</h3>
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', maxWidth: 300, textAlign: 'center', marginTop: 8 }}>
-                      Chọn một văn bản từ danh sách bên trái để xem chi tiết và phân công xử lý.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {activeModule === 'tasks' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-              {/* Navigation & Controls */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, background: '#ffffff', padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border-color)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <button type="button" className="btn btn-outline btn-sm" onClick={handlePrevWeek} title="Tuần trước">
-                    <Icon name="chevron-left" size={12} /> Tuần Trước
-                  </button>
-                  <button type="button" className="btn btn-primary btn-sm" onClick={handleTodayWeek}>
-                    Hôm Nay
-                  </button>
-                  <button type="button" className="btn btn-outline btn-sm" onClick={handleNextWeek} title="Tuần sau">
-                    Tuần Sau <Icon name="chevron-right" size={12} />
-                  </button>
-                  <span style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--text-primary)', marginLeft: 8 }}>
-                    Tuần từ {weekDays[0].dayNumber} đến {weekDays[6].dayNumber}/2026
-                  </span>
-                </div>
-
-                {/* Shift Filter Controls */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Ca làm việc:</span>
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${shiftFilter === 'all' ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setShiftFilter('all')}
-                  >
-                    Tất cả (2 Ca)
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${shiftFilter === 'Sang' ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setShiftFilter('Sang')}
-                  >
-                    <Icon name="sun" size={12} style={{ color: '#d97706' }} /> Sáng (07:00 - 11:30)
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn btn-sm ${shiftFilter === 'Chieu' ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={() => setShiftFilter('Chieu')}
-                  >
-                    <Icon name="cloud-sun" size={12} style={{ color: '#2563eb' }} /> Chiều (13:00 - 17:00)
-                  </button>
-                </div>
-              </div>
-
-              {/* Weekly Shift Grid Table */}
-              <div className="card" style={{ overflow: 'hidden' }}>
-                <div style={{ overflowX: 'auto' }}>
-                  <table className="shift-grid-table" aria-label="Lịch công tác phân ca Sáng Chiều">
-                    <thead>
-                      <tr>
-                        <th style={{ width: 110, textAlign: 'center', background: '#f8fafc' }}>CA / BUỔI</th>
-                        {weekDays.map(day => (
-                          <th key={day.dateStr} className={day.isToday ? 'is-today-header' : ''} style={{ textAlign: 'center', minWidth: 140 }}>
-                            <div style={{ fontWeight: 800, fontSize: '0.9rem' }}>{day.dayName}</div>
-                            <div style={{ fontSize: '0.78rem', color: day.isToday ? '#2563eb' : 'var(--text-muted)' }}>{day.dayNumber}</div>
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-
-                      {/* ROW 1: BUỔI SÁNG (07:00 - 11:30) */}
-                      {(shiftFilter === 'all' || shiftFilter === 'Sang') && (
-                        <tr>
-                          <td className="shift-label-cell shift-label-morning">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Icon name="sun" size={14} style={{ color: '#d97706' }} /> SÁNG
-                            </div>
-                            <div className="shift-time-hint">07:00 - 11:30</div>
-                          </td>
-                          {weekDays.map(day => {
-                            const shiftTasks = visibleTasks.filter(t => t.dueDate === day.dateStr && t.shift === 'Sang');
-                            const isOverloaded = shiftTasks.length >= 2;
-
-                            return (
-                              <td key={day.dateStr} className={`shift-cell ${day.isToday ? 'is-today' : ''}`}>
-                                <div className="shift-cell-header">
-                                  <span style={{ fontWeight: 800, color: 'var(--text-secondary)' }}>{shiftTasks.length > 0 ? `${shiftTasks.length} việc` : ''}</span>
-                                  {isOverloaded && (
-                                    <span className="shift-warning-badge" title="Trùng lịch hoặc mật độ công việc cao">
-                                      <Icon name="triangle-exclamation" size={11} /> Trùng ca! ({shiftTasks.length} việc)
-                                    </span>
-                                  )}
-                                </div>
-                                {shiftTasks.map(t => (
-                                  <div
-                                    key={t.id}
-                                    className={`shift-task-card ${getPriorityBadge(t.priority)}`}
-                                    onClick={() => setSelectedTaskId(t.id)}
-                                    role="button"
-                                    tabIndex={0}
-                                  >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
-                                      <span className="shift-task-time"><Icon name="clock" size={10} /> {t.startTime}</span>
-                                      <span className={`badge ${getStatusBadge(t.status)}`} style={{ fontSize: '0.62rem', padding: '1px 5px' }}>
-                                        {STATUS_LABELS[t.status]}
-                                      </span>
-                                    </div>
-                                    <div className="shift-task-title">{t.title}</div>
-                                    <div className="shift-task-assignee">
-                                      <Icon name="user" size={10} /> {t.assignee}
-                                    </div>
-
-                                    {/* Action buttons */}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                                      <button
-                                        type="button"
-                                        className="btn btn-ghost btn-xs"
-                                        onClick={(e) => handleSwapShift(e, t.id, t.shift)}
-                                        title="Đổi sang ca Chiều"
-                                      >
-                                        <Icon name="arrow-right-arrow-left" size={10} /> Đổi ca
-                                      </button>
-                                      {t.status === 'Cho_Duyet' && ROLE_CONFIG[activeRole].scopeLevel <= 2.5 && (
-                                        <button
-                                          type="button"
-                                          className="btn btn-success btn-xs"
-                                          onClick={(e) => { e.stopPropagation(); handleApproveTask(t.id); }}
-                                        >
-                                          Duyệt
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      )}
-
-                      {/* ROW 2: BUỔI CHIỀU (13:00 - 17:00) */}
-                      {(shiftFilter === 'all' || shiftFilter === 'Chieu') && (
-                        <tr>
-                          <td className="shift-label-cell shift-label-afternoon">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <Icon name="cloud-sun" size={14} style={{ color: '#2563eb' }} /> CHIỀU
-                            </div>
-                            <div className="shift-time-hint">13:00 - 17:00</div>
-                          </td>
-                          {weekDays.map(day => {
-                            const shiftTasks = visibleTasks.filter(t => t.dueDate === day.dateStr && t.shift === 'Chieu');
-                            const isOverloaded = shiftTasks.length >= 2;
-
-                            return (
-                              <td key={day.dateStr} className={`shift-cell ${day.isToday ? 'is-today' : ''}`}>
-                                <div className="shift-cell-header">
-                                  <span style={{ fontWeight: 800, color: 'var(--text-secondary)' }}>{shiftTasks.length > 0 ? `${shiftTasks.length} việc` : ''}</span>
-                                  {isOverloaded && (
-                                    <span className="shift-warning-badge" title="Trùng lịch ca Chiều">
-                                      <Icon name="triangle-exclamation" size={11} /> Trùng ca! ({shiftTasks.length} việc)
-                                    </span>
-                                  )}
-                                </div>
-                                {shiftTasks.map(t => (
-                                  <div
-                                    key={t.id}
-                                    className={`shift-task-card ${getPriorityBadge(t.priority)}`}
-                                    onClick={() => setSelectedTaskId(t.id)}
-                                    role="button"
-                                    tabIndex={0}
-                                  >
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
-                                      <span className="shift-task-time"><Icon name="clock" size={10} /> {t.startTime}</span>
-                                      <span className={`badge ${getStatusBadge(t.status)}`} style={{ fontSize: '0.62rem', padding: '1px 5px' }}>
-                                        {STATUS_LABELS[t.status]}
-                                      </span>
-                                    </div>
-                                    <div className="shift-task-title">{t.title}</div>
-                                    <div className="shift-task-assignee">
-                                      <Icon name="user" size={10} /> {t.assignee}
-                                    </div>
-
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                                      <button
-                                        type="button"
-                                        className="btn btn-ghost btn-xs"
-                                        onClick={(e) => handleSwapShift(e, t.id, t.shift)}
-                                        title="Đổi sang ca Sáng"
-                                      >
-                                        <Icon name="arrow-right-arrow-left" size={10} /> Đổi ca
-                                      </button>
-                                      {t.status === 'Cho_Duyet' && ROLE_CONFIG[activeRole].scopeLevel <= 2 && (
-                                        <button
-                                          type="button"
-                                          className="btn btn-success btn-xs"
-                                          onClick={(e) => { e.stopPropagation(); handleApproveTask(t.id); }}
-                                        >
-                                          Duyệt
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                ))}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      )}
-
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* ═════════════════════════════════════════
              MODULE: NHÂN SỰ & PHÒNG BAN (UNIFIED — 3 SUB-TABS)
@@ -3143,8 +3838,8 @@ export default function DashboardPage() {
                     onClick={() => setDeptSubTab('taiviec')}
                   >
                     <Icon name="chart-bar" size={14} /> Tải Công Việc & Điều Chuyển
-                    {activeStaffList.filter(s => s.assignedHours > s.maxHours).length > 0 && (
-                      <span className="tab-badge-count">{activeStaffList.filter(s => s.assignedHours > s.maxHours).length}</span>
+                    {overloadedCountBadge > 0 && (
+                      <span className="tab-badge-count">{overloadedCountBadge}</span>
                     )}
                   </button>
                 )}
@@ -3241,97 +3936,271 @@ export default function DashboardPage() {
                 </div>
               )}
 
+              {/* ── UNIFIED SEARCH & FILTER TOOLBAR FOR CANBO AND TAIVIEC ── */}
+              {(deptSubTab === 'canbo' || deptSubTab === 'taiviec') && (
+                <div style={{
+                  background: '#ffffff',
+                  padding: '14px 18px',
+                  borderRadius: 10,
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 12,
+                  marginBottom: 6
+                }}>
+                  {/* Quick Search Input */}
+                  <div style={{ flex: '1 1 240px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+                    <Icon name="search" size={14} style={{ position: 'absolute', left: 12, color: 'var(--text-muted)' }} />
+                    <input
+                      type="text"
+                      className="form-control"
+                      placeholder="Tìm kiếm nhanh tên, email, tài khoản cán bộ..."
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      style={{ paddingLeft: 34, paddingRight: userSearchQuery ? 30 : 12, height: 38, fontSize: '0.88rem' }}
+                    />
+                    {userSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setUserSearchQuery('')}
+                        style={{ position: 'absolute', right: 10, background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}
+                        title="Xóa tìm kiếm"
+                      >
+                        <Icon name="xmark" size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Department Filter Dropdown */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Phòng ban:</label>
+                    <select
+                      className="form-select"
+                      value={selectedDeptFilter}
+                      onChange={(e) => setSelectedDeptFilter(e.target.value as DepartmentCode | 'ALL')}
+                      style={{ height: 38, fontSize: '0.85rem', minWidth: 160 }}
+                    >
+                      <option value="ALL">Tất cả phòng ban</option>
+                      {(Object.keys(DEPARTMENTS) as DepartmentCode[]).map(key => (
+                        <option key={key} value={key}>{DEPARTMENTS[key].shortName}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Role Filter Dropdown */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Chức danh:</label>
+                    <select
+                      className="form-select"
+                      value={roleCodeFilter}
+                      onChange={(e) => setRoleCodeFilter(e.target.value)}
+                      style={{ height: 38, fontSize: '0.85rem', minWidth: 160 }}
+                    >
+                      <option value="ALL">Tất cả chức danh</option>
+                      <option value="ChuTichUBND">Chủ tịch UBND xã</option>
+                      <option value="PhoChuTichUBND">Phó Chủ tịch UBND xã</option>
+                      <option value="TruongPhong">Trưởng phòng / Ban</option>
+                      <option value="PhoPhong">Phó Trưởng phòng</option>
+                      <option value="ChuyenVien">Chuyên viên</option>
+                    </select>
+                  </div>
+
+                  {/* Workload Status Filter Buttons */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>Tải việc:</label>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${workloadFilter === 'ALL' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setWorkloadFilter('ALL')}
+                    >
+                      Tất cả
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${workloadFilter === 'Normal' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setWorkloadFilter('Normal')}
+                    >
+                      Bình thường (&lt;80%)
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${workloadFilter === 'NearOverload' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setWorkloadFilter('NearOverload')}
+                    >
+                      Gần quá tải (≥80%)
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${workloadFilter === 'Overloaded' ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setWorkloadFilter('Overloaded')}
+                      style={{ borderColor: workloadFilter === 'Overloaded' ? '#dc2626' : undefined, background: workloadFilter === 'Overloaded' ? '#dc2626' : undefined, color: workloadFilter === 'Overloaded' ? '#fff' : undefined }}
+                    >
+                      Quá tải (&gt;100%)
+                    </button>
+                  </div>
+
+                  {/* Reset Filters button */}
+                  {(userSearchQuery || selectedDeptFilter !== 'ALL' || roleCodeFilter !== 'ALL' || workloadFilter !== 'ALL') && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => {
+                        setUserSearchQuery('');
+                        setSelectedDeptFilter('ALL');
+                        setRoleCodeFilter('ALL');
+                        setWorkloadFilter('ALL');
+                      }}
+                      style={{ color: '#64748b' }}
+                    >
+                      <Icon name="rotate-left" size={12} /> Đặt lại
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* ── SUB-TAB 2: HỒ SƠ CÁN BỘ (Profile Cards) ── */}
               {deptSubTab === 'canbo' && (
-                <div className="staff-card-grid">
-                  {activeStaffList
-                    .filter(s => selectedDeptFilter === 'ALL' || s.departmentCode === selectedDeptFilter)
-                    .map(staff => {
-                      const rate = Math.round((staff.assignedHours / staff.maxHours) * 100);
-                      const isOver = rate > 100;
-                      const dept = DEPARTMENTS[staff.departmentCode];
-                      const grad = getGradLabel(staff.score);
-                      const onTimeRate = staff.totalCompleted > 0 ? Math.round((staff.completedOnTime / staff.totalCompleted) * 100) : 0;
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <div className="staff-card-grid">
+                    {(paginatedUsersList.length > 0 ? paginatedUsersList.map(u => {
+                      const staffSample = activeStaffList.find(s => s.name === u.fullName);
+                      const activeTasksCount = tasks.filter(t => t.assignee === u.fullName && t.status !== 'Hoan_Thanh' && t.status !== 'Tu_Choi').length;
+                      return {
+                        id: u.id,
+                        name: u.fullName,
+                        initials: u.fullName.split(' ').pop()?.[0] || 'CB',
+                        role: u.roleName || u.activeRoleCode || 'Cán bộ xã',
+                        departmentCode: (staffSample?.departmentCode || 'VAN_PHONG') as DepartmentCode,
+                        specialization: staffSample?.specialization || 'Công tác chuyên môn',
+                        rankLabel: staffSample?.rankLabel || 'Cán bộ công chức',
+                        phone: u.zaloPhoneNumber || staffSample?.phone || '0987.654.321',
+                        email: u.email,
+                        assignedHours: u.assignedHours,
+                        maxHours: u.maxHours || 40,
+                        utilizationRate: u.utilizationRate,
+                        isOverloaded: u.isOverloaded,
+                        tasksCount: activeTasksCount || staffSample?.tasksCount || 0,
+                        completedOnTime: staffSample?.completedOnTime || 12,
+                        totalCompleted: staffSample?.totalCompleted || 12,
+                        score: staffSample?.score || 9.2,
+                        avatarBg: staffSample?.avatarBg || '#eff6ff',
+                      };
+                    }) : activeStaffList.filter(s => selectedDeptFilter === 'ALL' || s.departmentCode === selectedDeptFilter).map(s => ({
+                      ...s,
+                      utilizationRate: Math.round((s.assignedHours / s.maxHours) * 100),
+                      isOverloaded: s.assignedHours > s.maxHours,
+                    })))
+                      .map(staff => {
+                        const rate = staff.utilizationRate || Math.round((staff.assignedHours / staff.maxHours) * 100);
+                        const isOver = staff.isOverloaded || rate > 100;
+                        const dept = DEPARTMENTS[staff.departmentCode] || DEPARTMENTS['VAN_PHONG'];
+                        const grad = getGradLabel(staff.score);
+                        const onTimeRate = staff.totalCompleted > 0 ? Math.round((staff.completedOnTime / staff.totalCompleted) * 100) : 0;
 
-                      return (
-                        <div key={staff.id} className={`staff-profile-card ${isOver ? 'staff-overloaded' : ''}`}>
-                          {/* Card Header */}
-                          <div className="staff-card-top">
-                            <div className="staff-avatar" style={{ background: staff.avatarBg, color: dept.color }}>
-                              {staff.initials}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div className="staff-card-name">{staff.name}</div>
-                              <div className="staff-card-role">{staff.role}</div>
-                              <span className="rank-badge">{staff.rankLabel}</span>
-                            </div>
-                          </div>
-
-                          {/* Department & Specialization */}
-                          <div className="staff-card-info-row">
-                            <span className="badge" style={{ background: dept.badgeBg, color: dept.color, fontWeight: 700, fontSize: '0.72rem' }}>
-                              <Icon name={dept.icon} size={10} /> {dept.shortName}
-                            </span>
-                          </div>
-                          <div className="staff-card-info-row">
-                            <span className="spec-chip">
-                              <Icon name="briefcase" size={11} /> {staff.specialization}
-                            </span>
-                          </div>
-
-                          {/* Contact Info */}
-                          <div className="staff-card-contact">
-                            <div><Icon name="phone" size={11} style={{ color: 'var(--text-muted)' }} /> {staff.phone}</div>
-                            <div><Icon name="envelope" size={11} style={{ color: 'var(--text-muted)' }} /> {staff.email}</div>
-                          </div>
-
-                          {/* Metrics Row */}
-                          <div className="staff-card-metrics">
-                            <div className="staff-metric">
-                              <span className="staff-metric-val" style={{ color: isOver ? '#dc2626' : '#16a34a' }}>
-                                {staff.assignedHours}h/{staff.maxHours}h
-                              </span>
-                              <span className="staff-metric-lbl">Tải tuần</span>
-                              <div className="progress-bar" style={{ height: 4, marginTop: 3 }}>
-                                <div className="progress-bar-fill" style={{ width: `${Math.min(rate, 100)}%`, background: isOver ? '#dc2626' : rate > 80 ? '#d97706' : '#16a34a' }} />
+                        return (
+                          <div key={staff.id} className={`staff-profile-card ${isOver ? 'staff-overloaded' : ''}`}>
+                            {/* Card Header */}
+                            <div className="staff-card-top">
+                              <div className="staff-avatar" style={{ background: staff.avatarBg, color: dept.color }}>
+                                {staff.initials}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div className="staff-card-name">{staff.name}</div>
+                                <div className="staff-card-role">{staff.role}</div>
+                                <span className="rank-badge">{staff.rankLabel}</span>
                               </div>
                             </div>
-                            <div className="staff-metric">
-                              <span className="staff-metric-val">{staff.tasksCount}</span>
-                              <span className="staff-metric-lbl">Việc đang làm</span>
-                            </div>
-                            <div className="staff-metric">
-                              <span className="staff-metric-val">{onTimeRate}%</span>
-                              <span className="staff-metric-lbl">Đúng hạn</span>
-                            </div>
-                          </div>
 
-                          {/* Score & Grade */}
-                          <div className="staff-card-footer">
-                            <div>
-                              <span style={{ fontWeight: 800, fontSize: '0.92rem' }}>{staff.score}/10</span>
-                              <span className={`badge ${grad.badge}`} style={{ marginLeft: 6, fontSize: '0.68rem' }}>{grad.label}</span>
+                            {/* Department & Specialization */}
+                            <div className="staff-card-info-row">
+                              <span className="badge" style={{ background: dept.badgeBg, color: dept.color, fontWeight: 700, fontSize: '0.72rem' }}>
+                                <Icon name={dept.icon} size={10} /> {dept.shortName}
+                              </span>
                             </div>
-                            {canAssignToByName(activeRole, staff.name) && (
-                              <button
-                                type="button"
-                                className="btn btn-outline btn-sm"
-                                onClick={(e) => { e.stopPropagation(); setActiveModule('create-task'); setNewAssignee(staff.name); }}
-                                title={`Giao việc cho ${staff.name}`}
-                              >
-                                <Icon name="paper-plane" size={11} /> Giao việc
-                              </button>
+                            <div className="staff-card-info-row">
+                              <span className="spec-chip">
+                                <Icon name="briefcase" size={11} /> {staff.specialization}
+                              </span>
+                            </div>
+
+                            {/* Contact Info */}
+                            <div className="staff-card-contact">
+                              <div><Icon name="phone" size={11} style={{ color: 'var(--text-muted)' }} /> {staff.phone}</div>
+                              <div><Icon name="envelope" size={11} style={{ color: 'var(--text-muted)' }} /> {staff.email}</div>
+                            </div>
+
+                            {/* Metrics Row */}
+                            <div className="staff-card-metrics">
+                              <div className="staff-metric">
+                                <span className="staff-metric-val" style={{ color: isOver ? '#dc2626' : '#16a34a' }}>
+                                  {staff.assignedHours}h/{staff.maxHours}h
+                                </span>
+                                <span className="staff-metric-lbl">Tải tuần</span>
+                                <div className="progress-bar" style={{ height: 4, marginTop: 3 }}>
+                                  <div className="progress-bar-fill" style={{ width: `${Math.min(rate, 100)}%`, background: isOver ? '#dc2626' : rate > 80 ? '#d97706' : '#16a34a' }} />
+                                </div>
+                              </div>
+                              <div className="staff-metric">
+                                <span className="staff-metric-val">{staff.tasksCount}</span>
+                                <span className="staff-metric-lbl">Việc đang làm</span>
+                              </div>
+                              <div className="staff-metric">
+                                <span className="staff-metric-val">{onTimeRate}%</span>
+                                <span className="staff-metric-lbl">Đúng hạn</span>
+                              </div>
+                            </div>
+
+                            {/* Score & Grade */}
+                            <div className="staff-card-footer">
+                              <div>
+                                <span style={{ fontWeight: 800, fontSize: '0.92rem' }}>{staff.score}/10</span>
+                                <span className={`badge ${grad.badge}`} style={{ marginLeft: 6, fontSize: '0.68rem' }}>{grad.label}</span>
+                              </div>
+                              {canAssignToByName(activeRole, staff.name) && (
+                                <button
+                                  type="button"
+                                  className="btn btn-outline btn-sm"
+                                  onClick={(e) => { e.stopPropagation(); setActiveModule('create-task'); setNewAssignee(staff.name); }}
+                                  title={`Giao việc cho ${staff.name}`}
+                                >
+                                  <Icon name="paper-plane" size={11} /> Giao việc
+                                </button>
+                              )}
+                            </div>
+
+                            {isOver && (
+                              <div className="staff-overload-badge">
+                                <Icon name="triangle-exclamation" size={11} /> Quá tải +{staff.assignedHours - staff.maxHours}h
+                              </div>
                             )}
                           </div>
+                        );
+                      })}
+                  </div>
 
-                          {isOver && (
-                            <div className="staff-overload-badge">
-                              <Icon name="triangle-exclamation" size={11} /> Quá tải +{staff.assignedHours - staff.maxHours}h
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                  {/* Load More Button for Profile Cards */}
+                  {userHasMore && (
+                    <div style={{ textAlign: 'center', marginTop: 12 }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        disabled={userLoading}
+                        onClick={() => setUserPage(prev => prev + 1)}
+                        style={{ width: '100%', maxWidth: 360, margin: '0 auto', justifyContent: 'center', padding: '10px 20px', fontWeight: 600 }}
+                      >
+                        {userLoading ? (
+                          <>
+                            <Icon name="spinner" className="fa-spin" size={14} /> Đang tải...
+                          </>
+                        ) : (
+                          <>
+                            <Icon name="angles-down" size={14} /> Xem thêm cán bộ (Còn {userTotalCount - paginatedUsersList.length} người)
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3354,9 +4223,9 @@ export default function DashboardPage() {
                       <span>Biểu đồ tải công việc giúp Lãnh đạo giao đúng người, tránh quá tải. Mỗi cán bộ có định mức 40 giờ/tuần.</span>
                     </div>
 
-                    {(dbUsers.length > 0 ? dbUsers.map(u => {
+                    {(paginatedUsersList.length > 0 ? paginatedUsersList.map(u => {
                       const staffSample = activeStaffList.find(s => s.name === u.fullName);
-                      const activeTasks = tasks.filter(t => t.assignee === u.fullName && t.status !== 'Hoan_Thanh');
+                      const activeTasks = tasks.filter(t => t.assignee === u.fullName && t.status !== 'Hoan_Thanh' && t.status !== 'Tu_Choi');
                       return {
                         id: u.id,
                         name: u.fullName,
@@ -3365,16 +4234,21 @@ export default function DashboardPage() {
                         departmentCode: (staffSample?.departmentCode || 'VAN_PHONG') as DepartmentCode,
                         initials: u.fullName.split(' ').pop()?.[0] || 'NV',
                         specialization: staffSample?.specialization || 'Công tác chuyên môn',
-                        assignedHours: staffWorkload.get(u.fullName) ?? 0,
+                        assignedHours: u.assignedHours,
                         maxHours: u.maxHours || 40,
-                        tasksCount: activeTasks.length,
+                        utilizationRate: u.utilizationRate,
+                        isOverloaded: u.isOverloaded,
+                        tasksCount: activeTasks.length || staffSample?.tasksCount || 0,
                         avatarBg: staffSample?.avatarBg || '#eff6ff',
                       };
-                    }) : activeStaffList)
-                      .filter(s => selectedDeptFilter === 'ALL' || s.departmentCode === selectedDeptFilter)
+                    }) : activeStaffList.filter(s => selectedDeptFilter === 'ALL' || s.departmentCode === selectedDeptFilter).map(s => ({
+                      ...s,
+                      utilizationRate: Math.round((s.assignedHours / s.maxHours) * 100),
+                      isOverloaded: s.assignedHours > s.maxHours,
+                    })))
                       .map(staff => {
-                        const rate = Math.round((staff.assignedHours / staff.maxHours) * 100);
-                        const isOver = rate > 100;
+                        const rate = staff.utilizationRate || Math.round((staff.assignedHours / staff.maxHours) * 100);
+                        const isOver = staff.isOverloaded || rate > 100;
                         const dept = DEPARTMENTS[staff.departmentCode] || DEPARTMENTS['VAN_PHONG'];
                         return (
                           <div key={staff.id} className={`workload-item ${isOver ? 'overloaded' : ''}`}>
@@ -3435,6 +4309,29 @@ export default function DashboardPage() {
                           </div>
                         );
                       })}
+
+                    {/* Load More Button for Workload tab */}
+                    {userHasMore && (
+                      <div style={{ textAlign: 'center', marginTop: 12 }}>
+                        <button
+                          type="button"
+                          className="btn btn-outline"
+                          disabled={userLoading}
+                          onClick={() => setUserPage(prev => prev + 1)}
+                          style={{ width: '100%', maxWidth: 360, margin: '0 auto', justifyContent: 'center', padding: '10px 20px', fontWeight: 600 }}
+                        >
+                          {userLoading ? (
+                            <>
+                              <Icon name="spinner" className="fa-spin" size={14} /> Đang tải...
+                            </>
+                          ) : (
+                            <>
+                              <Icon name="angles-down" size={14} /> Xem thêm cán bộ (Còn {userTotalCount - paginatedUsersList.length} người)
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )
               )}
@@ -3671,7 +4568,8 @@ export default function DashboardPage() {
                       }
 
                       addToast('Thành công', `Đã giao việc "${newTitle}" cho ${newAssignee}!`, 'success');
-                      setActiveModule('tasks');
+                      setActiveModule('workcenter');
+                      setWorkcenterTab('today');
                       setSelectedTaskId(createdTask.id);
                       setCreateTaskSource(null);
                       setNewTitle('');
@@ -4125,9 +5023,27 @@ export default function DashboardPage() {
                 {selectedTask.rating && (() => {
                   const tier = getEvaluationTier(selectedTask.rating);
                   return (
-                    <span className={`badge ${tier.badgeClass}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <Icon name={tier.icon} size={11} /> Đánh giá: {selectedTask.rating.toFixed(1)}/10 — Mức {tier.level}: {tier.label}
-                    </span>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span className={`badge ${tier.badgeClass}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Icon name={tier.icon} size={11} /> Đánh giá: {selectedTask.rating.toFixed(1)}/10 — Mức {tier.level}: {tier.label}
+                      </span>
+                      {ROLE_CONFIG[activeRole].scopeLevel <= 3.0 && (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => {
+                            setRatingRevisionNewScore(selectedTask.rating || 8.0);
+                            setRatingRevisionReason('');
+                            setRatingRevisionEvidenceUrl('');
+                            setShowRatingRevisionModal(true);
+                          }}
+                          style={{ fontSize: '0.72rem', padding: '2px 8px', fontWeight: 600 }}
+                          title="Yêu cầu điều chỉnh điểm số đánh giá"
+                        >
+                          <Icon name="pen-to-square" size={11} /> Yêu cầu sửa đánh giá
+                        </button>
+                      )}
+                    </div>
                   );
                 })()}
               </div>
@@ -4186,6 +5102,95 @@ export default function DashboardPage() {
                   </div>
                 </div>
               )}
+
+              {/* ── LỊCH SỬ ĐÁNH GIÁ & NGHIỆM THU (AUDIT TRAIL MINH BẠCH 100%) ── */}
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, marginBottom: 18 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="clock-rotate-left" size={14} style={{ color: '#2563eb' }} />
+                    Lịch Sử Đánh Giá & Điều Chỉnh Điểm ({taskRatingHistory.length})
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {selectedTask && (
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-xs"
+                        style={{ borderColor: '#2563eb', color: '#2563eb', fontWeight: 600, fontSize: '0.75rem', padding: '3px 8px' }}
+                        onClick={() => handleOpenRatingRevisionModal(selectedTask)}
+                      >
+                        <Icon name="pen-to-square" size={11} style={{ marginRight: 4 }} /> Yêu cầu sửa đánh giá
+                      </button>
+                    )}
+                    <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 500 }}>Minh bạch 100%</span>
+                  </div>
+                </div>
+
+                {taskRatingHistory.length === 0 ? (
+                  <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic', padding: '6px 0' }}>
+                    Chưa có lịch sử thay đổi điểm số đánh giá.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 10 }}>
+                    {taskRatingHistory.map((item) => {
+                      const getStatusBadge = (status: RatingApprovalStatusEnum) => {
+                        switch (status) {
+                          case 'Applied': return <span className="badge" style={{ background: '#ecfdf5', color: '#16a34a', border: '1px solid #a7f3d0' }}><Icon name="check" size={10} /> Đã áp dụng</span>;
+                          case 'PendingApproval': return <span className="badge" style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fef3c7' }}><Icon name="clock" size={10} /> Chờ cấp trên duyệt</span>;
+                          case 'ApprovedBySuperior': return <span className="badge" style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }}><Icon name="circle-check" size={10} /> Cấp trên đã duyệt</span>;
+                          case 'RejectedBySuperior': return <span className="badge" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}><Icon name="xmark" size={10} /> Từ chối</span>;
+                          default: return <span className="badge">{status}</span>;
+                        }
+                      };
+
+                      return (
+                        <div key={item.id} style={{ background: '#f8fafc', padding: '10px 12px', borderRadius: 6, border: '1px solid #f1f5f9', fontSize: '0.82rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <div>
+                              <span style={{ fontWeight: 700, color: '#1e293b' }}>
+                                {item.oldScore !== null && item.oldScore !== undefined ? `${item.oldScore.toFixed(1)} điểm` : 'Chưa chấm'} → <strong style={{ color: '#2563eb' }}>{item.newScore.toFixed(1)} điểm</strong>
+                              </span>
+                              <span style={{ fontSize: '0.72rem', color: '#64748b', marginLeft: 8 }}>
+                                (Độ lệch: {item.scoreDelta.toFixed(1)} đ)
+                              </span>
+                            </div>
+                            {getStatusBadge(item.approvalStatus)}
+                          </div>
+
+                          <div style={{ color: '#475569', fontSize: '0.8rem', marginTop: 4, lineHeight: 1.4 }}>
+                            <strong>Lý do:</strong> {item.reason}
+                          </div>
+
+                          {item.evidenceUrl && (
+                            <div style={{ marginTop: 4, fontSize: '0.78rem' }}>
+                              <strong>Minh chứng:</strong>{' '}
+                              <a href={item.evidenceUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                                <Icon name="paperclip" size={11} /> {item.evidenceUrl.length > 45 ? item.evidenceUrl.substring(0, 45) + '...' : item.evidenceUrl}
+                              </a>
+                            </div>
+                          )}
+
+                          <div style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+                            <span>Người yêu cầu: <strong>{item.changedByUserName}</strong></span>
+                            <span>{new Date(item.changedAt).toLocaleString('vi-VN')}</span>
+                          </div>
+
+                          {item.approvedByUserName && (
+                            <div style={{ fontSize: '0.72rem', color: '#16a34a', marginTop: 3 }}>
+                              <Icon name="user-check" size={10} /> Người duyệt cấp trên: <strong>{item.approvedByUserName}</strong> ({item.approvedAt ? new Date(item.approvedAt).toLocaleString('vi-VN') : ''})
+                            </div>
+                          )}
+
+                          {item.rejectionReason && (
+                            <div style={{ fontSize: '0.72rem', color: '#dc2626', marginTop: 3 }}>
+                              <Icon name="triangle-exclamation" size={10} /> Lý do từ chối: {item.rejectionReason}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
 
               {/* ── BÌNH LUẬN & @MENTION ── */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -4546,6 +5551,237 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
+         MODAL: YÊU CẦU SỬA ĐÁNH GIÁ CÔNG VIỆC (CHỐNG THIÊN VỊ)
+         ═══════════════════════════════════════════════════════════════ */}
+      {showRatingRevisionModal && selectedTask && (() => {
+        const oldScore = selectedTask.rating !== undefined && selectedTask.rating !== null ? selectedTask.rating : 0;
+        const delta = Math.abs(ratingRevisionNewScore - oldScore);
+        const isPendingApprovalNeeded = delta > 1.0;
+        const isReasonValid = ratingRevisionReason.trim().length >= 30;
+        const isEvidenceValid = ratingRevisionEvidenceUrl.trim().length > 0;
+
+        return (
+          <div className="welcome-modal-overlay">
+            <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 560 }}>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: 14, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="pen-to-square" size={18} style={{ color: '#2563eb' }} /> YÊU CẦU SỬA ĐÁNH GIÁ CÔNG VIỆC
+              </h2>
+
+              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 14, fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontWeight: 700, color: '#0f172a' }}>{selectedTask.title}</div>
+                <div style={{ color: '#64748b', marginTop: 2 }}>
+                  Điểm đánh giá hiện tại: <strong>{oldScore > 0 ? `${oldScore.toFixed(1)} điểm` : 'Chưa chấm'}</strong>
+                </div>
+              </div>
+
+              {/* 10-Point Score Selector */}
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label className="form-label" style={{ marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Chọn điểm mới đề xuất (1.0 – 10.0 điểm):</span>
+                  <span style={{ fontWeight: 800, fontSize: '1.1rem', color: '#2563eb' }}>
+                    {ratingRevisionNewScore.toFixed(1)} / 10.0
+                  </span>
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(scoreVal => {
+                    const isSelected = Math.round(ratingRevisionNewScore) === scoreVal;
+                    return (
+                      <button
+                        key={scoreVal}
+                        type="button"
+                        onClick={() => setRatingRevisionNewScore(scoreVal)}
+                        className="btn"
+                        style={{
+                          padding: '8px 0',
+                          fontSize: '0.85rem',
+                          fontWeight: 800,
+                          borderRadius: 6,
+                          border: `1.5px solid ${isSelected ? '#2563eb' : '#cbd5e1'}`,
+                          background: isSelected ? '#eff6ff' : '#ffffff',
+                          color: isSelected ? '#2563eb' : '#475569',
+                          boxShadow: isSelected ? '0 2px 6px rgba(37,99,235,0.2)' : 'none',
+                        }}
+                      >
+                        {scoreVal}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Pre-submit Warning Banner */}
+              {isPendingApprovalNeeded ? (
+                <div className="alert alert-warning" style={{ background: '#fffbeb', border: '1px solid #fef3c7', color: '#b45309', padding: '10px 12px', borderRadius: 8, marginBottom: 14, fontSize: '0.8rem' }}>
+                  <Icon name="triangle-exclamation" size={14} style={{ marginRight: 6 }} />
+                  Độ lệch {delta.toFixed(1)} điểm (<strong>&gt; 1.0 điểm</strong>). Thay đổi này <strong>cần Cấp trên phê duyệt</strong> trước khi có hiệu lực chính thức!
+                </div>
+              ) : (
+                <div className="alert alert-info" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '10px 12px', borderRadius: 8, marginBottom: 14, fontSize: '0.8rem' }}>
+                  <Icon name="circle-check" size={14} style={{ marginRight: 6 }} />
+                  Độ lệch {delta.toFixed(1)} điểm (<strong>&le; 1.0 điểm</strong>). Điểm mới sẽ được <strong>áp dụng ngay lập tức</strong>.
+                </div>
+              )}
+
+              {/* Reason Textarea */}
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>Lý do thay đổi đánh giá <span className="required">*</span></span>
+                  <span style={{ fontSize: '0.72rem', color: isReasonValid ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                    {ratingRevisionReason.trim().length} / 30 ký tự
+                  </span>
+                </label>
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  placeholder="Nhập lý do chi tiết giải trình việc điều chỉnh điểm (Bắt buộc tối thiểu 30 ký tự để chống thiên vị)..."
+                  value={ratingRevisionReason}
+                  onChange={e => setRatingRevisionReason(e.target.value)}
+                />
+              </div>
+
+              {/* Evidence URL Input */}
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label">Minh chứng đính kèm (Biên bản, ảnh chụp, URL tài liệu) <span className="required">*</span></label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="https://minhchung.catngan.gov.vn/bienban-suadiem.pdf"
+                  value={ratingRevisionEvidenceUrl}
+                  onChange={e => setRatingRevisionEvidenceUrl(e.target.value)}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                <button className="btn btn-outline" onClick={() => setShowRatingRevisionModal(false)}>Hủy</button>
+                <button
+                  className="btn btn-primary"
+                  disabled={!isReasonValid || !isEvidenceValid}
+                  onClick={handleSubmitRatingRevision}
+                >
+                  <Icon name="paper-plane" size={14} /> Gửi Đề Xuất Sửa Điểm
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════════
+         MODAL: PHÊ DUYỆT ĐỀ XUẤT SỬA ĐÁNH GIÁ (DÀNH CHO LÃNH ĐẠO CẤP TRÊN)
+         ═══════════════════════════════════════════════════════════════ */}
+      {showPendingRatingRevisionsModal && (
+        <div className="welcome-modal-overlay">
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 680 }}>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: 14, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="user-check" size={18} style={{ color: '#2563eb' }} /> PHÊ DUYỆT ĐỀ XUẤT SỬA ĐÁNH GIÁ ({pendingRatingRevisions.length})
+            </h2>
+
+            {pendingRatingRevisions.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: '0.85rem' }}>
+                <Icon name="circle-check" size={24} style={{ color: '#16a34a', marginBottom: 8 }} />
+                <div>Không có đề xuất điều chỉnh điểm nào đang chờ phê duyệt.</div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 420, overflowY: 'auto', paddingRight: 4, marginBottom: 16 }}>
+                {pendingRatingRevisions.map(item => (
+                  <div key={item.id} style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.83rem' }}>
+                    <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '0.9rem', marginBottom: 4 }}>
+                      {item.taskItemTitle}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <div>
+                        Điểm cũ: <strong>{item.oldScore !== null && item.oldScore !== undefined ? `${item.oldScore.toFixed(1)} đ` : 'Chưa chấm'}</strong> → Đề xuất mới: <strong style={{ color: '#2563eb' }}>{item.newScore.toFixed(1)} đ</strong> (Chênh: {item.scoreDelta.toFixed(1)} đ)
+                      </div>
+                      <span className="badge" style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fef3c7' }}>
+                        Chờ cấp trên duyệt
+                      </span>
+                    </div>
+
+                    <div style={{ color: '#475569', marginBottom: 4 }}>
+                      <strong>Người đề xuất:</strong> {item.changedByUserName} ({new Date(item.changedAt).toLocaleString('vi-VN')})
+                    </div>
+                    <div style={{ color: '#334155', marginBottom: 6, lineHeight: 1.4 }}>
+                      <strong>Lý do:</strong> {item.reason}
+                    </div>
+                    {item.evidenceUrl && (
+                      <div style={{ marginBottom: 10, fontSize: '0.78rem' }}>
+                        <strong>Minh chứng:</strong>{' '}
+                        <a href={item.evidenceUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                          <Icon name="paperclip" size={11} /> Xem tài liệu minh chứng
+                        </a>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                      <button
+                        className="btn btn-danger btn-xs"
+                        onClick={() => {
+                          setRejectingRevisionHistoryId(item.id);
+                          setRejectingRevisionReasonInput('');
+                        }}
+                      >
+                        <Icon name="xmark" size={11} /> Từ Chối
+                      </button>
+                      <button
+                        className="btn btn-success btn-xs"
+                        onClick={() => handleApprovePendingRevision(item.id)}
+                      >
+                        <Icon name="check" size={11} /> Phê Duyệt Áp Dụng
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-outline" onClick={() => setShowPendingRatingRevisionsModal(false)}>Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+         MODAL: TỪ CHỐI ĐỀ XUẤT SỬA ĐÁNH GIÁ (NHẬP LÝ DO ≥ 10 KÝ TỰ)
+         ═══════════════════════════════════════════════════════════════ */}
+      {rejectingRevisionHistoryId && (
+        <div className="welcome-modal-overlay">
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 480 }}>
+            <h2 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: 12, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="circle-xmark" size={16} /> Từ Chối Đề Xuất Sửa Điểm
+            </h2>
+
+            <div className="form-group" style={{ marginBottom: 14 }}>
+              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Lý do từ chối (Bắt buộc tối thiểu 10 ký tự) <span className="required">*</span></span>
+                <span style={{ fontSize: '0.72rem', color: rejectingRevisionReasonInput.trim().length >= 10 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                  {rejectingRevisionReasonInput.trim().length} / 10 ký tự
+                </span>
+              </label>
+              <textarea
+                className="form-control"
+                rows={3}
+                placeholder="Nhập lý do từ chối đề xuất điều chỉnh điểm số..."
+                value={rejectingRevisionReasonInput}
+                onChange={e => setRejectingRevisionReasonInput(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-outline" onClick={() => setRejectingRevisionHistoryId(null)}>Hủy</button>
+              <button
+                className="btn btn-danger"
+                disabled={rejectingRevisionReasonInput.trim().length < 10}
+                onClick={handleRejectPendingRevision}
+              >
+                Xác Nhận Từ Chối
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
          MODAL: ĐIỀU CHUYỂN CÔNG VIỆC / TẢI VIỆC
          ═══════════════════════════════════════════════════════════════ */}
       {showTransferModal && (
@@ -4691,8 +5927,8 @@ export default function DashboardPage() {
                   if (res && res.success) {
                     // 3. Re-fetch tasks từ PostgreSQL API để đồng bộ UI & F5 vĩnh viễn!
                     const tasksRes = await getTasksApi();
-                    if (tasksRes.success && tasksRes.data && tasksRes.data.length > 0) {
-                      const mapped: Task[] = tasksRes.data.map(t => ({
+                    if (tasksRes.success && tasksRes.data && tasksRes.data.items && tasksRes.data.items.length > 0) {
+                      const mapped: Task[] = tasksRes.data.items.map(t => ({
                         id: t.id,
                         title: t.title,
                         description: t.description,
@@ -4877,7 +6113,8 @@ export default function DashboardPage() {
                   setScheduleTitle('');
                   setScheduleDescription('');
                   setScheduleSourceMail(null);
-                  setActiveModule('tasks');
+                  setActiveModule('workcenter');
+                  setWorkcenterTab('week');
                   setSelectedTaskId(newTask.id);
                 }}
               >
@@ -4969,6 +6206,669 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
+         MODAL: SOẠN THẢO / CHỈNH SỬA VĂN BẢN ĐI
+         ═══════════════════════════════════════════════════════════════ */}
+      {showCreateOutgoingModal && (
+        <div className="welcome-modal-overlay">
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 640 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="pen-to-square" size={18} style={{ color: '#2563eb' }} />
+                {editingOutgoingDoc ? 'Chỉnh Sửa Bản Nháp Văn Bản Đi' : (formDocIsCorrection ? 'Soạn Văn Bản Đính Chính' : 'Soạn Văn Bản Đi Mới')}
+              </h2>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowCreateOutgoingModal(false)}>
+                <Icon name="xmark" size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {formDocIsCorrection && (
+                <div className="alert alert-warning" style={{ margin: 0, fontSize: '0.85rem' }}>
+                  <Icon name="triangle-exclamation" size={14} /> <strong>Văn bản đính chính:</strong> Đang khởi tạo văn bản đính chính cho văn bản gốc đã ban hành.
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Loại văn bản <span style={{ color: '#dc2626' }}>*</span></label>
+                  <select
+                    className="form-select"
+                    value={formDocType}
+                    onChange={(e) => setFormDocType(e.target.value as DocumentTypeEnum)}
+                  >
+                    <option value="CongVan">Công văn (CV)</option>
+                    <option value="QuyetDinh">Quyết định (QĐ)</option>
+                    <option value="ThongBao">Thông báo (TB)</option>
+                    <option value="BaoCao">Báo cáo (BC)</option>
+                    <option value="KeHoach">Kế hoạch (KH)</option>
+                    <option value="ToTrinh">Tờ trình (TTr)</option>
+                    <option value="CongDien">Công điện (CĐ)</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Nơi nhận / Đơn vị nhận</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="VD: UBND Huyện, Các phòng ban, Công dân..."
+                    value={formDocRecipient}
+                    onChange={(e) => setFormDocRecipient(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Trích yếu nội dung <span style={{ color: '#dc2626' }}>*</span></label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="Nhập trích yếu ngắn gọn khái quát nội dung văn bản..."
+                  value={formDocTitle}
+                  onChange={(e) => setFormDocTitle(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Nội dung văn bản chi tiết</label>
+                <textarea
+                  className="form-control"
+                  rows={6}
+                  placeholder="Nhập toàn bộ nội dung văn bản đi..."
+                  value={formDocContent}
+                  onChange={(e) => setFormDocContent(e.target.value)}
+                  style={{ fontFamily: 'inherit', fontSize: '0.9rem', lineHeight: 1.5 }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={formDocIsUrgent}
+                    onChange={(e) => setFormDocIsUrgent(e.target.checked)}
+                  />
+                  <span>Văn bản Thượng khẩn / Khẩn</span>
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+              <button type="button" className="btn btn-outline" onClick={() => setShowCreateOutgoingModal(false)}>Hủy</button>
+              
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={async () => {
+                  if (!formDocTitle.trim()) {
+                    addToast('Thiếu thông tin', 'Vui lòng nhập Trích yếu nội dung văn bản!', 'warning');
+                    return;
+                  }
+
+                  if (editingOutgoingDoc) {
+                    const res = await updateOutgoingDocumentApi(editingOutgoingDoc.id, {
+                      documentType: formDocType,
+                      title: formDocTitle.trim(),
+                      content: formDocContent,
+                      recipientNote: formDocRecipient,
+                      isUrgent: formDocIsUrgent,
+                      relatedTaskItemId: formDocRelatedTaskId || undefined,
+                    });
+                    if (res.success) {
+                      addToast('Thành công', 'Đã cập nhật bản nháp văn bản đi!', 'success');
+                      setShowCreateOutgoingModal(false);
+                      fetchOutgoingDocs();
+                    } else {
+                      addToast('Lỗi', res.error || 'Không thể cập nhật văn bản nháp.', 'danger');
+                    }
+                  } else {
+                    const res = await createOutgoingDocumentApi({
+                      documentType: formDocType,
+                      title: formDocTitle.trim(),
+                      content: formDocContent,
+                      recipientNote: formDocRecipient,
+                      isUrgent: formDocIsUrgent,
+                      relatedTaskItemId: formDocRelatedTaskId || undefined,
+                      isCorrectionDocument: formDocIsCorrection,
+                      originalDocumentId: formDocOriginalId || undefined,
+                    });
+                    if (res.success) {
+                      addToast('Thành công', 'Đã lưu bản nháp văn bản đi!', 'success');
+                      setShowCreateOutgoingModal(false);
+                      fetchOutgoingDocs();
+                    } else {
+                      addToast('Lỗi', res.error || 'Không thể tạo bản nháp văn bản.', 'danger');
+                    }
+                  }
+                }}
+              >
+                <Icon name="floppy-disk" size={14} /> Lưu Nháp
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={async () => {
+                  if (!formDocTitle.trim()) {
+                    addToast('Thiếu thông tin', 'Vui lòng nhập Trích yếu nội dung văn bản!', 'warning');
+                    return;
+                  }
+
+                  let targetDocId = editingOutgoingDoc?.id;
+                  if (editingOutgoingDoc) {
+                    await updateOutgoingDocumentApi(editingOutgoingDoc.id, {
+                      documentType: formDocType,
+                      title: formDocTitle.trim(),
+                      content: formDocContent,
+                      recipientNote: formDocRecipient,
+                      isUrgent: formDocIsUrgent,
+                      relatedTaskItemId: formDocRelatedTaskId || undefined,
+                    });
+                  } else {
+                    const createRes = await createOutgoingDocumentApi({
+                      documentType: formDocType,
+                      title: formDocTitle.trim(),
+                      content: formDocContent,
+                      recipientNote: formDocRecipient,
+                      isUrgent: formDocIsUrgent,
+                      relatedTaskItemId: formDocRelatedTaskId || undefined,
+                      isCorrectionDocument: formDocIsCorrection,
+                      originalDocumentId: formDocOriginalId || undefined,
+                    });
+                    if (createRes.success && createRes.data) {
+                      targetDocId = createRes.data;
+                    }
+                  }
+
+                  if (targetDocId) {
+                    const submitRes = await submitOutgoingDocumentForSignatureApi(targetDocId);
+                    if (submitRes.success) {
+                      addToast('Trình ký thành công', 'Văn bản đã được chuyển tới Lãnh đạo phê duyệt & ký ban hành!', 'success');
+                      setShowCreateOutgoingModal(false);
+                      fetchOutgoingDocs();
+                    } else {
+                      addToast('Lỗi', submitRes.error || 'Không thể trình ký văn bản.', 'danger');
+                    }
+                  }
+                }}
+              >
+                <Icon name="paper-plane" size={14} /> Lưu & Trình Ký Duyệt
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+         MODAL: CHI TIẾT VĂN BẢN ĐI & KÝ DUYỆT / BAN HÀNH
+         ═══════════════════════════════════════════════════════════════ */}
+      {showDetailOutgoingModal && selectedOutgoingDoc && (
+        <div className="welcome-modal-overlay">
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 700 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid #e2e8f0', paddingBottom: 14, marginBottom: 14 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span className="badge" style={{ background: '#f0f9ff', color: '#0284c7', fontWeight: 700 }}>
+                    {selectedOutgoingDoc.documentTypeName}
+                  </span>
+                  <span style={{ fontWeight: 700, fontSize: '0.88rem', color: selectedOutgoingDoc.documentNumber ? '#15803d' : '#94a3b8' }}>
+                    SỐ HIỆU: {selectedOutgoingDoc.documentNumber || 'CHƯA CẤP SỐ (BẢN NHÁP/TRÌNH KÝ)'}
+                  </span>
+                  {selectedOutgoingDoc.isUrgent && <span className="badge badge-urgent">KHẨN</span>}
+                </div>
+                <h2 style={{ fontSize: '1.2rem', fontWeight: 800, margin: 0, color: '#0f172a', lineHeight: 1.35 }}>
+                  {selectedOutgoingDoc.title}
+                </h2>
+              </div>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowDetailOutgoingModal(false)}>
+                <Icon name="xmark" size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Alert status notes */}
+              {selectedOutgoingDoc.status === 'Issued' && (
+                <div className="alert alert-success" style={{ margin: 0, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="check-double" size={16} style={{ color: '#16a34a' }} />
+                  <div>
+                    <strong>Văn bản đã ban hành chính thức!</strong> Số hiệu <strong>{selectedOutgoingDoc.documentNumber}</strong>. Văn bản đã ký là bất biến (không thể chỉnh sửa trực tiếp).
+                  </div>
+                </div>
+              )}
+
+              {selectedOutgoingDoc.status === 'Rejected' && (
+                <div className="alert alert-danger" style={{ margin: 0, fontSize: '0.85rem' }}>
+                  <Icon name="triangle-exclamation" size={16} /> <strong>Lý do từ chối ký:</strong> {selectedOutgoingDoc.rejectionReason || 'Cần chỉnh sửa bổ sung nội dung.'}
+                </div>
+              )}
+
+              {/* Document Meta Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, background: '#f8fafc', padding: 14, borderRadius: 8, fontSize: '0.85rem' }}>
+                <div>Người soạn nháp: <strong>{selectedOutgoingDoc.draftedByUserName}</strong></div>
+                <div>Thời gian soạn: <strong>{selectedOutgoingDoc.draftedAt ? new Date(selectedOutgoingDoc.draftedAt).toLocaleString('vi-VN') : '—'}</strong></div>
+                <div>Nơi nhận văn bản: <strong>{selectedOutgoingDoc.recipientNote || 'Các phòng ban / Công dân'}</strong></div>
+                <div>Người ký duyệt: <strong>{selectedOutgoingDoc.signedByUserName || 'Chờ Lãnh đạo ký'}</strong></div>
+              </div>
+
+              {/* Document Content View */}
+              <div>
+                <label style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6, display: 'block' }}>NỘI DUNG VĂN BẢN GỬI ĐỊ:</label>
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, minHeight: 140, whiteSpace: 'pre-wrap', fontSize: '0.9rem', lineHeight: 1.6, color: '#1e293b' }}>
+                  {selectedOutgoingDoc.content || '(Chưa nhập nội dung văn bản chi tiết)'}
+                </div>
+              </div>
+
+              {/* Rejection input area */}
+              {showRejectInput && (
+                <div style={{ background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>
+                  <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#dc2626', marginBottom: 4, display: 'block' }}>NHẬP LÝ DO TỪ CHỐI PHÊ DUYỆT <span style={{ color: '#dc2626' }}>*</span></label>
+                  <textarea
+                    className="form-control"
+                    rows={3}
+                    placeholder="Vui lòng nêu rõ lý do từ chối để cán bộ soạn nháp chỉnh sửa lại..."
+                    value={rejectionReasonInput}
+                    onChange={(e) => setRejectionReasonInput(e.target.value)}
+                    style={{ fontSize: '0.88rem' }}
+                  />
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+                    <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowRejectInput(false)}>Hủy</button>
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-xs"
+                      onClick={async () => {
+                        if (!rejectionReasonInput.trim()) {
+                          addToast('Thiếu lý do', 'Vui lòng nhập lý do từ chối phê duyệt!', 'warning');
+                          return;
+                        }
+                        const res = await rejectOutgoingDocumentApi(selectedOutgoingDoc.id, rejectionReasonInput.trim());
+                        if (res.success) {
+                          addToast('Đã từ chối', 'Đã trả về bản nháp cho người soạn chỉnh sửa.', 'info');
+                          setShowDetailOutgoingModal(false);
+                          fetchOutgoingDocs();
+                        } else {
+                          addToast('Lỗi', res.error || 'Không thể thực hiện từ chối.', 'danger');
+                        }
+                      }}
+                    >
+                      Xác Nhận Từ Chối
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Action Bar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, paddingTop: 14, borderTop: '1px solid #e2e8f0', flexWrap: 'wrap', gap: 10 }}>
+              <button type="button" className="btn btn-outline" onClick={() => setShowDetailOutgoingModal(false)}>Đóng</button>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {/* 1. LÃNH ĐẠO KÝ & BAN HÀNH / TỪ CHỐI (KHI DANG PENDING SIGNATURE & RANKLEVEL <= 2.5) */}
+                {selectedOutgoingDoc.status === 'PendingSignature' && ROLE_CONFIG[activeRole]?.scopeLevel <= 2.5 && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-danger"
+                      onClick={() => setShowRejectInput(true)}
+                    >
+                      <Icon name="xmark" size={14} /> Từ Chối Duyệt
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-success"
+                      onClick={async () => {
+                        const res = await signAndIssueOutgoingDocumentApi(selectedOutgoingDoc.id);
+                        if (res.success && res.data) {
+                          addToast('Ký & Ban Hành Thành Công!', `Văn bản đã được cấp số hiệu tự động: ${res.data.documentNumber}`, 'success');
+                          setShowDetailOutgoingModal(false);
+                          fetchOutgoingDocs();
+                        } else {
+                          addToast('Lỗi Ký Văn Bản', res.error || 'Không thể ký ban hành văn bản.', 'danger');
+                        }
+                      }}
+                      style={{ fontWeight: 700 }}
+                    >
+                      <Icon name="signature" size={14} /> Ký & Ban Hành
+                    </button>
+                  </>
+                )}
+
+                {/* 2. THU HỒI VỀ NHÁP (KHI DANG PENDING SIGNATURE) */}
+                {selectedOutgoingDoc.status === 'PendingSignature' && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={async () => {
+                      const res = await revokeOutgoingDocumentApi(selectedOutgoingDoc.id);
+                      if (res.success) {
+                        addToast('Đã thu hồi', 'Văn bản đã được thu hồi về bản nháp.', 'info');
+                        setShowDetailOutgoingModal(false);
+                        fetchOutgoingDocs();
+                      } else {
+                        addToast('Lỗi', res.error || 'Không thể thu hồi văn bản.', 'danger');
+                      }
+                    }}
+                  >
+                    <Icon name="rotate-left" size={14} /> Thu Hồi Về Nháp
+                  </button>
+                )}
+
+                {/* 3. TRÌNH KÝ / SỬA (KHI DANG DRAFT HOẶC REJECTED) */}
+                {(selectedOutgoingDoc.status === 'Draft' || selectedOutgoingDoc.status === 'Rejected') && (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={() => {
+                        setShowDetailOutgoingModal(false);
+                        setEditingOutgoingDoc(selectedOutgoingDoc);
+                        setFormDocType(selectedOutgoingDoc.documentType);
+                        setFormDocTitle(selectedOutgoingDoc.title);
+                        setFormDocContent(selectedOutgoingDoc.content);
+                        setFormDocRecipient(selectedOutgoingDoc.recipientNote || '');
+                        setFormDocIsUrgent(selectedOutgoingDoc.isUrgent);
+                        setFormDocRelatedTaskId(selectedOutgoingDoc.relatedTaskItemId || '');
+                        setFormDocIsCorrection(selectedOutgoingDoc.isCorrectionDocument);
+                        setFormDocOriginalId(selectedOutgoingDoc.originalDocumentId || '');
+                        setShowCreateOutgoingModal(true);
+                      }}
+                    >
+                      <Icon name="pen-to-square" size={14} /> Sửa Bản Nháp
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={async () => {
+                        const res = await submitOutgoingDocumentForSignatureApi(selectedOutgoingDoc.id);
+                        if (res.success) {
+                          addToast('Trình ký thành công', 'Văn bản đã chuyển tới Lãnh đạo duyệt ký.', 'success');
+                          setShowDetailOutgoingModal(false);
+                          fetchOutgoingDocs();
+                        } else {
+                          addToast('Lỗi', res.error || 'Không thể trình ký.', 'danger');
+                        }
+                      }}
+                    >
+                      <Icon name="paper-plane" size={14} /> Trình Ký Duyệt
+                    </button>
+                  </>
+                )}
+
+                {/* 4. TẠO VĂN BẢN ĐÍNH CHÍNH (KHI ĐÃ ISSUED) */}
+                {selectedOutgoingDoc.status === 'Issued' && (
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-warning"
+                    onClick={() => {
+                      setShowDetailOutgoingModal(false);
+                      setEditingOutgoingDoc(null);
+                      setFormDocType('CongVan');
+                      setFormDocTitle(`Công văn đính chính văn bản số ${selectedOutgoingDoc.documentNumber}`);
+                      setFormDocContent(`Kính gửi: ${selectedOutgoingDoc.recipientNote || 'Các đơn vị liên quan'}\n\nNội dung đính chính cho văn bản số ${selectedOutgoingDoc.documentNumber} (${selectedOutgoingDoc.title}):\n\n- `);
+                      setFormDocRecipient(selectedOutgoingDoc.recipientNote || '');
+                      setFormDocIsUrgent(false);
+                      setFormDocRelatedTaskId(selectedOutgoingDoc.relatedTaskItemId || '');
+                      setFormDocIsCorrection(true);
+                      setFormDocOriginalId(selectedOutgoingDoc.id);
+                      setShowCreateOutgoingModal(true);
+                    }}
+                  >
+                    <Icon name="file-pen" size={14} /> Tạo Văn Bản Đính Chính
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+         MODAL: YÊU CẦU ĐIỀU CHỈNH ĐIỂM ĐÁNH GIÁ (KÈM MAKER-CHECKER THRESHOLD)
+         ═══════════════════════════════════════════════════════════════ */}
+      {showRatingRevisionModal && selectedTask && (
+        <div className="welcome-modal-overlay">
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 580 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="pen-to-square" size={18} style={{ color: '#2563eb' }} />
+                Yêu Cầu Sửa Đánh Giá & Nghiệm Thu
+              </h2>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowRatingRevisionModal(false)}>
+                <Icon name="xmark" size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, fontSize: '0.85rem' }}>
+                <div>Công việc: <strong>{selectedTask.title}</strong></div>
+                <div>Điểm hiện tại: <strong style={{ color: '#2563eb' }}>{selectedTask.rating ? `${selectedTask.rating.toFixed(1)} / 10 điểm` : 'Chưa chấm'}</strong></div>
+              </div>
+
+              {/* Dynamic Threshold Alert */}
+              {(() => {
+                const oldScore = selectedTask.rating || ratingRevisionNewScore;
+                const delta = Math.abs(ratingRevisionNewScore - oldScore);
+                const isOverThreshold = delta > 1.0;
+
+                return isOverThreshold ? (
+                  <div className="alert alert-warning" style={{ margin: 0, fontSize: '0.85rem', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <Icon name="triangle-exclamation" size={16} style={{ color: '#d97706', marginTop: 2, flexShrink: 0 }} />
+                    <div>
+                      <strong>Cảnh báo Maker-Checker:</strong> Mức chênh lệch <strong>{delta.toFixed(1)} điểm</strong> (&gt; 1.0 điểm). Yêu cầu này <strong>bắt buộc phải chờ Lãnh đạo cấp trên phê duyệt</strong> mới thực sự thay đổi điểm số.
+                    </div>
+                  </div>
+                ) : (
+                  <div className="alert alert-info" style={{ margin: 0, fontSize: '0.85rem', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <Icon name="circle-check" size={16} style={{ color: '#2563eb', marginTop: 2, flexShrink: 0 }} />
+                    <div>
+                      Mức chênh lệch <strong>{delta.toFixed(1)} điểm</strong> (≤ 1.0 điểm): Điểm số đánh giá mới sẽ được <strong>tự động áp dụng ngay lập tức</strong>.
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Score Selector */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Chọn điểm số mới (thang 10) <span style={{ color: '#dc2626' }}>*</span></label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  {[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 8.5, 9.0, 9.5, 10.0].map(score => (
+                    <button
+                      key={score}
+                      type="button"
+                      className={`btn btn-sm ${ratingRevisionNewScore === score ? 'btn-primary' : 'btn-outline'}`}
+                      onClick={() => setRatingRevisionNewScore(score)}
+                      style={{ minWidth: 42, padding: '4px 8px', fontWeight: ratingRevisionNewScore === score ? 800 : 500 }}
+                    >
+                      {score.toFixed(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reason Textarea with live character counter */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <label className="form-label" style={{ margin: 0 }}>Lý do thay đổi điểm <span style={{ color: '#dc2626' }}>*</span></label>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: ratingRevisionReason.trim().length >= 30 ? '#16a34a' : '#dc2626' }}>
+                    ({ratingRevisionReason.trim().length} / 30 ký tự {ratingRevisionReason.trim().length >= 30 ? '✓ Hợp lệ' : '— Cần thêm ' + (30 - ratingRevisionReason.trim().length) + ' ký tự'})
+                  </span>
+                </div>
+                <textarea
+                  className="form-control"
+                  rows={4}
+                  placeholder="Nhập lý do chi tiết giải trình việc tăng/giảm điểm số (bắt buộc tối thiểu 30 ký tự để chống thiên vị)..."
+                  value={ratingRevisionReason}
+                  onChange={(e) => setRatingRevisionReason(e.target.value)}
+                  style={{ fontSize: '0.88rem' }}
+                />
+              </div>
+
+              {/* Evidence Url Input */}
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Đường dẫn tài liệu / ảnh chụp minh chứng <span style={{ color: '#dc2626' }}>*</span></label>
+                <input
+                  type="text"
+                  className="form-control"
+                  placeholder="VD: https://minhchung.catngan.gov.vn/bien-ban-kiem-tra.pdf"
+                  value={ratingRevisionEvidenceUrl}
+                  onChange={(e) => setRatingRevisionEvidenceUrl(e.target.value)}
+                  style={{ fontSize: '0.88rem' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+              <button type="button" className="btn btn-outline" onClick={() => setShowRatingRevisionModal(false)}>Hủy</button>
+              
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={ratingRevisionReason.trim().length < 30 || !ratingRevisionEvidenceUrl.trim()}
+                onClick={async () => {
+                  if (ratingRevisionReason.trim().length < 30) {
+                    addToast('Thiếu thông tin', 'Lý do thay đổi điểm phải chứa ít nhất 30 ký tự!', 'warning');
+                    return;
+                  }
+                  if (!ratingRevisionEvidenceUrl.trim()) {
+                    addToast('Thiếu minh chứng', 'Vui lòng nhập đường dẫn minh chứng đính kèm!', 'warning');
+                    return;
+                  }
+
+                  const res = await submitRatingRevisionApi(selectedTask.id, {
+                    newScore: ratingRevisionNewScore,
+                    reason: ratingRevisionReason.trim(),
+                    evidenceUrl: ratingRevisionEvidenceUrl.trim(),
+                  });
+
+                  if (res.success && res.data) {
+                    if (res.data.approvalStatus === 'Applied') {
+                      addToast('Áp Dụng Thành Công!', `Đã điều chỉnh điểm đánh giá thành ${res.data.newScore.toFixed(1)} điểm.`, 'success');
+                      setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, rating: res.data!.newScore } : t));
+                    } else {
+                      addToast('Đã Gửi Yêu Cầu Duyệt', `Do chênh lệch > 1.0 điểm, yêu cầu đã được chuyển tới Lãnh đạo cấp trên phê duyệt.`, 'info');
+                    }
+                    setShowRatingRevisionModal(false);
+                    fetchTaskRatingHistory(selectedTask.id);
+                    fetchPendingRatingRevisions();
+                  } else {
+                    addToast('Lỗi', res.error || 'Không thể gửi yêu cầu điều chỉnh điểm.', 'danger');
+                  }
+                }}
+              >
+                <Icon name="paper-plane" size={14} /> Gửi Đề Xuất Điều Chỉnh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+         MODAL: PHÊ DUYỆT SỬA ĐIỂM DÀNH CHO LÃNH ĐẠO CẤP TRÊN (MAKER-CHECKER)
+         ═══════════════════════════════════════════════════════════════ */}
+      {showPendingRatingRevisionsModal && (
+        <div className="welcome-modal-overlay">
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 720 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="clock-rotate-left" size={18} style={{ color: '#d97706' }} />
+                Danh Sách Đề Xuất Sửa Điểm Chờ Duyệt ({pendingRatingRevisions.length})
+              </h2>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowPendingRatingRevisionsModal(false)}>
+                <Icon name="xmark" size={16} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 480, overflowY: 'auto' }}>
+              {pendingRatingRevisions.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
+                  <Icon name="circle-check" size={36} style={{ color: '#16a34a', marginBottom: 10 }} />
+                  <p style={{ margin: 0, fontSize: '0.9rem' }}>Hiện tại không có đề xuất sửa điểm nào đang chờ phê duyệt.</p>
+                </div>
+              ) : (
+                pendingRatingRevisions.map((item) => (
+                  <div key={item.id} style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.88rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0f172a' }}>{item.taskItemTitle}</div>
+                        <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 2 }}>
+                          Người đề xuất: <strong>{item.changedByUserName}</strong> ({item.changedByUserRoleName}) • Lúc {new Date(item.changedAt).toLocaleString('vi-VN')}
+                        </div>
+                      </div>
+                      <span className="badge" style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fef3c7', fontWeight: 700 }}>
+                        Chênh {item.scoreDelta.toFixed(1)} điểm
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, background: '#ffffff', padding: 10, borderRadius: 6, border: '1px solid #f1f5f9', marginBottom: 10 }}>
+                      <div>Điểm hiện tại: <strong style={{ color: '#64748b' }}>{item.oldScore !== null && item.oldScore !== undefined ? `${item.oldScore.toFixed(1)} / 10` : 'Chưa chấm'}</strong></div>
+                      <div>Điểm đề xuất mới: <strong style={{ color: '#2563eb', fontSize: '1rem' }}>{item.newScore.toFixed(1)} / 10</strong></div>
+                    </div>
+
+                    <div style={{ fontSize: '0.82rem', color: '#334155', marginBottom: 6 }}>
+                      <strong>Lý do giải trình:</strong> {item.reason}
+                    </div>
+
+                    {item.evidenceUrl && (
+                      <div style={{ fontSize: '0.8rem', marginBottom: 12 }}>
+                        <strong>Minh chứng:</strong>{' '}
+                        <a href={item.evidenceUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
+                          <Icon name="paperclip" size={11} /> {item.evidenceUrl}
+                        </a>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, borderTop: '1px solid #e2e8f0', paddingTop: 10 }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-danger btn-sm"
+                        onClick={async () => {
+                          const reason = prompt('Nhập lý do từ chối đề xuất này:');
+                          if (reason !== null) {
+                            const res = await rejectRatingRevisionApi(item.id, reason);
+                            if (res.success) {
+                              addToast('Đã Từ Chối', 'Đã từ chối đề xuất sửa điểm.', 'info');
+                              fetchPendingRatingRevisions();
+                            } else {
+                              addToast('Lỗi', res.error || 'Không thể từ chối đề xuất.', 'danger');
+                            }
+                          }
+                        }}
+                      >
+                        <Icon name="xmark" size={12} /> Từ Chối
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-success btn-sm"
+                        onClick={async () => {
+                          const res = await approveRatingRevisionApi(item.id);
+                          if (res.success) {
+                            addToast('Phê Duyệt Thành Công!', `Đã duyệt điểm số mới ${item.newScore.toFixed(1)} điểm cho công việc.`, 'success');
+                            setTasks(prev => prev.map(t => t.id === item.taskItemId ? { ...t, rating: item.newScore } : t));
+                            fetchPendingRatingRevisions();
+                          } else {
+                            addToast('Lỗi', res.error || 'Không thể phê duyệt đề xuất.', 'danger');
+                          }
+                        }}
+                        style={{ fontWeight: 700 }}
+                      >
+                        <Icon name="check" size={12} /> Phê Duyệt Sửa Điểm
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+              <button type="button" className="btn btn-outline" onClick={() => setShowPendingRatingRevisionsModal(false)}>Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
          FLOATING TOAST NOTIFICATION SYSTEM
          ═══════════════════════════════════════════════════════════════ */}
       <div className="toast-container" aria-live="polite" aria-atomic="true">
@@ -4996,6 +6896,45 @@ export default function DashboardPage() {
         ))}
       </div>
 
+      {/* Document Viewer Modal */}
+      <DocumentViewerModal
+        isOpen={showViewerModal}
+        onClose={() => setShowViewerModal(false)}
+        documentTitle={viewerMail?.subject || 'Văn bản hành chính'}
+        documentNumberSymbol={`Số: ${viewerMail?.documentNumber || '---'}/${viewerMail?.documentSymbol || 'UBND-VP'}`}
+        issuingAgency={viewerMail?.issuingAgency || viewerMail?.senderOrg || viewerMail?.senderName}
+        fileUrl={viewerMail?.id ? getFileViewUrl(viewerMail.id) : undefined}
+        fileName={viewerMail?.attachments?.[0]?.name || `CongVan_${viewerMail?.documentNumber || '125'}.pdf`}
+        fileType="pdf"
+        attachments={viewerMail?.attachments}
+      />
+
+      {/* Revoke Document Modal */}
+      <RevokeDocumentModal
+        isOpen={showRevokeModal}
+        onClose={() => setShowRevokeModal(false)}
+        documentTitle={revokeDocItem?.subject || revokeDocItem?.title || 'Văn bản hành chính'}
+        documentNumberSymbol={`Số: ${revokeDocItem?.documentNumber || '---'}/${revokeDocItem?.documentSymbol || 'UBND-VP'}`}
+        onConfirmRevoke={async (reason) => {
+          if (revokeDocItem?.id) {
+            const res = await revokeIssuedOutgoingDocumentApi(revokeDocItem.id, reason);
+            if (res.success) {
+              addToast('Thu hồi thành công', `Đã thu hồi văn bản Số: ${revokeDocItem.documentNumber || '---'}/${revokeDocItem.documentSymbol || 'UBND-VP'}. Lý do: ${reason}`, 'success');
+            } else {
+              addToast('Thu hồi thất bại', res.error || 'Có lỗi xảy ra', 'danger');
+            }
+          }
+        }}
+      />
+
+      {/* Document History & Audit Log Modal */}
+      <DocumentHistoryModal
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        documentId={historyDocItem?.id || ''}
+        documentTitle={historyDocItem?.subject || historyDocItem?.title || 'Văn bản hành chính'}
+        documentNumberSymbol={`Số: ${historyDocItem?.documentNumber || '---'}/${historyDocItem?.documentSymbol || 'UBND-VP'}`}
+      />
     </div>
   );
 }

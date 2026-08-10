@@ -23,6 +23,14 @@ namespace Quanlycongviec.Domain.Entities
         public string? CitizenPhone { get; set; }    // SĐT liên hệ
         public string? ServiceCode { get; set; }     // Mã TTHC (VD: DK-001, XD-003)
         
+        // ── Thông tin nghiệp vụ văn bản theo NĐ 30/2020/NĐ-CP ──
+        public string? DocumentSymbol { get; set; }     // Ký hiệu: UBND-VP, UBND-KT...
+        public string? IssuingAgency { get; set; }      // Cơ quan ban hành: UBND huyện Đức Thọ
+        public string? SignerName { get; set; }         // Người ký văn bản
+        public string? AttachmentUrl { get; set; }      // URL file đính kèm chính
+        public DateTime? IssuedDate { get; set; }       // Ngày ban hành văn bản
+
+        // ── Xếp lịch xử lý ──
         public bool IsScheduled { get; set; } = false; // Trạng thái đã xếp lịch
         public DateTime? ScheduledDate { get; set; }
         public string? ScheduledShift { get; set; } // Sang / Chieu / Toi

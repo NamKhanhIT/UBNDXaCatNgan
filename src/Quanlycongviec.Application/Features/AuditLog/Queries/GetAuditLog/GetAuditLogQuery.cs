@@ -15,6 +15,7 @@ namespace Quanlycongviec.Application.Features.AuditLogs.Queries.GetAuditLog
         public int PageSize { get; set; } = 20;
         public Guid? FilterByUserId { get; set; }
         public string? FilterByAction { get; set; }
+        public string? FilterByEntityId { get; set; }
     }
 
     public class AuditLogItemDto
@@ -58,6 +59,9 @@ namespace Quanlycongviec.Application.Features.AuditLogs.Queries.GetAuditLog
 
             if (!string.IsNullOrWhiteSpace(request.FilterByAction))
                 query = query.Where(a => a.Action == request.FilterByAction);
+
+            if (!string.IsNullOrWhiteSpace(request.FilterByEntityId))
+                query = query.Where(a => a.EntityId == request.FilterByEntityId);
 
             var totalCount = await query.CountAsync(cancellationToken);
 

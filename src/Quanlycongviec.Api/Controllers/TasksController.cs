@@ -50,14 +50,33 @@ namespace Quanlycongviec.Api.Controllers
         }
 
         /// <summary>
-        /// Lấy danh sách nhiệm vụ phân quyền theo cán bộ / lãnh đạo
+        /// Lấy danh sách nhiệm vụ phân quyền theo cán bộ / lãnh đạo — phân trang server-side
+        /// Hỗ trợ: ?page=1&pageSize=25&status=...&departmentId=...&q=...&dueDate=...&dueDateFrom=...&dueDateTo=...
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetTasks([FromQuery] string? status = null, [FromQuery] Guid? departmentId = null, [FromQuery] string? q = null)
+        public async Task<IActionResult> GetTasks(
+            [FromQuery] string? status = null,
+            [FromQuery] Guid? departmentId = null,
+            [FromQuery] string? q = null,
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 25,
+            [FromQuery] DateTime? dueDate = null,
+            [FromQuery] DateTime? dueDateFrom = null,
+            [FromQuery] DateTime? dueDateTo = null)
         {
-            var query = new GetTasksQuery(CurrentUserId, CurrentRankLevel, status, departmentId, q);
+            var query = new GetTasksQuery(CurrentUserId, CurrentRankLevel, status, departmentId, q, page, pageSize, dueDate, dueDateFrom, dueDateTo);
             var result = await _mediator.Send(query);
-            return Ok(new { success = true, data = result });
+            return Ok(new
+            {
+                success = true,
+                data = new
+                {
+                    items = result.Items,
+                    totalCount = result.TotalCount,
+                    page = result.Page,
+                    pageSize = result.PageSize
+                }
+            });
         }
 
         /// <summary>

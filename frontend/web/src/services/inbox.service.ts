@@ -16,11 +16,52 @@ export interface InboxDocumentDto {
   scheduledDate?: string;
   scheduledShift?: string;
   scheduledTaskId?: string;
+
+  // ── Thông tin nghiệp vụ văn bản theo NĐ 30/2020 ──
+  documentSymbol?: string;
+  issuingAgency?: string;
+  signerName?: string;
+  attachmentUrl?: string;
+  issuedDate?: string;
 }
 
-export async function getInboxDocumentsApi(channel?: string): Promise<{ success: boolean; data?: InboxDocumentDto[]; error?: string }> {
-  const url = channel ? `/api/v1/Inbox?channel=${channel}` : `/api/v1/Inbox`;
-  return await apiFetch<InboxDocumentDto[]>(url, { method: 'GET' });
+export interface PaginatedInboxResponse {
+  items: InboxDocumentDto[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface GetInboxParams {
+  page?: number;
+  pageSize?: number;
+  isScheduled?: boolean;
+  channel?: string;
+  search?: string;
+  isUrgent?: boolean;
+}
+
+export async function getInboxDocumentsApi(
+  params?: GetInboxParams
+): Promise<{ success: boolean; data?: PaginatedInboxResponse; error?: string }> {
+  const searchParams = new URLSearchParams();
+
+  if (params?.page) searchParams.append('page', String(params.page));
+  if (params?.pageSize) searchParams.append('pageSize', String(params.pageSize));
+  if (params?.isScheduled !== undefined) searchParams.append('isScheduled', String(params.isScheduled));
+  if (params?.channel) searchParams.append('channel', params.channel);
+  if (params?.search) searchParams.append('search', params.search);
+  if (params?.isUrgent !== undefined) searchParams.append('isUrgent', String(params.isUrgent));
+
+  const qs = searchParams.toString();
+  const url = `/api/v1/Inbox${qs ? `?${qs}` : ''}`;
+  return await apiFetch<PaginatedInboxResponse>(url, { method: 'GET' });
+}
+
+export async function getInboxDocumentByIdApi(
+  id: string
+): Promise<{ success: boolean; data?: InboxDocumentDto; error?: string }> {
+  return await apiFetch<InboxDocumentDto>(`/api/v1/Inbox/${id}`, { method: 'GET' });
 }
 
 export async function scheduleInboxDocumentApi(
@@ -34,4 +75,3 @@ export async function scheduleInboxDocumentApi(
     body: JSON.stringify({ scheduledDate, scheduledShift, assigneeId }),
   });
 }
-

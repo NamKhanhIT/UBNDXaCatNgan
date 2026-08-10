@@ -22,6 +22,11 @@ namespace Quanlycongviec.Application.Common.Interfaces
         DbSet<InboxDocument> InboxDocuments { get; }
         DbSet<ActivityLog> ActivityLogs { get; }
         DbSet<ReadReceipt> ReadReceipts { get; }
+        DbSet<OutgoingDocument> OutgoingDocuments { get; }
+        DbSet<RatingHistory> RatingHistories { get; }
+        DbSet<DocumentNumberSequence> DocumentNumberSequences { get; }
+        DbSet<DocumentAttachment> DocumentAttachments { get; }
+        DbSet<DocumentVersion> DocumentVersions { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }

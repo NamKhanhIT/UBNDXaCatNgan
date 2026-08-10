@@ -19,6 +19,13 @@ namespace Quanlycongviec.Application.Features.Inbox.DTOs
         public DateTime? ScheduledDate { get; set; }
         public string? ScheduledShift { get; set; }
         public Guid? ScheduledTaskId { get; set; }
+
+        // ── Thông tin nghiệp vụ văn bản theo NĐ 30/2020 ──
+        public string? DocumentSymbol { get; set; }
+        public string? IssuingAgency { get; set; }
+        public string? SignerName { get; set; }
+        public string? AttachmentUrl { get; set; }
+        public DateTime? IssuedDate { get; set; }
     }
 }
 

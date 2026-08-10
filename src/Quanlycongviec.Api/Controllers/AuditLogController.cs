@@ -21,17 +21,23 @@ namespace Quanlycongviec.Api.Controllers
         }
 
         /// <summary>
-        /// Lấy sổ kiểm toán hệ thống append-only (chỉ Lãnh đạo xem)
+        /// Lấy sổ kiểm toán hệ thống append-only (Hỗ trợ lọc theo Người dùng, Hành động, ID Văn bản/Thực thể)
         /// </summary>
         [HttpGet]
-        public async Task<IActionResult> GetAuditLog([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] Guid? userId = null, [FromQuery] string? action = null)
+        public async Task<IActionResult> GetAuditLog(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] Guid? userId = null,
+            [FromQuery] string? action = null,
+            [FromQuery] string? entityId = null)
         {
             var query = new GetAuditLogQuery
             {
                 Page = page,
                 PageSize = pageSize,
                 FilterByUserId = userId,
-                FilterByAction = action
+                FilterByAction = action,
+                FilterByEntityId = entityId
             };
             var result = await _mediator.Send(query);
             return Ok(new { success = true, data = result });
