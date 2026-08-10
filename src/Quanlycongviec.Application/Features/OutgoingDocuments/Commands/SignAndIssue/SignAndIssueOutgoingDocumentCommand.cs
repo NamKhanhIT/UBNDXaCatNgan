@@ -82,6 +82,32 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Commands.SignAnd
             doc.SignedAt = now;
             doc.IssuedDate = now;
 
+            // ── Tự động tạo Công việc vào Trung tâm điều hành nếu gửi Cấp dưới ──
+            if (doc.DestinationLevel == "Subordinate" && doc.AutoCreateTask)
+            {
+                var defaultAssignee = await _context.Users.FirstOrDefaultAsync(u => u.Id != request.UserId, cancellationToken);
+                var assigneeId = defaultAssignee?.Id ?? request.UserId;
+
+                var newTask = new TaskItem
+                {
+                    Id = Guid.NewGuid(),
+                    Title = $"[Nhiệm vụ theo VB {docNumber}] {doc.Title}",
+                    Description = $"Chỉ đạo thực hiện theo văn bản số {docNumber}.\nNơi nhận: {doc.RecipientNote ?? "Cấp dưới / Phòng ban"}.\n\nNội dung chi tiết:\n{doc.Content}",
+                    AssignerId = request.UserId,
+                    AssigneeId = assigneeId,
+                    Priority = doc.IsUrgent || doc.UrgencyLevel == "Urgent" || doc.UrgencyLevel == "Express" ? TaskPriority.High : TaskPriority.Medium,
+                    Status = TaskStatusEnum.Todo,
+                    Type = TaskType.BAU,
+                    DueDate = doc.ResponseDeadline ?? now.AddDays(7),
+                    DocumentUrl = doc.AttachmentUrl,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+
+                _context.TaskItems.Add(newTask);
+                doc.RelatedTaskItemId = newTask.Id;
+            }
+
             _context.AuditLogs.Add(new AuditLog
             {
                 Id = Guid.NewGuid(),

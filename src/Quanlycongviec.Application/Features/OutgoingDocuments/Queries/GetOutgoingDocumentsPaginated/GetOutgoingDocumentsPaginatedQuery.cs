@@ -113,7 +113,12 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
                 DocumentSequenceNumber = o.DocumentSequenceNumber,
                 DocumentSymbol = o.DocumentSymbol,
                 RecallReason = o.RecallReason,
-                RecalledAt = o.RecalledAt
+                RecalledAt = o.RecalledAt,
+                DestinationLevel = o.DestinationLevel ?? "Superior",
+                AutoCreateTask = o.AutoCreateTask,
+                SecurityLevel = o.SecurityLevel ?? "Normal",
+                UrgencyLevel = o.UrgencyLevel ?? "Normal",
+                ResponseDeadline = o.ResponseDeadline
             }).ToList();
 
             return new PaginatedResult<OutgoingDocumentDto>(items, totalCount, page, pageSize);

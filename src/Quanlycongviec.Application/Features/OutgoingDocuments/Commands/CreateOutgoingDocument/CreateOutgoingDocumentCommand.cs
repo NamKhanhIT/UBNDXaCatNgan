@@ -21,6 +21,12 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Commands.CreateO
 
         public bool IsCorrectionDocument { get; set; } = false;
         public Guid? OriginalDocumentId { get; set; }
+
+        public string DestinationLevel { get; set; } = "Superior";
+        public bool AutoCreateTask { get; set; } = true;
+        public string SecurityLevel { get; set; } = "Normal";
+        public string UrgencyLevel { get; set; } = "Normal";
+        public DateTime? ResponseDeadline { get; set; }
     }
 
     public class CreateOutgoingDocumentCommandHandler : IRequestHandler<CreateOutgoingDocumentCommand, Guid>
@@ -53,7 +59,12 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Commands.CreateO
                 RelatedTaskItemId = request.RelatedTaskItemId,
                 IsUrgent = request.IsUrgent,
                 IsCorrectionDocument = request.IsCorrectionDocument,
-                OriginalDocumentId = request.OriginalDocumentId
+                OriginalDocumentId = request.OriginalDocumentId,
+                DestinationLevel = string.IsNullOrWhiteSpace(request.DestinationLevel) ? "Superior" : request.DestinationLevel,
+                AutoCreateTask = request.AutoCreateTask,
+                SecurityLevel = string.IsNullOrWhiteSpace(request.SecurityLevel) ? "Normal" : request.SecurityLevel,
+                UrgencyLevel = string.IsNullOrWhiteSpace(request.UrgencyLevel) ? "Normal" : request.UrgencyLevel,
+                ResponseDeadline = request.ResponseDeadline
             };
 
             _context.OutgoingDocuments.Add(doc);

@@ -73,5 +73,31 @@ namespace Quanlycongviec.Domain.Entities
         /// </summary>
         public bool IsCorrectionDocument { get; set; } = false;
         public Guid? OriginalDocumentId { get; set; }
+
+        // ── Luồng gửi & Nghiệp vụ chi tiết ──
+        /// <summary>
+        /// Phân loại luồng gửi ("Superior": Gửi Cấp trên/Sở Huyện | "Subordinate": Gửi Cấp dưới/Phòng ban/Thôn xóm)
+        /// </summary>
+        public string DestinationLevel { get; set; } = "Superior";
+
+        /// <summary>
+        /// Tự động tạo & giao việc vào Trung tâm điều hành cho đơn vị/cán bộ nhận khi gửi cấp dưới
+        /// </summary>
+        public bool AutoCreateTask { get; set; } = true;
+
+        /// <summary>
+        /// Độ mật ("Normal" | "Confidential" | "Secret")
+        /// </summary>
+        public string SecurityLevel { get; set; } = "Normal";
+
+        /// <summary>
+        /// Độ khẩn ("Normal" | "Urgent" | "VeryUrgent" | "Express")
+        /// </summary>
+        public string UrgencyLevel { get; set; } = "Normal";
+
+        /// <summary>
+        /// Hạn phản hồi / Hạn gửi báo cáo của văn bản
+        /// </summary>
+        public DateTime? ResponseDeadline { get; set; }
     }
 }

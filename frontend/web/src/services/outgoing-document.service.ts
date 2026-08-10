@@ -30,6 +30,11 @@ export interface OutgoingDocumentDto {
   documentSymbol?: string;
   recallReason?: string;
   recalledAt?: string;
+  destinationLevel?: string;
+  autoCreateTask?: boolean;
+  securityLevel?: string;
+  urgencyLevel?: string;
+  responseDeadline?: string;
 }
 
 export interface PaginatedOutgoingDocumentsResponse {
@@ -57,6 +62,11 @@ export interface CreateOutgoingDocumentData {
   isUrgent?: boolean;
   isCorrectionDocument?: boolean;
   originalDocumentId?: string;
+  destinationLevel?: string;
+  autoCreateTask?: boolean;
+  securityLevel?: string;
+  urgencyLevel?: string;
+  responseDeadline?: string;
 }
 
 export interface UpdateOutgoingDocumentData {
@@ -67,6 +77,11 @@ export interface UpdateOutgoingDocumentData {
   attachmentUrl?: string;
   relatedTaskItemId?: string;
   isUrgent?: boolean;
+  destinationLevel?: string;
+  autoCreateTask?: boolean;
+  securityLevel?: string;
+  urgencyLevel?: string;
+  responseDeadline?: string;
 }
 
 export async function getOutgoingDocumentsApi(params: GetOutgoingDocumentsParams = {}): Promise<ApiResponse<PaginatedOutgoingDocumentsResponse>> {

@@ -29,6 +29,7 @@ import {
   rejectOutgoingDocumentApi,
   revokeOutgoingDocumentApi,
   revokeIssuedOutgoingDocumentApi,
+  cancelOutgoingDocumentApi,
 } from '../services/outgoing-document.service';
 import type {
   OutgoingDocumentDto,
@@ -1143,6 +1144,12 @@ export default function DashboardPage() {
   const [formDocRelatedTaskId, setFormDocRelatedTaskId] = useState('');
   const [formDocIsCorrection, setFormDocIsCorrection] = useState(false);
   const [formDocOriginalId, setFormDocOriginalId] = useState('');
+  const [formDestinationLevel, setFormDestinationLevel] = useState<'Superior' | 'Subordinate'>('Superior');
+  const [formAutoCreateTask, setFormAutoCreateTask] = useState<boolean>(true);
+  const [formSecurityLevel, setFormSecurityLevel] = useState<string>('Normal');
+  const [formUrgencyLevel, setFormUrgencyLevel] = useState<string>('Normal');
+  const [formResponseDeadline, setFormResponseDeadline] = useState<string>('');
+  const [formDocumentSymbol, setFormDocumentSymbol] = useState<string>('UBND-VP');
 
   // Detail & Sign Modal State
   const [showDetailOutgoingModal, setShowDetailOutgoingModal] = useState(false);
@@ -3487,6 +3494,12 @@ export default function DashboardPage() {
                         setFormDocRelatedTaskId('');
                         setFormDocIsCorrection(false);
                         setFormDocOriginalId('');
+                        setFormDestinationLevel('Superior');
+                        setFormAutoCreateTask(true);
+                        setFormSecurityLevel('Normal');
+                        setFormUrgencyLevel('Normal');
+                        setFormResponseDeadline('');
+                        setFormDocumentSymbol('UBND-VP');
                         setShowCreateOutgoingModal(true);
                       }}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 16px', fontWeight: 600 }}
@@ -3640,11 +3653,57 @@ export default function DashboardPage() {
                                             setFormDocRelatedTaskId(doc.relatedTaskItemId || '');
                                             setFormDocIsCorrection(doc.isCorrectionDocument);
                                             setFormDocOriginalId(doc.originalDocumentId || '');
+                                            setFormDestinationLevel(doc.destinationLevel as any || 'Superior');
+                                            setFormAutoCreateTask(doc.autoCreateTask ?? true);
+                                            setFormSecurityLevel(doc.securityLevel || 'Normal');
+                                            setFormUrgencyLevel(doc.urgencyLevel || 'Normal');
+                                            setFormResponseDeadline(doc.responseDeadline ? doc.responseDeadline.split('T')[0] : '');
+                                            setFormDocumentSymbol(doc.documentSymbol || 'UBND-VP');
                                             setShowCreateOutgoingModal(true);
                                           }}
                                           title="Sửa bản nháp"
                                         >
                                           <Icon name="pen-to-square" size={11} /> Sửa
+                                        </button>
+                                      )}
+                                      {doc.status === 'Draft' ? (
+                                        <button
+                                          type="button"
+                                          className="btn btn-ghost btn-xs"
+                                          style={{ color: '#dc2626' }}
+                                          onClick={async () => {
+                                            if (confirm(`Bạn có chắc chắn muốn xóa bản nháp: "${doc.title}"?`)) {
+                                              const res = await cancelOutgoingDocumentApi(doc.id, 'Xóa bản nháp');
+                                              if (res.success) {
+                                                addToast('Đã xóa', 'Bản nháp đã được xóa thành công.', 'success');
+                                                fetchOutgoingDocs();
+                                              } else {
+                                                addToast('Lỗi', res.error || 'Không thể xóa bản nháp.', 'danger');
+                                              }
+                                            }
+                                          }}
+                                          title="Xóa bản nháp"
+                                        >
+                                          <Icon name="trash" size={11} /> Xóa
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          className="btn btn-ghost btn-xs"
+                                          style={{ color: '#dc2626' }}
+                                          onClick={() => {
+                                            setRevokeDocItem({
+                                              id: doc.id,
+                                              subject: doc.title,
+                                              title: doc.title,
+                                              documentNumber: doc.documentNumber || '---',
+                                              documentSymbol: doc.documentSymbol || 'UBND-VP'
+                                            });
+                                            setShowRevokeModal(true);
+                                          }}
+                                          title="Gỡ / Thu hồi văn bản"
+                                        >
+                                          <Icon name="trash-can-arrow-up" size={11} /> Gỡ/Thu hồi
                                         </button>
                                       )}
                                     </div>
@@ -6210,8 +6269,8 @@ export default function DashboardPage() {
          ═══════════════════════════════════════════════════════════════ */}
       {showCreateOutgoingModal && (
         <div className="welcome-modal-overlay">
-          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 640 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 760, width: '92%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
               <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Icon name="pen-to-square" size={18} style={{ color: '#2563eb' }} />
                 {editingOutgoingDoc ? 'Chỉnh Sửa Bản Nháp Văn Bản Đi' : (formDocIsCorrection ? 'Soạn Văn Bản Đính Chính' : 'Soạn Văn Bản Đi Mới')}
@@ -6221,18 +6280,59 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* ── Tabs Luồng gửi (Cấp trên vs Cấp dưới) ── */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 14, background: '#f1f5f9', padding: 4, borderRadius: 8 }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${formDestinationLevel === 'Superior' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ flex: 1, fontWeight: 700, fontSize: '0.85rem' }}
+                onClick={() => setFormDestinationLevel('Superior')}
+              >
+                <Icon name="paper-plane" size={13} /> 📤 Gửi Cấp Trên (Báo cáo / Tờ trình)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${formDestinationLevel === 'Subordinate' ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ flex: 1, fontWeight: 700, fontSize: '0.85rem' }}
+                onClick={() => setFormDestinationLevel('Subordinate')}
+              >
+                <Icon name="sitemap" size={13} /> 📥 Gửi Cấp Dưới (Giao việc / Chỉ đạo)
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '68vh', overflowY: 'auto', paddingRight: 4 }}>
               {formDocIsCorrection && (
                 <div className="alert alert-warning" style={{ margin: 0, fontSize: '0.85rem' }}>
                   <Icon name="triangle-exclamation" size={14} /> <strong>Văn bản đính chính:</strong> Đang khởi tạo văn bản đính chính cho văn bản gốc đã ban hành.
                 </div>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {/* Thông tin Cấp trên vs Cấp dưới notification */}
+              {formDestinationLevel === 'Subordinate' ? (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 12px', fontSize: '0.83rem', color: '#1e40af', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span><Icon name="info-circle" size={13} /> Văn bản gửi cấp dưới/phòng ban sẽ tự động kích hoạt tính năng <strong>Giao nhiệm vụ vào Trung tâm điều hành</strong>.</span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 700 }}>
+                    <input
+                      type="checkbox"
+                      checked={formAutoCreateTask}
+                      onChange={(e) => setFormAutoCreateTask(e.target.checked)}
+                    />
+                    <span>Tự động giao việc</span>
+                  </label>
+                </div>
+              ) : (
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '8px 12px', fontSize: '0.83rem', color: '#475569' }}>
+                  <Icon name="building-columns" size={13} /> Văn bản gửi Cấp trên / Huyện / Tỉnh phục vụ báo cáo tiến độ, xin ý kiến chỉ đạo hoặc trình phê duyệt kinh phí.
+                </div>
+              )}
+
+              {/* Grid Metadata 1: Loại VB, Ký hiệu, Nơi nhận */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: 10 }}>
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Loại văn bản <span style={{ color: '#dc2626' }}>*</span></label>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Loại văn bản <span style={{ color: '#dc2626' }}>*</span></label>
                   <select
                     className="form-select"
+                    style={{ fontSize: '0.85rem' }}
                     value={formDocType}
                     onChange={(e) => setFormDocType(e.target.value as DocumentTypeEnum)}
                   >
@@ -6247,153 +6347,304 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label">Nơi nhận / Đơn vị nhận</label>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Ký hiệu cơ quan</label>
                   <input
                     type="text"
                     className="form-control"
-                    placeholder="VD: UBND Huyện, Các phòng ban, Công dân..."
-                    value={formDocRecipient}
-                    onChange={(e) => setFormDocRecipient(e.target.value)}
+                    style={{ fontSize: '0.85rem' }}
+                    placeholder="VD: UBND-VP, UBND-KT..."
+                    value={formDocumentSymbol}
+                    onChange={(e) => setFormDocumentSymbol(e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Nơi nhận / Đơn vị nhận</label>
+                  {formDestinationLevel === 'Superior' ? (
+                    <select
+                      className="form-select"
+                      style={{ fontSize: '0.85rem' }}
+                      value={formDocRecipient}
+                      onChange={(e) => setFormDocRecipient(e.target.value)}
+                    >
+                      <option value="">-- Chọn đơn vị cấp trên --</option>
+                      <option value="UBND Huyện Đức Thọ">UBND Huyện Đức Thọ</option>
+                      <option value="Sở Nông Nghiệp & PTNT Tỉnh">Sở Nông Nghiệp & PTNT Tỉnh</option>
+                      <option value="Sở Tài Chính Tỉnh">Sở Tài Chính Tỉnh</option>
+                      <option value="UBND Tỉnh Hà Tĩnh">UBND Tỉnh Hà Tĩnh</option>
+                      <option value="HĐND Huyện">HĐND Huyện</option>
+                    </select>
+                  ) : (
+                    <select
+                      className="form-select"
+                      style={{ fontSize: '0.85rem' }}
+                      value={formDocRecipient}
+                      onChange={(e) => setFormDocRecipient(e.target.value)}
+                    >
+                      <option value="">-- Chọn đơn vị/phòng ban --</option>
+                      <option value="Phòng Địa Chính - Môi Trường">Phòng Địa Chính - Môi Trường</option>
+                      <option value="Phòng Văn Hóa - Xã Hội">Phòng Văn Hóa - Xã Hội</option>
+                      <option value="Ban Cán Bộ Thôn Cát Ngạn">Ban Cán Bộ Thôn Cát Ngạn</option>
+                      <option value="Công An Xã Cát Ngạn">Công An Xã Cát Ngạn</option>
+                      <option value="Trung Tâm PHCC Xã">Trung Tâm PHCC Xã</option>
+                      <option value="Toàn bộ các phòng ban">Toàn bộ các phòng ban & Thôn xóm</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              {/* Grid Metadata 2: Độ khẩn, Độ mật, Hạn phản hồi */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Độ khẩn</label>
+                  <select
+                    className="form-select"
+                    style={{ fontSize: '0.85rem' }}
+                    value={formUrgencyLevel}
+                    onChange={(e) => {
+                      setFormUrgencyLevel(e.target.value);
+                      setFormDocIsUrgent(e.target.value !== 'Normal');
+                    }}
+                  >
+                    <option value="Normal">Thường</option>
+                    <option value="Urgent">Khẩn</option>
+                    <option value="VeryUrgent">Thượng khẩn</option>
+                    <option value="Express">Hỏa tốc</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Độ mật</label>
+                  <select
+                    className="form-select"
+                    style={{ fontSize: '0.85rem' }}
+                    value={formSecurityLevel}
+                    onChange={(e) => setFormSecurityLevel(e.target.value)}
+                  >
+                    <option value="Normal">Thường</option>
+                    <option value="Confidential">Mật</option>
+                    <option value="Secret">Tối mật</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem' }}>Hạn xử lý / Phản hồi</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    style={{ fontSize: '0.85rem' }}
+                    value={formResponseDeadline}
+                    onChange={(e) => setFormResponseDeadline(e.target.value)}
                   />
                 </div>
               </div>
 
+              {/* Trích yếu nội dung */}
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Trích yếu nội dung <span style={{ color: '#dc2626' }}>*</span></label>
+                <label className="form-label" style={{ fontSize: '0.82rem' }}>Trích yếu nội dung <span style={{ color: '#dc2626' }}>*</span></label>
                 <input
                   type="text"
                   className="form-control"
-                  placeholder="Nhập trích yếu ngắn gọn khái quát nội dung văn bản..."
+                  placeholder="Nhập trích yếu ngắn gọn khái quát nội dung văn bản đi..."
                   value={formDocTitle}
                   onChange={(e) => setFormDocTitle(e.target.value)}
+                  style={{ fontSize: '0.9rem', fontWeight: 600 }}
                 />
               </div>
 
+              {/* Nội dung chi tiết */}
               <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Nội dung văn bản chi tiết</label>
+                <label className="form-label" style={{ fontSize: '0.82rem' }}>Nội dung văn bản chi tiết</label>
                 <textarea
                   className="form-control"
-                  rows={6}
-                  placeholder="Nhập toàn bộ nội dung văn bản đi..."
+                  rows={5}
+                  placeholder="Nhập đầy đủ thông tin nội dung văn bản đi..."
                   value={formDocContent}
                   onChange={(e) => setFormDocContent(e.target.value)}
-                  style={{ fontFamily: 'inherit', fontSize: '0.9rem', lineHeight: 1.5 }}
+                  style={{ fontFamily: 'inherit', fontSize: '0.88rem', lineHeight: 1.5 }}
                 />
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600 }}>
-                  <input
-                    type="checkbox"
-                    checked={formDocIsUrgent}
-                    onChange={(e) => setFormDocIsUrgent(e.target.checked)}
-                  />
-                  <span>Văn bản Thượng khẩn / Khẩn</span>
-                </label>
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
-              <button type="button" className="btn btn-outline" onClick={() => setShowCreateOutgoingModal(false)}>Hủy</button>
-              
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={async () => {
-                  if (!formDocTitle.trim()) {
-                    addToast('Thiếu thông tin', 'Vui lòng nhập Trích yếu nội dung văn bản!', 'warning');
-                    return;
-                  }
-
-                  if (editingOutgoingDoc) {
-                    const res = await updateOutgoingDocumentApi(editingOutgoingDoc.id, {
-                      documentType: formDocType,
-                      title: formDocTitle.trim(),
-                      content: formDocContent,
-                      recipientNote: formDocRecipient,
+            {/* Modal Action Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+              <div>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  style={{ borderColor: '#2563eb', color: '#2563eb', fontWeight: 700 }}
+                  onClick={() => {
+                    if (!formDocTitle.trim()) {
+                      addToast('Thiếu thông tin', 'Vui lòng nhập Trích yếu nội dung trước khi xem file!', 'warning');
+                      return;
+                    }
+                    setViewerMail({
+                      id: editingOutgoingDoc?.id || 'preview_doc',
+                      senderName: 'UBND Xã Cát Ngạn',
+                      senderOrg: 'UBND Xã Cát Ngạn',
+                      documentNumber: editingOutgoingDoc?.documentNumber || 'DỰ THẢO',
+                      documentSymbol: formDocumentSymbol || 'UBND-VP',
+                      subject: formDocTitle,
+                      content: formDocContent || formDocTitle,
+                      category: formDocType,
+                      date: new Date().toISOString().split('T')[0],
+                      status: 'read',
+                      folder: 'inbox',
+                      isStarred: false,
                       isUrgent: formDocIsUrgent,
-                      relatedTaskItemId: formDocRelatedTaskId || undefined,
+                      attachments: [{ name: `Document_${formDocType}.pdf`, url: editingOutgoingDoc?.attachmentUrl, size: '1.2 MB', type: 'pdf' }]
                     });
-                    if (res.success) {
-                      addToast('Thành công', 'Đã cập nhật bản nháp văn bản đi!', 'success');
-                      setShowCreateOutgoingModal(false);
-                      fetchOutgoingDocs();
+                    setShowViewerModal(true);
+                  }}
+                >
+                  <Icon name="eye" size={13} /> 👁 Xem trước file PDF ban hành
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowCreateOutgoingModal(false)}>Hủy</button>
+                
+                {editingOutgoingDoc && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ color: '#dc2626' }}
+                    onClick={async () => {
+                      if (confirm(`Bạn có chắc chắn muốn xóa bản nháp: "${editingOutgoingDoc.title}"?`)) {
+                        const res = await cancelOutgoingDocumentApi(editingOutgoingDoc.id, 'Xóa bản nháp');
+                        if (res.success) {
+                          addToast('Đã xóa', 'Bản nháp đã được xóa thành công.', 'success');
+                          setShowCreateOutgoingModal(false);
+                          fetchOutgoingDocs();
+                        } else {
+                          addToast('Lỗi', res.error || 'Không thể xóa bản nháp.', 'danger');
+                        }
+                      }
+                    }}
+                  >
+                    <Icon name="trash" size={13} /> Xóa Nháp
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={async () => {
+                    if (!formDocTitle.trim()) {
+                      addToast('Thiếu thông tin', 'Vui lòng nhập Trích yếu nội dung văn bản!', 'warning');
+                      return;
+                    }
+
+                    if (editingOutgoingDoc) {
+                      const res = await updateOutgoingDocumentApi(editingOutgoingDoc.id, {
+                        documentType: formDocType,
+                        title: formDocTitle.trim(),
+                        content: formDocContent,
+                        recipientNote: formDocRecipient,
+                        isUrgent: formDocIsUrgent,
+                        relatedTaskItemId: formDocRelatedTaskId || undefined,
+                        destinationLevel: formDestinationLevel,
+                        autoCreateTask: formAutoCreateTask,
+                        securityLevel: formSecurityLevel,
+                        urgencyLevel: formUrgencyLevel,
+                        responseDeadline: formResponseDeadline ? new Date(formResponseDeadline).toISOString() : undefined,
+                      });
+                      if (res.success) {
+                        addToast('Thành công', 'Đã cập nhật bản nháp văn bản đi!', 'success');
+                        setShowCreateOutgoingModal(false);
+                        fetchOutgoingDocs();
+                      } else {
+                        addToast('Lỗi', res.error || 'Không thể cập nhật văn bản nháp.', 'danger');
+                      }
                     } else {
-                      addToast('Lỗi', res.error || 'Không thể cập nhật văn bản nháp.', 'danger');
+                      const res = await createOutgoingDocumentApi({
+                        documentType: formDocType,
+                        title: formDocTitle.trim(),
+                        content: formDocContent,
+                        recipientNote: formDocRecipient,
+                        isUrgent: formDocIsUrgent,
+                        relatedTaskItemId: formDocRelatedTaskId || undefined,
+                        isCorrectionDocument: formDocIsCorrection,
+                        originalDocumentId: formDocOriginalId || undefined,
+                        destinationLevel: formDestinationLevel,
+                        autoCreateTask: formAutoCreateTask,
+                        securityLevel: formSecurityLevel,
+                        urgencyLevel: formUrgencyLevel,
+                        responseDeadline: formResponseDeadline ? new Date(formResponseDeadline).toISOString() : undefined,
+                      });
+                      if (res.success) {
+                        addToast('Thành công', 'Đã lưu bản nháp văn bản đi!', 'success');
+                        setShowCreateOutgoingModal(false);
+                        fetchOutgoingDocs();
+                      } else {
+                        addToast('Lỗi', res.error || 'Không thể tạo bản nháp văn bản.', 'danger');
+                      }
                     }
-                  } else {
-                    const res = await createOutgoingDocumentApi({
-                      documentType: formDocType,
-                      title: formDocTitle.trim(),
-                      content: formDocContent,
-                      recipientNote: formDocRecipient,
-                      isUrgent: formDocIsUrgent,
-                      relatedTaskItemId: formDocRelatedTaskId || undefined,
-                      isCorrectionDocument: formDocIsCorrection,
-                      originalDocumentId: formDocOriginalId || undefined,
-                    });
-                    if (res.success) {
-                      addToast('Thành công', 'Đã lưu bản nháp văn bản đi!', 'success');
-                      setShowCreateOutgoingModal(false);
-                      fetchOutgoingDocs();
+                  }}
+                >
+                  <Icon name="floppy-disk" size={13} /> Lưu Nháp
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={async () => {
+                    if (!formDocTitle.trim()) {
+                      addToast('Thiếu thông tin', 'Vui lòng nhập Trích yếu nội dung văn bản!', 'warning');
+                      return;
+                    }
+
+                    let targetDocId = editingOutgoingDoc?.id;
+                    if (editingOutgoingDoc) {
+                      await updateOutgoingDocumentApi(editingOutgoingDoc.id, {
+                        documentType: formDocType,
+                        title: formDocTitle.trim(),
+                        content: formDocContent,
+                        recipientNote: formDocRecipient,
+                        isUrgent: formDocIsUrgent,
+                        relatedTaskItemId: formDocRelatedTaskId || undefined,
+                        destinationLevel: formDestinationLevel,
+                        autoCreateTask: formAutoCreateTask,
+                        securityLevel: formSecurityLevel,
+                        urgencyLevel: formUrgencyLevel,
+                        responseDeadline: formResponseDeadline ? new Date(formResponseDeadline).toISOString() : undefined,
+                      });
                     } else {
-                      addToast('Lỗi', res.error || 'Không thể tạo bản nháp văn bản.', 'danger');
+                      const createRes = await createOutgoingDocumentApi({
+                        documentType: formDocType,
+                        title: formDocTitle.trim(),
+                        content: formDocContent,
+                        recipientNote: formDocRecipient,
+                        isUrgent: formDocIsUrgent,
+                        relatedTaskItemId: formDocRelatedTaskId || undefined,
+                        isCorrectionDocument: formDocIsCorrection,
+                        originalDocumentId: formDocOriginalId || undefined,
+                        destinationLevel: formDestinationLevel,
+                        autoCreateTask: formAutoCreateTask,
+                        securityLevel: formSecurityLevel,
+                        urgencyLevel: formUrgencyLevel,
+                        responseDeadline: formResponseDeadline ? new Date(formResponseDeadline).toISOString() : undefined,
+                      });
+                      if (createRes.success && createRes.data) {
+                        targetDocId = createRes.data;
+                      }
                     }
-                  }
-                }}
-              >
-                <Icon name="floppy-disk" size={14} /> Lưu Nháp
-              </button>
 
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={async () => {
-                  if (!formDocTitle.trim()) {
-                    addToast('Thiếu thông tin', 'Vui lòng nhập Trích yếu nội dung văn bản!', 'warning');
-                    return;
-                  }
-
-                  let targetDocId = editingOutgoingDoc?.id;
-                  if (editingOutgoingDoc) {
-                    await updateOutgoingDocumentApi(editingOutgoingDoc.id, {
-                      documentType: formDocType,
-                      title: formDocTitle.trim(),
-                      content: formDocContent,
-                      recipientNote: formDocRecipient,
-                      isUrgent: formDocIsUrgent,
-                      relatedTaskItemId: formDocRelatedTaskId || undefined,
-                    });
-                  } else {
-                    const createRes = await createOutgoingDocumentApi({
-                      documentType: formDocType,
-                      title: formDocTitle.trim(),
-                      content: formDocContent,
-                      recipientNote: formDocRecipient,
-                      isUrgent: formDocIsUrgent,
-                      relatedTaskItemId: formDocRelatedTaskId || undefined,
-                      isCorrectionDocument: formDocIsCorrection,
-                      originalDocumentId: formDocOriginalId || undefined,
-                    });
-                    if (createRes.success && createRes.data) {
-                      targetDocId = createRes.data;
+                    if (targetDocId) {
+                      const submitRes = await submitOutgoingDocumentForSignatureApi(targetDocId);
+                      if (submitRes.success) {
+                        addToast('Trình ký thành công', 'Văn bản đã được chuyển tới Lãnh đạo phê duyệt & ký ban hành!', 'success');
+                        setShowCreateOutgoingModal(false);
+                        fetchOutgoingDocs();
+                      } else {
+                        addToast('Lỗi', submitRes.error || 'Không thể trình ký văn bản.', 'danger');
+                      }
                     }
-                  }
-
-                  if (targetDocId) {
-                    const submitRes = await submitOutgoingDocumentForSignatureApi(targetDocId);
-                    if (submitRes.success) {
-                      addToast('Trình ký thành công', 'Văn bản đã được chuyển tới Lãnh đạo phê duyệt & ký ban hành!', 'success');
-                      setShowCreateOutgoingModal(false);
-                      fetchOutgoingDocs();
-                    } else {
-                      addToast('Lỗi', submitRes.error || 'Không thể trình ký văn bản.', 'danger');
-                    }
-                  }
-                }}
-              >
-                <Icon name="paper-plane" size={14} /> Lưu & Trình Ký Duyệt
-              </button>
+                  }}
+                >
+                  <Icon name="paper-plane" size={13} /> Lưu & Trình Ký Duyệt
+                </button>
+              </div>
             </div>
           </div>
         </div>

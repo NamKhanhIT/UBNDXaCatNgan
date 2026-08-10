@@ -60,7 +60,12 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
                 DocumentSequenceNumber = doc.DocumentSequenceNumber,
                 DocumentSymbol = doc.DocumentSymbol,
                 RecallReason = doc.RecallReason,
-                RecalledAt = doc.RecalledAt
+                RecalledAt = doc.RecalledAt,
+                DestinationLevel = doc.DestinationLevel ?? "Superior",
+                AutoCreateTask = doc.AutoCreateTask,
+                SecurityLevel = doc.SecurityLevel ?? "Normal",
+                UrgencyLevel = doc.UrgencyLevel ?? "Normal",
+                ResponseDeadline = doc.ResponseDeadline
             };
         }
     }

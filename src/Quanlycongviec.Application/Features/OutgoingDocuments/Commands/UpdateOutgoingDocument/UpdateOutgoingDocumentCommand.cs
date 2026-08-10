@@ -20,6 +20,12 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Commands.UpdateO
         public Guid? RelatedTaskItemId { get; set; }
         public bool IsUrgent { get; set; }
         public Guid UserId { get; set; }
+
+        public string DestinationLevel { get; set; } = "Superior";
+        public bool AutoCreateTask { get; set; } = true;
+        public string SecurityLevel { get; set; } = "Normal";
+        public string UrgencyLevel { get; set; } = "Normal";
+        public DateTime? ResponseDeadline { get; set; }
     }
 
     public class UpdateOutgoingDocumentCommandHandler : IRequestHandler<UpdateOutgoingDocumentCommand, bool>
@@ -57,6 +63,11 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Commands.UpdateO
             doc.AttachmentUrl = request.AttachmentUrl;
             doc.RelatedTaskItemId = request.RelatedTaskItemId;
             doc.IsUrgent = request.IsUrgent;
+            doc.DestinationLevel = string.IsNullOrWhiteSpace(request.DestinationLevel) ? "Superior" : request.DestinationLevel;
+            doc.AutoCreateTask = request.AutoCreateTask;
+            doc.SecurityLevel = string.IsNullOrWhiteSpace(request.SecurityLevel) ? "Normal" : request.SecurityLevel;
+            doc.UrgencyLevel = string.IsNullOrWhiteSpace(request.UrgencyLevel) ? "Normal" : request.UrgencyLevel;
+            doc.ResponseDeadline = request.ResponseDeadline;
 
             _context.AuditLogs.Add(new AuditLog
             {

@@ -36,5 +36,11 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.DTOs
         public string? DocumentSymbol { get; set; }
         public string? RecallReason { get; set; }
         public DateTime? RecalledAt { get; set; }
+
+        public string DestinationLevel { get; set; } = "Superior";
+        public bool AutoCreateTask { get; set; } = true;
+        public string SecurityLevel { get; set; } = "Normal";
+        public string UrgencyLevel { get; set; } = "Normal";
+        public DateTime? ResponseDeadline { get; set; }
     }
 }
