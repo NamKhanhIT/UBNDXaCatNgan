@@ -10,6 +10,7 @@ namespace Quanlycongviec.Domain.Enums
         Escalation,
         WeeklySummary,
         Comment,
-        Reviewed
+        Reviewed,
+        EventReminder
     }
 }

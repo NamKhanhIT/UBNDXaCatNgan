@@ -12,6 +12,9 @@ namespace Quanlycongviec.Domain.Entities
         public Guid? TaskItemId { get; set; }
         public TaskItem? TaskItem { get; set; }
 
+        public Guid? CalendarEventId { get; set; }
+        public CalendarEvent? CalendarEvent { get; set; }
+
         public NotificationType Type { get; set; }
         public NotificationChannel Channel { get; set; } = NotificationChannel.InApp;
 

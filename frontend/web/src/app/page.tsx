@@ -50,6 +50,7 @@ import type {
 import { DocumentViewerModal } from '../components/DocumentViewerModal';
 import { RevokeDocumentModal } from '../components/RevokeDocumentModal';
 import { DocumentHistoryModal } from '../components/DocumentHistoryModal';
+import { GoogleCalendarView } from '../components/GoogleCalendarView';
 import { getFileViewUrl } from '../services/files.service';
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1219,6 +1220,7 @@ export default function DashboardPage() {
   // Welcome Pop Up & Print Modal state
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // Calendar week navigation state
   const [weekStart, setWeekStart] = useState('2026-07-20');
@@ -3294,180 +3296,15 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {/* ── TAB 4: TUẦN NÀY (WEEKLY SHIFT GRID VIEW) ── */}
+              {/* ── TAB 4: LỊCH GOOGLE CALENDAR & SỰ KIỆN ── */}
               {workcenterTab === 'week' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {/* Controls Bar */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, background: '#ffffff', padding: '12px 16px', borderRadius: 10, border: '1px solid var(--border-color)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <button type="button" className="btn btn-outline btn-sm" onClick={handlePrevWeek} title="Tuần trước">
-                        <Icon name="chevron-left" size={12} /> Tuần Trước
-                      </button>
-                      <button type="button" className="btn btn-primary btn-sm" onClick={handleTodayWeek}>
-                        Hôm Nay
-                      </button>
-                      <button type="button" className="btn btn-outline btn-sm" onClick={handleNextWeek} title="Tuần sau">
-                        Tuần Sau <Icon name="chevron-right" size={12} />
-                      </button>
-                      <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)', marginLeft: 8 }}>
-                        Tuần từ {formatDateDisplay(weekStart)} đến {formatDateDisplay(weekDays[6].dateStr)}
-                      </span>
-                    </div>
-
-                    <div style={{ fontSize: '0.8rem', color: '#64748b', display: 'flex', gap: 12 }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Icon name="sun" size={12} style={{ color: '#d97706' }} /> Ca Sáng (07:00 - 11:30)
-                      </span>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Icon name="cloud-sun" size={12} style={{ color: '#2563eb' }} /> Ca Chiều (13:00 - 17:00)
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Calendar Grid Table */}
-                  <div className="card" style={{ overflow: 'hidden' }}>
-                    <div className="card-body" style={{ padding: 0, overflowX: 'auto' }}>
-                      <table className="calendar-grid-table">
-                        <thead>
-                          <tr>
-                            <th scope="col" style={{ width: 90, textAlign: 'center', background: '#f8fafc' }}>Ca làm việc</th>
-                            {weekDays.map(day => (
-                              <th
-                                key={day.dateStr}
-                                scope="col"
-                                style={{
-                                  textAlign: 'center',
-                                  background: day.isToday ? '#eff6ff' : '#f8fafc',
-                                  borderBottom: day.isToday ? '2px solid #2563eb' : undefined
-                                }}
-                              >
-                                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: day.isToday ? '#2563eb' : '#1e293b' }}>
-                                  {day.dayName}
-                                </div>
-                                <div style={{ fontSize: '0.75rem', color: day.isToday ? '#2563eb' : '#64748b' }}>
-                                  {day.dayNumber}
-                                </div>
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {/* SÁNG SHIFT ROW */}
-                          <tr>
-                            <td style={{ fontWeight: 700, fontSize: '0.82rem', background: '#fffbeb', textAlign: 'center', color: '#b45309', verticalAlign: 'top', paddingTop: 16 }}>
-                              <Icon name="sun" size={14} />
-                              <div style={{ marginTop: 4 }}>CA SÁNG</div>
-                            </td>
-                            {weekDays.map(day => {
-                              const dayTasks = visibleTasks.filter(t => t.dueDate === day.dateStr && t.shift === 'Sang');
-                              return (
-                                <td key={`Sang_${day.dateStr}`} style={{ verticalAlign: 'top', background: day.isToday ? '#f0f9ff' : '#ffffff', minWidth: 160, padding: 8 }}>
-                                  {dayTasks.map(t => (
-                                    <div
-                                      key={t.id}
-                                      className={`shift-task-card ${t.priority === 'Khan' ? 'urgent' : ''}`}
-                                      onClick={() => setSelectedTaskId(t.id)}
-                                      style={{ cursor: 'pointer', marginBottom: 8 }}
-                                    >
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                        <span className={`badge ${getPriorityBadge(t.priority)}`} style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
-                                          {PRIORITY_LABELS[t.priority]}
-                                        </span>
-                                        <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{t.startTime}</span>
-                                      </div>
-                                      <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#0f172a', lineHeight: 1.3, marginBottom: 4 }}>
-                                        {t.title}
-                                      </div>
-                                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                                        <Icon name="user" size={10} /> {t.assignee}
-                                      </div>
-
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                                        <button
-                                          type="button"
-                                          className="btn btn-ghost btn-xs"
-                                          onClick={(e) => handleSwapShift(e, t.id, t.shift)}
-                                          title="Đổi sang ca Chiều"
-                                        >
-                                          <Icon name="arrow-right-arrow-left" size={10} /> Đổi ca
-                                        </button>
-                                        {t.status === 'Cho_Duyet' && ROLE_CONFIG[activeRole].scopeLevel <= 2.5 && (
-                                          <button
-                                            type="button"
-                                            className="btn btn-success btn-xs"
-                                            onClick={(e) => { e.stopPropagation(); handleApproveTask(t.id); }}
-                                          >
-                                            Duyệt
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </td>
-                              );
-                            })}
-                          </tr>
-
-                          {/* CHIỀU SHIFT ROW */}
-                          <tr>
-                            <td style={{ fontWeight: 700, fontSize: '0.82rem', background: '#eff6ff', textAlign: 'center', color: '#1d4ed8', verticalAlign: 'top', paddingTop: 16 }}>
-                              <Icon name="cloud-sun" size={14} />
-                              <div style={{ marginTop: 4 }}>CA CHIỀU</div>
-                            </td>
-                            {weekDays.map(day => {
-                              const dayTasks = visibleTasks.filter(t => t.dueDate === day.dateStr && t.shift === 'Chieu');
-                              return (
-                                <td key={`Chieu_${day.dateStr}`} style={{ verticalAlign: 'top', background: day.isToday ? '#f0f9ff' : '#ffffff', minWidth: 160, padding: 8 }}>
-                                  {dayTasks.map(t => (
-                                    <div
-                                      key={t.id}
-                                      className={`shift-task-card ${t.priority === 'Khan' ? 'urgent' : ''}`}
-                                      onClick={() => setSelectedTaskId(t.id)}
-                                      style={{ cursor: 'pointer', marginBottom: 8 }}
-                                    >
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                        <span className={`badge ${getPriorityBadge(t.priority)}`} style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
-                                          {PRIORITY_LABELS[t.priority]}
-                                        </span>
-                                        <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 600 }}>{t.startTime}</span>
-                                      </div>
-                                      <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#0f172a', lineHeight: 1.3, marginBottom: 4 }}>
-                                        {t.title}
-                                      </div>
-                                      <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                                        <Icon name="user" size={10} /> {t.assignee}
-                                      </div>
-
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6, paddingTop: 4, borderTop: '1px solid rgba(0,0,0,0.06)' }}>
-                                        <button
-                                          type="button"
-                                          className="btn btn-ghost btn-xs"
-                                          onClick={(e) => handleSwapShift(e, t.id, t.shift)}
-                                          title="Đổi sang ca Sáng"
-                                        >
-                                          <Icon name="arrow-right-arrow-left" size={10} /> Đổi ca
-                                        </button>
-                                        {t.status === 'Cho_Duyet' && ROLE_CONFIG[activeRole].scopeLevel <= 2.5 && (
-                                          <button
-                                            type="button"
-                                            className="btn btn-success btn-xs"
-                                            onClick={(e) => { e.stopPropagation(); handleApproveTask(t.id); }}
-                                          >
-                                            Duyệt
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
+                <GoogleCalendarView
+                  tasks={visibleTasks}
+                  users={SAMPLE_STAFF as any}
+                  onOpenCreateTaskModal={() => setShowCreateModal(true)}
+                  onOpenTaskDetailModal={(taskId) => setSelectedTaskId(taskId)}
+                  addToast={addToast}
+                />
               )}
 
               {/* ── TAB 5: VĂN BẢN ĐI (SỔ CÔNG VĂN ĐI) ── */}

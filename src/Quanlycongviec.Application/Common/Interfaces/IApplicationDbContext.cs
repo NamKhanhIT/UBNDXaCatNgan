@@ -27,6 +27,9 @@ namespace Quanlycongviec.Application.Common.Interfaces
         DbSet<DocumentNumberSequence> DocumentNumberSequences { get; }
         DbSet<DocumentAttachment> DocumentAttachments { get; }
         DbSet<DocumentVersion> DocumentVersions { get; }
+        DbSet<CalendarEvent> CalendarEvents { get; }
+        DbSet<EventParticipant> EventParticipants { get; }
+        DbSet<EventReminderOffset> EventReminderOffsets { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }

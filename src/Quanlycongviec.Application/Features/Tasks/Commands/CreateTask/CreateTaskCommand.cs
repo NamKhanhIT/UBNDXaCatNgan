@@ -14,6 +14,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
         public TaskPriority Priority { get; set; } = TaskPriority.Medium;
         public TaskType Type { get; set; } = TaskType.BAU;
         public double EstimatedEffortHours { get; set; } = 8.0;
+        public DateTime? StartDate { get; set; }
         public DateTime? DueDate { get; set; }
         public string? OCRText { get; set; }
         public string? DocumentUrl { get; set; }

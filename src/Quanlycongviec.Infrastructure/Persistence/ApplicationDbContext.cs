@@ -32,6 +32,9 @@ namespace Quanlycongviec.Infrastructure.Persistence
         public DbSet<DocumentNumberSequence> DocumentNumberSequences => Set<DocumentNumberSequence>();
         public DbSet<DocumentAttachment> DocumentAttachments => Set<DocumentAttachment>();
         public DbSet<DocumentVersion> DocumentVersions => Set<DocumentVersion>();
+        public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
+        public DbSet<EventParticipant> EventParticipants => Set<EventParticipant>();
+        public DbSet<EventReminderOffset> EventReminderOffsets => Set<EventReminderOffset>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -212,6 +215,54 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 .WithMany(u => u.AssignedTasks)
                 .HasForeignKey(t => t.AssigneeId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // ── CalendarEvent: Indexes & Enum conversion ──
+            modelBuilder.Entity<CalendarEvent>(entity =>
+            {
+                entity.Property(e => e.EventType)
+                    .HasConversion<string>()
+                    .HasMaxLength(30);
+
+                entity.HasIndex(e => new { e.StartDateTime, e.EndDateTime });
+                entity.HasIndex(e => e.OrganizerId);
+                entity.HasIndex(e => e.DepartmentId);
+
+                entity.HasOne(e => e.Organizer)
+                    .WithMany()
+                    .HasForeignKey(e => e.OrganizerId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+            // ── EventParticipant: Indexes & Enum conversion ──
+            modelBuilder.Entity<EventParticipant>(entity =>
+            {
+                entity.Property(p => p.ResponseStatus)
+                    .HasConversion<string>()
+                    .HasMaxLength(20);
+
+                entity.HasIndex(p => new { p.EventId, p.UserId });
+
+                entity.HasOne(p => p.Event)
+                    .WithMany(e => e.Participants)
+                    .HasForeignKey(p => p.EventId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(p => p.User)
+                    .WithMany()
+                    .HasForeignKey(p => p.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── EventReminderOffset: Index ──
+            modelBuilder.Entity<EventReminderOffset>(entity =>
+            {
+                entity.HasIndex(r => r.EventId);
+
+                entity.HasOne(r => r.Event)
+                    .WithMany(e => e.ReminderOffsets)
+                    .HasForeignKey(r => r.EventId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
         }
 
         public override async System.Threading.Tasks.Task<int> SaveChangesAsync(System.Threading.CancellationToken cancellationToken = default)

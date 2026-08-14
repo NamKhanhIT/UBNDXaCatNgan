@@ -113,12 +113,14 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
                 query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value.Date == date);
             }
 
-            // Filter: DueDate range (for "Tuần này" tab)
+            // Filter: Date range intersection for Calendar (From & To)
             if (request.DueDateFrom.HasValue && request.DueDateTo.HasValue)
             {
                 var from = request.DueDateFrom.Value.Date;
                 var to = request.DueDateTo.Value.Date;
-                query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value.Date >= from && t.DueDate.Value.Date <= to);
+                query = query.Where(t => (t.StartDate.HasValue || t.DueDate.HasValue) &&
+                    ((t.StartDate ?? t.DueDate)!.Value.Date <= to) &&
+                    ((t.DueDate ?? t.StartDate)!.Value.Date >= from));
             }
 
             // Count total before pagination
@@ -147,6 +149,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
                     Status = t.Status.ToString(),
                     Type = t.Type.ToString(),
                     EstimatedEffortHours = t.EstimatedEffortHours,
+                    StartDate = t.StartDate ?? t.DueDate,
                     DueDate = t.DueDate,
                     RatingScore = t.RatingScore,
                     RejectionReason = t.RejectionReason,

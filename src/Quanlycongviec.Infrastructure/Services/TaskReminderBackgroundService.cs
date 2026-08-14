@@ -107,7 +107,10 @@ namespace Quanlycongviec.Infrastructure.Services
                     }
                 }
 
-                // 4. Tổng hợp định kỳ sáng thứ Hai (Asia/Ho_Chi_Minh)
+                // 4. Quét & Gửi nhắc nhở Sự kiện Lịch (CalendarEvent)
+                await ProcessEventRemindersAsync(context, hubContext, zaloService, nowUtc, cancellationToken);
+
+                // 5. Tổng hợp định kỳ sáng thứ Hai (Asia/Ho_Chi_Minh)
                 await ProcessWeeklySummaryAsync(context, hubContext, zaloService, nowUtc, cancellationToken);
             }
             catch (Exception ex)
@@ -351,6 +354,94 @@ namespace Quanlycongviec.Infrastructure.Services
             }
         }
 
+        private async Task ProcessEventRemindersAsync(
+            ApplicationDbContext context,
+            IHubContext<NotificationHub> hubContext,
+            IZaloNotificationService zaloService,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            var activeEvents = await context.CalendarEvents
+                .Include(e => e.Participants)
+                .Include(e => e.ReminderOffsets)
+                .Where(e => !e.IsDeleted && e.EndDateTime >= nowUtc)
+                .ToListAsync(cancellationToken);
+
+            foreach (var evt in activeEvents)
+            {
+                var startUtc = evt.StartDateTime.ToUniversalTime();
+
+                foreach (var offset in evt.ReminderOffsets)
+                {
+                    var triggerTime = startUtc.AddMinutes(-offset.MinutesBefore);
+
+                    if (nowUtc >= triggerTime && nowUtc <= startUtc.AddMinutes(30))
+                    {
+                        string reminderType = $"EventReminder_{evt.Id}_{offset.MinutesBefore}m";
+
+                        bool exists = await context.ReminderLogs
+                            .AnyAsync(r => r.CalendarEventId == evt.Id && r.ReminderType == reminderType, cancellationToken);
+
+                        if (exists) continue;
+
+                        var reminderLog = new ReminderLog
+                        {
+                            CalendarEventId = evt.Id,
+                            ReminderType = reminderType,
+                            SentAt = DateTime.UtcNow
+                        };
+                        context.ReminderLogs.Add(reminderLog);
+
+                        try
+                        {
+                            await context.SaveChangesAsync(cancellationToken);
+                        }
+                        catch (DbUpdateException)
+                        {
+                            context.Entry(reminderLog).State = EntityState.Detached;
+                            continue;
+                        }
+
+                        // Danh sách người nhận: Ban tổ chức + Tất cả người tham gia
+                        var recipients = new HashSet<Guid> { evt.OrganizerId };
+                        foreach (var p in evt.Participants)
+                        {
+                            recipients.Add(p.UserId);
+                        }
+
+                        string timeText = offset.MinutesBefore >= 1440
+                            ? $"{offset.MinutesBefore / 1440} ngày"
+                            : offset.MinutesBefore >= 60
+                                ? $"{offset.MinutesBefore / 60} giờ"
+                                : $"{offset.MinutesBefore} phút";
+
+                        string title = $"📅 SẮP DIỄN RA SỰ KIỆN: {evt.Title}";
+                        string message = $"Sự kiện [{evt.Title}] sẽ diễn ra trong vòng {timeText} tới ({evt.StartDateTime:dd/MM/yyyy HH:mm}). Địa điểm: {evt.Location ?? "UBND Xã"}.";
+
+                        foreach (var userId in recipients)
+                        {
+                            var notification = new Notification
+                            {
+                                UserId = userId,
+                                CalendarEventId = evt.Id,
+                                Type = NotificationType.EventReminder,
+                                Channel = NotificationChannel.InApp,
+                                Title = title,
+                                Message = message,
+                                SentAt = DateTime.UtcNow,
+                                IsRead = false
+                            };
+
+                            context.Notifications.Add(notification);
+                            await context.SaveChangesAsync(cancellationToken);
+
+                            await BroadcastNotificationAsync(hubContext, userId, notification);
+                        }
+                    }
+                }
+            }
+        }
+
         private static async Task BroadcastNotificationAsync(
             IHubContext<NotificationHub> hubContext,
             Guid userId,
@@ -361,6 +452,7 @@ namespace Quanlycongviec.Infrastructure.Services
                 id = notification.Id,
                 userId = notification.UserId,
                 taskItemId = notification.TaskItemId,
+                calendarEventId = notification.CalendarEventId,
                 type = notification.Type.ToString(),
                 channel = notification.Channel.ToString(),
                 title = notification.Title,

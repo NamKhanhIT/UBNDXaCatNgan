@@ -17,6 +17,7 @@ namespace Quanlycongviec.Application.Features.Tasks.DTOs
         public string Status { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public double EstimatedEffortHours { get; set; }
+        public DateTime? StartDate { get; set; }
         public DateTime? DueDate { get; set; }
         public double? RatingScore { get; set; }
         public string? RejectionReason { get; set; }

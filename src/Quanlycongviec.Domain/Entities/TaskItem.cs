@@ -26,6 +26,7 @@ namespace Quanlycongviec.Domain.Entities
         public int ProgressPercentage { get; set; } = 0;
         public double EstimatedEffortHours { get; set; } = 8.0; // Dự toán số giờ công
         
+        public DateTime? StartDate { get; set; }
         public DateTime? DueDate { get; set; }
         public DateTime? CompletedAt { get; set; }
 

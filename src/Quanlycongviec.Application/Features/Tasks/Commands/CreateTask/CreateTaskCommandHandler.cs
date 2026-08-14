@@ -20,9 +20,16 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
 
         public async Task<Guid> Handle(CreateTaskCommand request, CancellationToken cancellationToken)
         {
+            DateTime? utcStartDate = request.StartDate.HasValue
+                ? (request.StartDate.Value.Kind == DateTimeKind.Utc ? request.StartDate.Value : DateTime.SpecifyKind(request.StartDate.Value, DateTimeKind.Utc))
+                : null;
+
             DateTime? utcDueDate = request.DueDate.HasValue
                 ? (request.DueDate.Value.Kind == DateTimeKind.Utc ? request.DueDate.Value : DateTime.SpecifyKind(request.DueDate.Value, DateTimeKind.Utc))
                 : null;
+
+            // Mặc định StartDate nếu không truyền: dùng utcDueDate hoặc DateTime.UtcNow
+            DateTime? finalStartDate = utcStartDate ?? utcDueDate ?? DateTime.UtcNow;
 
             var task = new TaskItem
             {
@@ -35,6 +42,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
                 Status = TaskStatusEnum.Todo,
                 Type = request.Type,
                 EstimatedEffortHours = request.EstimatedEffortHours,
+                StartDate = finalStartDate,
                 DueDate = utcDueDate,
                 OCRText = request.OCRText,
                 DocumentUrl = request.DocumentUrl,
