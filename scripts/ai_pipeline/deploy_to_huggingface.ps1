@@ -1,7 +1,7 @@
 <#
 =============================================================================
-KỊCH BẢN ĐẨY MÃ NGUỒN LÊN HUGGING FACE SPACES (SDK: GRADIO - FREE 100%)
-Không cần thẻ tín dụng - Tự động triển khai AI Qwen2.5-3B OpenAI API
+KỊCH BẢN ĐẨY MÃ NGUỒN LÊN HUGGING FACE SPACES (SDK: GRADIO + ZEROGPU)
+Triển khai Qwen3-14B AI Server với ZeroGPU (4-bit quantization)
 =============================================================================
 #>
 
@@ -11,20 +11,24 @@ param (
 )
 
 Write-Host "=====================================================================" -ForegroundColor Cyan
-Write-Host "🚀 TRIỂN KHAI MÁY CHỦ AI LÊN HUGGING FACE SPACES (SDK: GRADIO)" -ForegroundColor Yellow
+Write-Host "🚀 TRIỂN KHAI MÁY CHỦ AI LÊN HUGGING FACE SPACES (ZEROGPU)" -ForegroundColor Yellow
+Write-Host "   Model: Qwen3-14B-Instruct | Quantization: 4-bit NF4" -ForegroundColor Yellow
 Write-Host "=====================================================================" -ForegroundColor Cyan
 
 if (-not $SpaceRepoUrl) {
-    Write-Host "`n[HƯỚNG DẪN 1 PHÚT TẠO SPACE TRÊN HUGGING FACE]:" -ForegroundColor Green
+    Write-Host "`n[HƯỚNG DẪN TẠO SPACE ZEROGPU TRÊN HUGGING FACE]:" -ForegroundColor Green
     Write-Host "1. Đăng nhập https://huggingface.co (Bằng Email hoặc GitHub, không cần thẻ)" -ForegroundColor White
     Write-Host "2. Nhấn biểu tượng avatar góc phải -> Chọn 'New Space'" -ForegroundColor White
     Write-Host "3. Điền:" -ForegroundColor White
-    Write-Host "   - Space name : qwen-ubnd-catngan" -ForegroundColor Yellow
+    Write-Host "   - Space name : qwen3-ubnd-ai" -ForegroundColor Yellow
     Write-Host "   - Space SDK  : Chọn 'Gradio'" -ForegroundColor Yellow
-    Write-Host "   - Hardware   : CPU basic (2 vCPU, 16GB RAM) - Free" -ForegroundColor Yellow
+    Write-Host "   - Hardware   : Chọn 'ZeroGPU' (QUAN TRỌNG - không chọn CPU!)" -ForegroundColor Red
     Write-Host "   - Visibility : Public (hoặc Private)" -ForegroundColor Yellow
     Write-Host "4. Nhấn 'Create Space'" -ForegroundColor White
-    Write-Host "5. Copy đường link Clone repository (ví dụ: https://huggingface.co/spaces/YOUR_USERNAME/qwen-ubnd-catngan)`n" -ForegroundColor White
+    Write-Host "5. Vào Settings -> Variables and secrets, thêm biến:" -ForegroundColor White
+    Write-Host "   - MODEL_ID = your-username/qwen3-14b-ubnd" -ForegroundColor Yellow
+    Write-Host "   (Đây là Model Repo chứa checkpoint safetensors đã fine-tune)" -ForegroundColor Gray
+    Write-Host "6. Copy đường link Clone repository`n" -ForegroundColor White
 
     $SpaceRepoUrl = Read-Host "Dán đường dẫn Space Git URL của bạn vào đây"
 }
@@ -50,7 +54,7 @@ if (-not (Test-Path $tempDir)) {
     Exit
 }
 
-Write-Host "`n[2/4] Đang sao chép các tệp Gradio Space..." -ForegroundColor Cyan
+Write-Host "`n[2/4] Đang sao chép các tệp Gradio + ZeroGPU Space..." -ForegroundColor Cyan
 Copy-Item (Join-Path $srcDir "app.py") $tempDir -Force
 Copy-Item (Join-Path $srcDir "requirements.txt") $tempDir -Force
 Copy-Item (Join-Path $srcDir "README.md") $tempDir -Force
@@ -59,7 +63,7 @@ Set-Location $tempDir
 
 Write-Host "`n[3/4] Đang đóng gói và đẩy (Push) lên Hugging Face..." -ForegroundColor Cyan
 git add .
-git commit -m "Deploy Qwen2.5-3B Gradio + OpenAI-compatible API for UBND Xa Cat Ngan"
+git commit -m "Deploy Qwen3-14B ZeroGPU + OpenAI-compatible API for UBND Cap Xa"
 git push
 
 Set-Location $PSScriptRoot
@@ -67,7 +71,7 @@ Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "`n=====================================================================" -ForegroundColor Cyan
 Write-Host "🎉 ĐÃ ĐẨY LÊN HUGGING FACE THÀNH CÔNG!" -ForegroundColor Green
-Write-Host "Hugging Face đang tự động khởi chạy Gradio Space (khoảng 1-2 phút)." -ForegroundColor White
+Write-Host "Hugging Face đang tự động khởi chạy ZeroGPU Space (khoảng 2-5 phút)." -ForegroundColor White
 Write-Host ""
 Write-Host "Đường dẫn API của bạn sẽ là:" -ForegroundColor Yellow
 $cleanUrl = $SpaceRepoUrl.Replace(".git", "").Replace("https://huggingface.co/spaces/", "")
@@ -82,9 +86,13 @@ if ($parts.Length -ge 2) {
     Write-Host "  `"Type`": `"ApiCompatible`"," -ForegroundColor White
     Write-Host "  `"Api`": {" -ForegroundColor White
     Write-Host "    `"BaseUrl`": `"https://$user-$space.hf.space`"," -ForegroundColor Yellow
-    Write-Host "    `"Model`": `"qwen2.5-3b-instruct-q4_k_m`"," -ForegroundColor Yellow
+    Write-Host "    `"Model`": `"qwen3-14b-ubnd`"," -ForegroundColor Yellow
     Write-Host "    `"DataSovereigntyAcknowledged`": true" -ForegroundColor White
     Write-Host "  }" -ForegroundColor White
     Write-Host "}" -ForegroundColor White
+    Write-Host ""
+    Write-Host "⚠️ LƯU Ý ZEROGPU FREE TIER:" -ForegroundColor Red
+    Write-Host "  - Quota: 5 phút GPU/ngày (~15 lần gọi API với duration=20s)" -ForegroundColor White
+    Write-Host "  - Nâng PRO ($9/tháng): 5x quota (~75 lần/ngày) + hàng đợi ưu tiên" -ForegroundColor White
 }
 Write-Host "=====================================================================" -ForegroundColor Cyan
