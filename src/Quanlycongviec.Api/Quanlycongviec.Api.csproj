@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -19,6 +19,10 @@
   <ItemGroup>
     <ProjectReference Include="..\Quanlycongviec.Application\Quanlycongviec.Application.csproj" />
     <ProjectReference Include="..\Quanlycongviec.Infrastructure\Quanlycongviec.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="..\..\scripts\seed_database.sql" CopyToOutputDirectory="PreserveNewest" Link="scripts\seed_database.sql" />
   </ItemGroup>
 
 </Project>

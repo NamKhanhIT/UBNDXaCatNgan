@@ -10,7 +10,13 @@ namespace Quanlycongviec.Application.Features.RatingHistory.DTOs
         public string TaskItemTitle { get; set; } = string.Empty;
         
         public double? OldScore { get; set; }
+        public double? OldSystemScore { get; set; }
+        public double? OldEvaluatorScore { get; set; }
+
         public double NewScore { get; set; }
+        public double? NewSystemScore { get; set; }
+        public double? NewEvaluatorScore { get; set; }
+
         public double ScoreDelta { get; set; }
 
         public Guid ChangedByUserId { get; set; }
@@ -33,6 +39,8 @@ namespace Quanlycongviec.Application.Features.RatingHistory.DTOs
     public class SubmitRatingRevisionDto
     {
         public double NewScore { get; set; }
+        public double? NewSystemScore { get; set; }
+        public double? NewEvaluatorScore { get; set; }
         public string Reason { get; set; } = string.Empty;
         public string EvidenceUrl { get; set; } = string.Empty;
     }

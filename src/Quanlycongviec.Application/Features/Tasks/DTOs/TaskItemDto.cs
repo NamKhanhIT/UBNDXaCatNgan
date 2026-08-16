@@ -19,9 +19,16 @@ namespace Quanlycongviec.Application.Features.Tasks.DTOs
         public double EstimatedEffortHours { get; set; }
         public DateTime? StartDate { get; set; }
         public DateTime? DueDate { get; set; }
+        public DateTime? CompletedAt { get; set; }
+
+        public string? SubmissionNote { get; set; }
+        public double? SystemScore { get; set; }
+        public double? EvaluatorScore { get; set; }
         public double? RatingScore { get; set; }
         public string? RejectionReason { get; set; }
         public bool IsEscalated { get; set; }
+        public int OpenAnnotationCount { get; set; }
+        public int TotalAnnotationCount { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 }

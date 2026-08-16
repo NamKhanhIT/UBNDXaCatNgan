@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
@@ -14,11 +15,25 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
         public Guid TaskId { get; set; }
         public string Status { get; set; } = string.Empty;
         public double? RatingScore { get; set; }
+        public double? SystemScore { get; set; }
+        public double? EvaluatorScore { get; set; }
+        public string? SubmissionNote { get; set; }
         public string? RejectionReason { get; set; }
         public DateTime? NewExtendedDueDate { get; set; }
         public Guid CurrentUserId { get; set; }
 
-        public UpdateTaskStatusCommand(Guid taskId, string status, Guid currentUserId, double? ratingScore = null, string? rejectionReason = null, DateTime? newExtendedDueDate = null)
+        public UpdateTaskStatusCommand() { }
+
+        public UpdateTaskStatusCommand(
+            Guid taskId,
+            string status,
+            Guid currentUserId,
+            double? ratingScore = null,
+            string? rejectionReason = null,
+            DateTime? newExtendedDueDate = null,
+            double? systemScore = null,
+            double? evaluatorScore = null,
+            string? submissionNote = null)
         {
             TaskId = taskId;
             Status = status;
@@ -26,25 +41,41 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
             RatingScore = ratingScore;
             RejectionReason = rejectionReason;
             NewExtendedDueDate = newExtendedDueDate;
+            SystemScore = systemScore;
+            EvaluatorScore = evaluatorScore;
+            SubmissionNote = submissionNote;
         }
     }
 
     public class UpdateTaskStatusCommandHandler : IRequestHandler<UpdateTaskStatusCommand, bool>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ISystemScoreCalculator _calculator;
 
-        public UpdateTaskStatusCommandHandler(IApplicationDbContext context)
+        public UpdateTaskStatusCommandHandler(
+            IApplicationDbContext context,
+            ISystemScoreCalculator calculator)
         {
             _context = context;
+            _calculator = calculator;
         }
 
         public async Task<bool> Handle(UpdateTaskStatusCommand request, CancellationToken cancellationToken)
         {
-            var task = await _context.TaskItems.FirstOrDefaultAsync(t => t.Id == request.TaskId, cancellationToken);
+            var task = await _context.TaskItems
+                .Include(t => t.SubTasks)
+                .FirstOrDefaultAsync(t => t.Id == request.TaskId, cancellationToken);
+
             if (task == null) return false;
 
             var newStatus = MapStatus(request.Status);
             var oldStatus = task.Status;
+
+            // Lưu submission note nếu có
+            if (!string.IsNullOrWhiteSpace(request.SubmissionNote))
+            {
+                task.SubmissionNote = request.SubmissionNote.Trim();
+            }
 
             // ── Luật 72/2025: Project tasks phải có phản biện UBMTTQ trước khi vào InReview ──
             if (task.Type == TaskType.Project
@@ -86,9 +117,35 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
             {
                 task.ProgressPercentage = 100;
                 task.CompletedAt = DateTime.UtcNow;
-                if (request.RatingScore.HasValue)
+
+                // Tính điểm đánh giá (Thang 100 = 30đ hệ thống + 70đ người chấm)
+                if (request.EvaluatorScore.HasValue || request.SystemScore.HasValue || request.RatingScore.HasValue)
                 {
-                    task.RatingScore = request.RatingScore.Value;
+                    double systemScore;
+                    if (request.SystemScore.HasValue)
+                    {
+                        systemScore = request.SystemScore.Value;
+                    }
+                    else
+                    {
+                        var rejectionCount = await _context.ActivityLogs
+                            .CountAsync(l => l.TargetEntityId == task.Id.ToString()
+                                          && (l.Summary.Contains("Từ chối") || l.Summary.Contains("yêu cầu làm lại") || l.Summary.Contains("yêu cầu sửa")), cancellationToken);
+                        if (rejectionCount == 0 && !string.IsNullOrWhiteSpace(task.RejectionReason))
+                        {
+                            rejectionCount = 1;
+                        }
+                        var breakdown = _calculator.Calculate(task, rejectionCount, task.SubTasks.ToList());
+                        systemScore = breakdown.TotalSystemScore;
+                    }
+
+                    double evaluatorScore = request.EvaluatorScore ?? (request.RatingScore.HasValue ? Math.Max(0, request.RatingScore.Value - systemScore) : 6.0);
+                    evaluatorScore = Math.Clamp(evaluatorScore, 0.0, 7.0);
+                    systemScore = Math.Clamp(systemScore, 0.0, 3.0);
+
+                    task.SystemScore = Math.Round(systemScore, 1);
+                    task.EvaluatorScore = Math.Round(evaluatorScore, 1);
+                    task.RatingScore = Math.Round(task.SystemScore.Value + task.EvaluatorScore.Value, 1);
                 }
             }
 
@@ -112,7 +169,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 Action = "UpdateTaskStatus",
                 EntityName = "TaskItem",
                 EntityId = task.Id.ToString(),
-                Details = $"Chuyển trạng thái nhiệm vụ [{task.Title}] từ {oldStatus} -> {newStatus}"
+                Details = $"Chuyển trạng thái nhiệm vụ [{task.Title}] từ {oldStatus} -> {newStatus}" + (task.RatingScore.HasValue ? $" (Điểm: {task.RatingScore.Value}/10: Hệ thống {task.SystemScore:F1}đ + Lãnh đạo {task.EvaluatorScore:F1}đ)" : "")
             });
 
             // Notification
@@ -136,7 +193,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 ActionType = "status_changed",
                 TargetEntityType = "TaskItem",
                 TargetEntityId = task.Id.ToString(),
-                Summary = $"Chuyển trạng thái [{task.Title}] từ {oldStatus} → {newStatus}"
+                Summary = $"Chuyển trạng thái [{task.Title}] từ {oldStatus} → {newStatus}" + (newStatus == TaskStatusEnum.Cancelled ? $" (Lý do: {request.RejectionReason})" : "")
             });
 
             await _context.SaveChangesAsync(cancellationToken);

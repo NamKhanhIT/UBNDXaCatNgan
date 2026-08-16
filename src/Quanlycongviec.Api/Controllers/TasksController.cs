@@ -9,12 +9,17 @@ using Quanlycongviec.Application.Features.Comments.Queries.GetComments;
 using Quanlycongviec.Application.Features.SubTasks.Commands.CreateSubTask;
 using Quanlycongviec.Application.Features.SubTasks.Commands.ToggleSubTask;
 using Quanlycongviec.Application.Features.SubTasks.Queries.GetSubTasks;
+using Quanlycongviec.Application.Features.TaskAnnotations.Commands.CreateTaskReviewAnnotation;
+using Quanlycongviec.Application.Features.TaskAnnotations.Commands.ResolveTaskReviewAnnotation;
+using Quanlycongviec.Application.Features.TaskAnnotations.Queries.GetTaskReviewAnnotations;
 using Quanlycongviec.Application.Features.Tasks.Commands.CreateTask;
 using Quanlycongviec.Application.Features.Tasks.Commands.ProcessAIStructuredTask;
 using Quanlycongviec.Application.Features.Tasks.Commands.SubmitUBMTTQReview;
 using Quanlycongviec.Application.Features.Tasks.Commands.TransferTask;
 using Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus;
+using Quanlycongviec.Application.Features.Tasks.Queries.CalculateTaskSystemScore;
 using Quanlycongviec.Application.Features.Tasks.Queries.GetTasks;
+using Quanlycongviec.Domain.Enums;
 
 namespace Quanlycongviec.Api.Controllers
 {
@@ -91,7 +96,7 @@ namespace Quanlycongviec.Api.Controllers
         }
 
         /// <summary>
-        /// Cập nhật trạng thái công việc (Hoàn thành, Từ chối, Đang xử lý, Chờ duyệt)
+        /// Cập nhật trạng thái công việc (Hoàn thành, Từ chối, Đang xử lý, Chờ duyệt) kèm đánh giá 100 điểm
         /// </summary>
         [HttpPatch("{id:guid}/status")]
         public async Task<IActionResult> UpdateStatus([FromRoute] Guid id, [FromBody] UpdateTaskStatusRequest request)
@@ -102,12 +107,66 @@ namespace Quanlycongviec.Api.Controllers
                 CurrentUserId,
                 request.RatingScore,
                 request.RejectionReason,
-                request.NewExtendedDueDate);
+                request.NewExtendedDueDate,
+                request.SystemScore,
+                request.EvaluatorScore,
+                request.SubmissionNote);
 
             var success = await _mediator.Send(command);
             if (!success) return BadRequest(new { success = false, message = "Không thể cập nhật trạng thái nhiệm vụ." });
 
             return Ok(new { success = true, message = "Đã cập nhật trạng thái nhiệm vụ thành công." });
+        }
+
+        /// <summary>
+        /// Xem trước / Tính toán điểm số hệ thống tự động (30 điểm khách quan)
+        /// </summary>
+        [HttpGet("{id:guid}/system-score")]
+        public async Task<IActionResult> GetSystemScore([FromRoute] Guid id)
+        {
+            var query = new CalculateTaskSystemScoreQuery(id);
+            var result = await _mediator.Send(query);
+            return Ok(new { success = true, data = result });
+        }
+
+        /// <summary>
+        /// Lấy toàn bộ danh sách chú thích khoanh vùng (cả Open và Resolved)
+        /// </summary>
+        [HttpGet("{id:guid}/annotations")]
+        public async Task<IActionResult> GetAnnotations([FromRoute] Guid id)
+        {
+            var query = new GetTaskReviewAnnotationsQuery(id);
+            var result = await _mediator.Send(query);
+            return Ok(new { success = true, data = result });
+        }
+
+        /// <summary>
+        /// Tạo chú thích khoanh vùng mới trên nội dung kết quả nộp
+        /// </summary>
+        [HttpPost("{id:guid}/annotations")]
+        public async Task<IActionResult> CreateAnnotation([FromRoute] Guid id, [FromBody] CreateAnnotationRequest request)
+        {
+            var command = new CreateTaskReviewAnnotationCommand(
+                id,
+                request.AnchorText,
+                request.StartOffsetHint,
+                request.CommentText,
+                request.Severity,
+                CurrentUserId);
+
+            var result = await _mediator.Send(command);
+            return Ok(new { success = true, data = result, message = "Đã thêm chú thích nhận xét thành công." });
+        }
+
+        /// <summary>
+        /// Đánh dấu đã sửa xong chú thích (Resolve annotation)
+        /// </summary>
+        [HttpPost("{id:guid}/annotations/{annotationId:guid}/resolve")]
+        public async Task<IActionResult> ResolveAnnotation([FromRoute] Guid id, [FromRoute] Guid annotationId)
+        {
+            var command = new ResolveTaskReviewAnnotationCommand(id, annotationId, CurrentUserId);
+            var result = await _mediator.Send(command);
+            return Ok(new { success = true, data = result, message = "Đã xác nhận sửa xong chú thích." });
         }
 
         /// <summary>
@@ -169,6 +228,7 @@ namespace Quanlycongviec.Api.Controllers
 
             return Ok(new { success = true, message = "Đã cập nhật trạng thái công việc con." });
         }
+
         /// <summary>
         /// Lấy danh sách bình luận của nhiệm vụ
         /// </summary>
@@ -220,8 +280,19 @@ namespace Quanlycongviec.Api.Controllers
     {
         public string Status { get; set; } = string.Empty;
         public double? RatingScore { get; set; }
+        public double? SystemScore { get; set; }
+        public double? EvaluatorScore { get; set; }
+        public string? SubmissionNote { get; set; }
         public string? RejectionReason { get; set; }
         public DateTime? NewExtendedDueDate { get; set; }
+    }
+
+    public class CreateAnnotationRequest
+    {
+        public string AnchorText { get; set; } = string.Empty;
+        public int? StartOffsetHint { get; set; }
+        public string CommentText { get; set; } = string.Empty;
+        public AnnotationSeverityEnum Severity { get; set; } = AnnotationSeverityEnum.CanChinhSua;
     }
 
     public class TransferTaskRequest

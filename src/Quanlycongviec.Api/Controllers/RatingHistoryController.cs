@@ -50,7 +50,9 @@ namespace Quanlycongviec.Api.Controllers
                     dto.NewScore,
                     dto.Reason,
                     dto.EvidenceUrl,
-                    userId
+                    userId,
+                    dto.NewSystemScore,
+                    dto.NewEvaluatorScore
                 ));
 
                 return Ok(result);

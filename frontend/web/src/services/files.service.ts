@@ -64,3 +64,41 @@ export async function uploadFileApi(
     return { success: false, error: err.message || 'Lỗi mạng khi upload file.' };
   }
 }
+
+export async function uploadAndAnalyzeApi(
+  file: File,
+  documentId?: string
+): Promise<{
+  success: boolean;
+  data?: { attachmentId: string; documentId: string };
+  analysisResult?: any;
+  aiError?: string;
+  error?: string;
+  message?: string;
+}> {
+  const effectiveDocId = documentId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-0000-0000-000000000000');
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('documentId', effectiveDocId);
+
+  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const baseUrl = getApiBaseUrl();
+
+  try {
+    const res = await fetch(`${baseUrl}/api/v1/Files/upload-and-analyze`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+
+    const json = await res.json();
+    if (!res.ok) {
+      return { success: false, error: json.error || 'Upload và phân tích thất bại.' };
+    }
+    return json;
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Lỗi kết nối khi gửi file phân tích AI.' };
+  }
+}

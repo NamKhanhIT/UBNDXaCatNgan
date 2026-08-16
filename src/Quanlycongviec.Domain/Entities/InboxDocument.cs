@@ -36,6 +36,24 @@ namespace Quanlycongviec.Domain.Entities
         public string? ScheduledShift { get; set; } // Sang / Chieu / Toi
         public Guid? ScheduledTaskId { get; set; } // TaskItem liên kết
         public TaskItem? ScheduledTask { get; set; }
+
+        // ── Kết quả AI phân tích văn bản (Prompt F) ──
+        // Mọi field nullable: nếu AI không tìm thấy trong văn bản → null, không suy diễn
+        public string? AiCategory { get; set; }              // DocumentCategory enum → string
+        public string? AiTitle { get; set; }                 // Tiêu đề AI trích xuất
+        public string? AiSummary { get; set; }               // Tóm tắt nội dung
+        public DateTime? AiExtractedDeadline { get; set; }   // Hạn chót trích xuất
+        public string? AiExtractedSubjects { get; set; }     // Đối tượng liên quan (JSON array)
+        public string? AiObjectives { get; set; }            // Mục tiêu/yêu cầu
+        public Guid? AiSuggestedDepartmentId { get; set; }   // Phòng ban gợi ý — LUÔN là Id thật đã validate, không lưu text tự do
+        public double? AiConfidenceScore { get; set; }       // Độ tin cậy 0.0 - 1.0
+        public DateTime? AiEventStartDateTime { get; set; }  // Thời gian bắt đầu (nếu là họp/sự kiện)
+        public DateTime? AiEventEndDateTime { get; set; }    // Thời gian kết thúc
+
+        // ── Kiểm duyệt AI (human-in-the-loop) ──
+        public Guid? AiReviewedByUserId { get; set; }        // null = chưa duyệt → không cho đi tiếp bước sau
+        public DateTime? AiReviewedAt { get; set; }
+        public string? AiProcessingStatus { get; set; }      // "Pending" | "Analyzed" | "Reviewed" | "Confirmed"
     }
 }
 

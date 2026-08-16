@@ -31,8 +31,12 @@ namespace Quanlycongviec.Application.Features.Users.Queries.GetUsers
                 .Where(u => !u.IsDeleted)
                 .ToListAsync(cancellationToken);
 
-            var workloads = await _context.WorkloadCapacities
-                .ToDictionaryAsync(w => w.UserId, w => w, cancellationToken);
+            var workloadsList = await _context.WorkloadCapacities
+                .ToListAsync(cancellationToken);
+
+            var workloads = workloadsList
+                .GroupBy(w => w.UserId)
+                .ToDictionary(g => g.Key, g => g.First());
 
             var result = users.Select(u =>
             {

@@ -59,7 +59,8 @@ namespace Quanlycongviec.Infrastructure.Services
                 using var scope = _serviceProvider.CreateScope();
                 var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
                 var hubContext = scope.ServiceProvider.GetRequiredService<IHubContext<NotificationHub>>();
-                var zaloService = scope.ServiceProvider.GetRequiredService<IZaloNotificationService>();
+                var zaloService = scope.ServiceProvider.GetService<IZaloNotificationService>();
+                var webPushService = scope.ServiceProvider.GetService<IWebPushNotificationService>();
 
                 var nowUtc = DateTime.UtcNow;
 
@@ -82,7 +83,7 @@ namespace Quanlycongviec.Infrastructure.Services
                         var typeEnum = timeUntilDue <= TimeSpan.FromDays(1) ? NotificationType.BeforeDeadline1d : NotificationType.BeforeDeadline3d;
 
                         await TrySendReminderAsync(
-                            context, hubContext, zaloService, task, reminderType,
+                            context, hubContext, zaloService, webPushService, task, reminderType,
                             typeEnum,
                             $"Nhắc việc sắp tới hạn ({task.Title})",
                             $"Công việc [{task.Title}] sẽ hết hạn trong vòng {(timeUntilDue.TotalHours <= 24 ? "1 ngày" : "3 ngày")}. Vui lòng kiểm tra tiến độ.",
@@ -93,7 +94,7 @@ namespace Quanlycongviec.Infrastructure.Services
                     if (nowUtc > dueDateUtc)
                     {
                         await TrySendReminderAsync(
-                            context, hubContext, zaloService, task, "Overdue",
+                            context, hubContext, zaloService, webPushService, task, "Overdue",
                             NotificationType.Overdue,
                             $"CẢNH BÁO TRỄ HẠN: {task.Title}",
                             $"Công việc [{task.Title}] đã quá hạn từ ngày {task.DueDate:dd/MM/yyyy HH:mm}. Cần xử lý ngay!",
@@ -103,15 +104,18 @@ namespace Quanlycongviec.Infrastructure.Services
                     // 3. Leo thang công việc khẩn (Urgent + Quá hạn + chưa Leo thang)
                     if (task.Priority == TaskPriority.Urgent && nowUtc > dueDateUtc && !task.IsEscalated)
                     {
-                        await HandleEscalationAsync(context, hubContext, zaloService, task, cancellationToken);
+                        await HandleEscalationAsync(context, hubContext, zaloService, webPushService, task, cancellationToken);
                     }
                 }
 
                 // 4. Quét & Gửi nhắc nhở Sự kiện Lịch (CalendarEvent)
-                await ProcessEventRemindersAsync(context, hubContext, zaloService, nowUtc, cancellationToken);
+                await ProcessEventRemindersAsync(context, hubContext, zaloService, webPushService, nowUtc, cancellationToken);
 
                 // 5. Tổng hợp định kỳ sáng thứ Hai (Asia/Ho_Chi_Minh)
-                await ProcessWeeklySummaryAsync(context, hubContext, zaloService, nowUtc, cancellationToken);
+                await ProcessWeeklySummaryAsync(context, hubContext, zaloService, webPushService, nowUtc, cancellationToken);
+
+                // 6. Bản tóm tắt nhắc việc mỗi ngày (Daily Digest lúc 07:30 sáng)
+                await ProcessDailyDigestAsync(context, webPushService, nowUtc, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -119,10 +123,78 @@ namespace Quanlycongviec.Infrastructure.Services
             }
         }
 
+        private static string? _lastDailyDigestDate = null;
+
+        private async Task ProcessDailyDigestAsync(
+            ApplicationDbContext context,
+            IWebPushNotificationService webPushService,
+            DateTime nowUtc,
+            CancellationToken cancellationToken)
+        {
+            var digestEnabled = _configuration.GetValue<bool>("DailyDigest:Enabled", true);
+            if (!digestEnabled) return;
+
+            // Giờ Việt Nam (UTC+7)
+            var vnTime = nowUtc.AddHours(7);
+            var todayStr = vnTime.ToString("yyyy-MM-dd");
+
+            var targetHour = _configuration.GetValue<int>("DailyDigest:Hour", 7);
+            var targetMinute = _configuration.GetValue<int>("DailyDigest:Minute", 30);
+
+            // Kiểm tra khung giờ và chỉ chạy 1 lần trong ngày
+            bool isTargetTime = (vnTime.Hour == targetHour && vnTime.Minute >= targetMinute) || (vnTime.Hour > targetHour && vnTime.Hour <= targetHour + 1);
+
+            if (!isTargetTime || _lastDailyDigestDate == todayStr)
+            {
+                return;
+            }
+
+            _logger.LogInformation("Đang chạy tiến trình gửi Bản tóm tắt nhắc việc mỗi ngày (Daily Digest) cho ngày {Date}...", todayStr);
+
+            // Lấy danh sách user IDs có subscription Web Push đang kích hoạt
+            var userIdsWithPush = await context.PushSubscriptions
+                .Where(s => s.IsActive)
+                .Select(s => s.UserId)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+
+            foreach (var userId in userIdsWithPush)
+            {
+                var userTasks = await context.TaskItems
+                    .Where(t => t.AssigneeId == userId && t.Status != TaskStatusEnum.Completed)
+                    .ToListAsync(cancellationToken);
+
+                var pendingCount = userTasks.Count;
+                var overdueCount = userTasks.Count(t => t.DueDate.HasValue && t.DueDate.Value.ToUniversalTime() < nowUtc);
+
+                if (pendingCount > 0)
+                {
+                    string digestTitle = "Tóm Tắt Nhiệm Vụ Hôm Nay - UBND Xã Cát Ngạn";
+                    string digestMessage = overdueCount > 0
+                        ? $"Chào buổi sáng! Bạn có {pendingCount} việc cần xử lý hôm nay, trong đó có {overdueCount} việc quá hạn. Bấm để xem chi tiết."
+                        : $"Chào buổi sáng! Bạn có {pendingCount} việc cần xử lý hôm nay. Chúc bạn một ngày làm việc hiệu quả!";
+
+                    if (webPushService != null)
+                    {
+                        await webPushService.SendNotificationAsync(
+                            userId,
+                            digestTitle,
+                            digestMessage,
+                            "/",
+                            new { type = "DailyDigest", pendingCount, overdueCount },
+                            cancellationToken);
+                    }
+                }
+            }
+
+            _lastDailyDigestDate = todayStr;
+        }
+
         private async Task TrySendReminderAsync(
             ApplicationDbContext context,
             IHubContext<NotificationHub> hubContext,
-            IZaloNotificationService zaloService,
+            IZaloNotificationService? zaloService,
+            IWebPushNotificationService? webPushService,
             TaskItem task,
             string reminderType,
             NotificationType notificationType,
@@ -181,12 +253,21 @@ namespace Quanlycongviec.Infrastructure.Services
 
                 // Real-time SignalR push
                 await BroadcastNotificationAsync(hubContext, userId, notification);
+                
+                // Web Push song song
+                if (webPushService != null)
+                {
+                    await webPushService.SendNotificationAsync(userId, title, message, "/", new { taskId = task.Id }, cancellationToken);
+                }
 
                 // Zalo ZNS fallback nếu có sđt
-                var user = await context.Users.FindAsync(new object[] { userId }, cancellationToken);
-                if (user != null && !string.IsNullOrWhiteSpace(user.ZaloPhoneNumber))
+                if (zaloService != null)
                 {
-                    await zaloService.SendZnsAsync(user.ZaloPhoneNumber, "REMINDER_TEMPLATE", new { title, message });
+                    var user = await context.Users.FindAsync(new object[] { userId }, cancellationToken);
+                    if (user != null && !string.IsNullOrWhiteSpace(user.ZaloPhoneNumber))
+                    {
+                        await zaloService.SendZnsAsync(user.ZaloPhoneNumber, "REMINDER_TEMPLATE", new { title, message });
+                    }
                 }
             }
         }
@@ -194,7 +275,8 @@ namespace Quanlycongviec.Infrastructure.Services
         private async Task HandleEscalationAsync(
             ApplicationDbContext context,
             IHubContext<NotificationHub> hubContext,
-            IZaloNotificationService zaloService,
+            IZaloNotificationService? zaloService,
+            IWebPushNotificationService? webPushService,
             TaskItem task,
             CancellationToken cancellationToken)
         {
@@ -263,8 +345,8 @@ namespace Quanlycongviec.Infrastructure.Services
                     TaskItemId = task.Id,
                     Type = NotificationType.Escalation,
                     Channel = NotificationChannel.InApp,
-                    Title = $"🚨 LEO THANG CÔNG VIỆC KHẨN TRỄ HẠN: {task.Title}",
-                    Message = $"Nhiệm vụ KHẨN KẤP [{task.Title}] đã trễ hạn và được tự động leo thang tới Lãnh đạo quản lý trực tiếp.",
+                    Title = $"CÔNG VIỆC KHẨN TRỄ HẠN: {task.Title}",
+                    Message = $"Nhiệm vụ KHẨN CẤP [{task.Title}] đã trễ hạn và được tự động leo thang tới Lãnh đạo quản lý trực tiếp.",
                     SentAt = DateTime.UtcNow,
                     IsRead = false
                 };
@@ -273,13 +355,18 @@ namespace Quanlycongviec.Infrastructure.Services
                 await context.SaveChangesAsync(cancellationToken);
 
                 await BroadcastNotificationAsync(hubContext, userId, notification);
+                if (webPushService != null)
+                {
+                    await webPushService.SendNotificationAsync(userId, notification.Title, notification.Message, "/", new { taskId = task.Id }, cancellationToken);
+                }
             }
         }
 
         private async Task ProcessWeeklySummaryAsync(
             ApplicationDbContext context,
             IHubContext<NotificationHub> hubContext,
-            IZaloNotificationService zaloService,
+            IZaloNotificationService? zaloService,
+            IWebPushNotificationService? webPushService,
             DateTime nowUtc,
             CancellationToken cancellationToken)
         {
@@ -341,8 +428,8 @@ namespace Quanlycongviec.Infrastructure.Services
                     UserId = userId,
                     Type = NotificationType.WeeklySummary,
                     Channel = NotificationChannel.InApp,
-                    Title = $"📋 Tóm tắt công việc thường xuyên (BAU) tuần {calendarWeek}",
-                    Message = $"Đồng chí hiện có {taskCount} nhiệm vụ thường xuyên (BAU) cần tập trung hoàn thành trong tuần này.",
+                    Title = $"Tóm tắt công việc thường xuyên tuần {calendarWeek}",
+                    Message = $"Đồng chí hiện có {taskCount} nhiệm vụ thường xuyên cần tập trung hoàn thành trong tuần này.",
                     SentAt = DateTime.UtcNow,
                     IsRead = false
                 };
@@ -351,13 +438,18 @@ namespace Quanlycongviec.Infrastructure.Services
                 await context.SaveChangesAsync(cancellationToken);
 
                 await BroadcastNotificationAsync(hubContext, userId, notification);
+                if (webPushService != null)
+                {
+                    await webPushService.SendNotificationAsync(userId, notification.Title, notification.Message, "/", new { type = "WeeklySummary" }, cancellationToken);
+                }
             }
         }
 
         private async Task ProcessEventRemindersAsync(
             ApplicationDbContext context,
             IHubContext<NotificationHub> hubContext,
-            IZaloNotificationService zaloService,
+            IZaloNotificationService? zaloService,
+            IWebPushNotificationService? webPushService,
             DateTime nowUtc,
             CancellationToken cancellationToken)
         {
@@ -415,7 +507,7 @@ namespace Quanlycongviec.Infrastructure.Services
                                 ? $"{offset.MinutesBefore / 60} giờ"
                                 : $"{offset.MinutesBefore} phút";
 
-                        string title = $"📅 SẮP DIỄN RA SỰ KIỆN: {evt.Title}";
+                        string title = $"SẮP DIỄN RA SỰ KIỆN: {evt.Title}";
                         string message = $"Sự kiện [{evt.Title}] sẽ diễn ra trong vòng {timeText} tới ({evt.StartDateTime:dd/MM/yyyy HH:mm}). Địa điểm: {evt.Location ?? "UBND Xã"}.";
 
                         foreach (var userId in recipients)
@@ -436,6 +528,10 @@ namespace Quanlycongviec.Infrastructure.Services
                             await context.SaveChangesAsync(cancellationToken);
 
                             await BroadcastNotificationAsync(hubContext, userId, notification);
+                            if (webPushService != null)
+                            {
+                                await webPushService.SendNotificationAsync(userId, title, message, "/", new { calendarEventId = evt.Id }, cancellationToken);
+                            }
                         }
                     }
                 }

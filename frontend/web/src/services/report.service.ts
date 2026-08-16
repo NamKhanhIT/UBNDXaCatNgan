@@ -16,8 +16,11 @@ export interface OfficerGRADScoreDto {
   totalTasksAssigned: number;
   completedTasksCount: number;
   overdueTasksCount: number;
-  checklistProgressScore40: number;
-  leaderQualityScore60: number;
+  systemAutoScore30?: number;
+  leaderEvaluationScore70?: number;
+  finalScore100?: number;
+  checklistProgressScore40?: number;
+  leaderQualityScore60?: number;
   finalGRADScore: number;
   tierGrade: string;
 }

@@ -74,6 +74,8 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.ApproveRati
             ratingHistory.ApprovedAt = DateTime.UtcNow;
 
             ratingHistory.TaskItem.RatingScore = ratingHistory.NewScore;
+            if (ratingHistory.NewSystemScore.HasValue) ratingHistory.TaskItem.SystemScore = ratingHistory.NewSystemScore;
+            if (ratingHistory.NewEvaluatorScore.HasValue) ratingHistory.TaskItem.EvaluatorScore = ratingHistory.NewEvaluatorScore;
 
             // Ghi AuditLog
             var auditLog = new AuditLog

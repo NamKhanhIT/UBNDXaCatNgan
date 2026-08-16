@@ -151,9 +151,15 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
                     EstimatedEffortHours = t.EstimatedEffortHours,
                     StartDate = t.StartDate ?? t.DueDate,
                     DueDate = t.DueDate,
+                    CompletedAt = t.CompletedAt,
+                    SubmissionNote = t.SubmissionNote,
+                    SystemScore = t.SystemScore,
+                    EvaluatorScore = t.EvaluatorScore,
                     RatingScore = t.RatingScore,
                     RejectionReason = t.RejectionReason,
                     IsEscalated = t.IsEscalated,
+                    OpenAnnotationCount = t.Annotations.Count(a => a.ResolvedStatus == AnnotationStatusEnum.Open),
+                    TotalAnnotationCount = t.Annotations.Count(),
                     CreatedAt = t.CreatedAt
                 })
                 .ToListAsync(cancellationToken);

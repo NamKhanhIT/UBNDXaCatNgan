@@ -19,10 +19,30 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
         public int CompletedTasksCount { get; set; }
         public int OverdueTasksCount { get; set; }
         
-        public double ChecklistProgressScore40 { get; set; } // Tối đa 4.0 điểm
-        public double LeaderQualityScore60 { get; set; }     // Tối đa 6.0 điểm
-        public double FinalGRADScore { get; set; }          // Thang 10 điểm
-        public string TierGrade { get; set; } = string.Empty; // A (Xuất sắc), B (Tốt), C (Khá), D (Dưới TB)
+        /// <summary>
+        /// Điểm hệ thống tự động ghi nhận (Tối đa 3.0 điểm: 1.5đ đúng hạn + 1.0đ checklist + 0.5đ không từ chối)
+        /// </summary>
+        public double SystemAutoScore30 { get; set; }
+
+        /// <summary>
+        /// Điểm Lãnh đạo thẩm định chất lượng (Tối đa 7.0 điểm)
+        /// </summary>
+        public double LeaderEvaluationScore70 { get; set; }
+
+        /// <summary>
+        /// Tổng điểm đánh giá thi đua (Thang 10 điểm)
+        /// </summary>
+        public double FinalScore100 { get; set; }
+
+        /// <summary>
+        /// Xếp loại thi đua cán bộ, công chức theo quy chế công vụ
+        /// </summary>
+        public string TierGrade { get; set; } = string.Empty;
+
+        // ── Thuộc tính tương thích ngược ──
+        public double ChecklistProgressScore40 { get => SystemAutoScore30; set => SystemAutoScore30 = value; }
+        public double LeaderQualityScore60 { get => LeaderEvaluationScore70; set => LeaderEvaluationScore70 = value; }
+        public double FinalGRADScore { get => FinalScore100; set => FinalScore100 = value; }
     }
 
     public class DepartmentGRADSummaryDto
@@ -76,24 +96,58 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
                 var completed = userTasks.Count(t => t.Status == Domain.Enums.TaskStatusEnum.Completed);
                 var overdue = userTasks.Count(t => t.Status != Domain.Enums.TaskStatusEnum.Completed && t.DueDate < DateTime.UtcNow);
 
-                // 1. Calculate Checklist Progress Score (40% Weight -> Max 4.0 pts)
-                double avgProgress = totalAssigned > 0
-                    ? userTasks.Average(t => t.ProgressPercentage)
-                    : 100.0;
-                double checklistScore = Math.Round((avgProgress / 100.0) * 4.0, 2);
+                // 1. Điểm hệ thống tự động (Tối đa 3.0 điểm)
+                double systemScore;
+                var tasksWithSystemScore = userTasks.Where(t => t.SystemScore.HasValue).ToList();
+                if (tasksWithSystemScore.Any())
+                {
+                    var avg = tasksWithSystemScore.Average(t => t.SystemScore!.Value);
+                    systemScore = avg > 3.0 ? Math.Round(avg / 10.0, 1) : Math.Round(avg, 1);
+                }
+                else
+                {
+                    double avgProgress = totalAssigned > 0
+                        ? userTasks.Average(t => t.ProgressPercentage)
+                        : 100.0;
+                    double onTimeRatio = totalAssigned > 0 ? (double)(totalAssigned - overdue) / totalAssigned : 1.0;
+                    systemScore = Math.Round(onTimeRatio * 1.5 + (avgProgress / 100.0) * 1.0 + 0.5, 1);
+                }
+                systemScore = Math.Clamp(systemScore, 0.0, 3.0);
 
-                // 2. Calculate Leader Quality Rating Score (60% Weight -> Max 6.0 pts)
-                double avgRating = totalAssigned > 0
-                    ? userTasks.Where(t => t.RatingScore.HasValue).Select(t => t.RatingScore!.Value).DefaultIfEmpty(9.0).Average()
-                    : 9.0;
-                double leaderScore = Math.Round((avgRating / 10.0) * 6.0, 2);
+                // 2. Điểm Lãnh đạo thẩm định chất lượng (Tối đa 7.0 điểm)
+                double leaderScore;
+                var tasksWithEvaluatorScore = userTasks.Where(t => t.EvaluatorScore.HasValue).ToList();
+                if (tasksWithEvaluatorScore.Any())
+                {
+                    var avg = tasksWithEvaluatorScore.Average(t => t.EvaluatorScore!.Value);
+                    leaderScore = avg > 7.0 ? Math.Round(avg / 10.0, 1) : Math.Round(avg, 1);
+                }
+                else
+                {
+                    var tasksWithRating = userTasks.Where(t => t.RatingScore.HasValue).ToList();
+                    if (tasksWithRating.Any())
+                    {
+                        var avgRating = tasksWithRating.Average(t => t.RatingScore!.Value);
+                        leaderScore = avgRating > 10.0
+                            ? Math.Round((avgRating / 100.0) * 7.0, 1)
+                            : Math.Round((avgRating / 10.0) * 7.0, 1);
+                    }
+                    else
+                    {
+                        leaderScore = 6.3; // Mặc định mức 90% (6.3/7.0đ)
+                    }
+                }
+                leaderScore = Math.Clamp(leaderScore, 0.0, 7.0);
 
-                double finalScore = Math.Min(10.0, Math.Round(checklistScore + leaderScore, 2));
+                // 3. Tổng điểm thi đua (Thang 10 điểm)
+                double finalScore = Math.Min(10.0, Math.Round(systemScore + leaderScore, 1));
 
-                string grade = finalScore >= 9.0 ? "A — Xuất sắc"
-                    : finalScore >= 7.5 ? "B — Tốt"
-                    : finalScore >= 6.0 ? "C — Khá"
-                    : "D — Dưới trung bình";
+                // 4. Xếp loại thi đua công vụ chuẩn tác phong cán bộ (Thang 10)
+                string grade = finalScore >= 9.0 ? "Hoàn thành xuất sắc nhiệm vụ"
+                    : finalScore >= 7.5 ? "Hoàn thành tốt nhiệm vụ"
+                    : finalScore >= 6.0 ? "Hoàn thành nhiệm vụ"
+                    : finalScore >= 4.0 ? "Cần cải thiện"
+                    : "Không hoàn thành nhiệm vụ";
 
                 officerScores.Add(new OfficerGRADScoreDto
                 {
@@ -104,9 +158,9 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
                     TotalTasksAssigned = totalAssigned,
                     CompletedTasksCount = completed,
                     OverdueTasksCount = overdue,
-                    ChecklistProgressScore40 = checklistScore,
-                    LeaderQualityScore60 = leaderScore,
-                    FinalGRADScore = finalScore,
+                    SystemAutoScore30 = systemScore,
+                    LeaderEvaluationScore70 = leaderScore,
+                    FinalScore100 = finalScore,
                     TierGrade = grade
                 });
             }
@@ -118,7 +172,7 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
             foreach (var dept in depts)
             {
                 var deptOfficers = officerScores.Where(o => o.DepartmentName == dept.Name).ToList();
-                var avgDeptScore = deptOfficers.Count > 0 ? Math.Round(deptOfficers.Average(o => o.FinalGRADScore), 2) : 8.5;
+                var avgDeptScore = deptOfficers.Count > 0 ? Math.Round(deptOfficers.Average(o => o.FinalScore100), 1) : 8.5;
                 
                 deptSummaries.Add(new DepartmentGRADSummaryDto
                 {
@@ -127,11 +181,11 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
                     MemberCount = deptOfficers.Count,
                     TotalTasks = deptOfficers.Sum(o => o.TotalTasksAssigned),
                     AverageGRADScore = avgDeptScore,
-                    TierGrade = avgDeptScore >= 9.0 ? "A — Xuất sắc" : avgDeptScore >= 7.5 ? "B — Tốt" : "C — Khá"
+                    TierGrade = avgDeptScore >= 9.0 ? "Hoàn thành xuất sắc" : avgDeptScore >= 7.5 ? "Hoàn thành tốt" : "Hoàn thành"
                 });
             }
 
-            var overallAvg = officerScores.Count > 0 ? Math.Round(officerScores.Average(o => o.FinalGRADScore), 2) : 9.0;
+            var overallAvg = officerScores.Count > 0 ? Math.Round(officerScores.Average(o => o.FinalScore100), 1) : 8.8;
 
             return new GRADReportResultDto
             {

@@ -64,6 +64,70 @@ export async function getInboxDocumentByIdApi(
   return await apiFetch<InboxDocumentDto>(`/api/v1/Inbox/${id}`, { method: 'GET' });
 }
 
+export interface DocumentAnalysisResult {
+  category: 'MeetingInvitation' | 'SuperiorDirective' | 'TaskAssignmentDown' | 'ReportSubmissionUp' | 'Other';
+  title?: string | null;
+  summary?: string | null;
+  deadlineDate?: string | null;
+  eventStartDateTime?: string | null;
+  eventEndDateTime?: string | null;
+  subjects: string[];
+  objectives?: string | null;
+  suggestedDepartmentId?: string | null;
+  suggestedDepartmentName?: string | null;
+  confidence: number;
+  deadlineSeemsUnreasonable: boolean;
+  lowConfidence: boolean;
+  validationWarnings?: string[];
+}
+
+export interface AlternativeCandidate {
+  userId: string;
+  fullName: string;
+  reason: string;
+}
+
+export interface AssignmentSuggestion {
+  suggestedUserId: string;
+  suggestedUserName: string;
+  reason: string;
+  suggestedDepartmentId?: string | null;
+  suggestedDepartmentName?: string | null;
+  confidence: number;
+  alternatives: AlternativeCandidate[];
+}
+
+export interface ConfirmClassificationRequest {
+  aiCategory?: string;
+  aiTitle?: string;
+  aiSummary?: string;
+  aiExtractedDeadline?: string | null;
+  aiSuggestedDepartmentId?: string | null;
+  aiObjectives?: string;
+  aiExtractedSubjects?: string;
+  route: 'event' | 'assign' | 'review';
+}
+
+export interface CreateTaskFromInboxRequest {
+  assigneeId: string;
+  departmentId?: string;
+  priority?: number;
+}
+
+export interface SubTaskDto {
+  id: string;
+  title: string;
+  isCompleted: boolean;
+}
+
+export interface ToggleSubTaskResult {
+  subTaskId: string;
+  isCompleted: boolean;
+  progressPercentage: number;
+  completedCount: number;
+  totalCount: number;
+}
+
 export async function scheduleInboxDocumentApi(
   id: string,
   scheduledDate: string,
@@ -73,5 +137,49 @@ export async function scheduleInboxDocumentApi(
   return await apiFetch<string>(`/api/v1/Inbox/${id}/schedule`, {
     method: 'POST',
     body: JSON.stringify({ scheduledDate, scheduledShift, assigneeId }),
+  });
+}
+
+export async function confirmClassificationApi(
+  id: string,
+  request: ConfirmClassificationRequest
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  return await apiFetch<any>(`/api/v1/Inbox/${id}/confirm-classification`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function suggestAssignmentApi(
+  id: string
+): Promise<{ success: boolean; data?: AssignmentSuggestion; error?: string }> {
+  return await apiFetch<AssignmentSuggestion>(`/api/v1/Inbox/${id}/suggest-assignment`, {
+    method: 'POST',
+  });
+}
+
+export async function createTaskFromInboxApi(
+  id: string,
+  request: CreateTaskFromInboxRequest
+): Promise<{
+  success: boolean;
+  data?: {
+    taskItemId: string;
+    subTaskCount: number;
+    subTasks: { id: string; title: string }[];
+  };
+  error?: string;
+}> {
+  return await apiFetch<any>(`/api/v1/Inbox/${id}/create-task`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function toggleSubTaskApi(
+  subTaskId: string
+): Promise<{ success: boolean; data?: ToggleSubTaskResult; error?: string }> {
+  return await apiFetch<ToggleSubTaskResult>(`/api/v1/Inbox/subtask/${subTaskId}/toggle`, {
+    method: 'POST',
   });
 }

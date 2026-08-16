@@ -7,7 +7,11 @@ export interface RatingHistoryDto {
   taskItemId: string;
   taskItemTitle: string;
   oldScore?: number;
+  oldSystemScore?: number;
+  oldEvaluatorScore?: number;
   newScore: number;
+  newSystemScore?: number;
+  newEvaluatorScore?: number;
   scoreDelta: number;
   changedByUserId: string;
   changedByUserName: string;
@@ -25,6 +29,8 @@ export interface RatingHistoryDto {
 
 export interface SubmitRatingRevisionData {
   newScore: number;
+  newSystemScore?: number;
+  newEvaluatorScore?: number;
   reason: string;
   evidenceUrl: string;
 }

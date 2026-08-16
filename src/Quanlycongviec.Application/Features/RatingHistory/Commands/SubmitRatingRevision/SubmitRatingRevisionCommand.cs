@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
@@ -17,7 +18,9 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.SubmitRatin
         double NewScore,
         string Reason,
         string EvidenceUrl,
-        Guid CurrentUserId
+        Guid CurrentUserId,
+        double? NewSystemScore = null,
+        double? NewEvaluatorScore = null
     ) : IRequest<RatingHistoryDto>;
 
     public class SubmitRatingRevisionCommandHandler : IRequestHandler<SubmitRatingRevisionCommand, RatingHistoryDto>
@@ -73,10 +76,10 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.SubmitRatin
                 throw new UnauthorizedAccessException("Bạn không có thẩm quyền sửa đánh giá cho công việc này.");
             }
 
-            // 3. Validate điểm số
-            if (request.NewScore < 1.0 || request.NewScore > 10.0)
+            // 3. Validate điểm số (Thang 10)
+            if (request.NewScore < 0.0 || request.NewScore > 10.0)
             {
-                throw new ArgumentException("Điểm số đánh giá phải nằm trong khoảng từ 1.0 đến 10.0.");
+                throw new ArgumentException("Điểm số đánh giá phải nằm trong khoảng từ 0 đến 10 điểm.");
             }
 
             // 4. Validate lý do (Tối thiểu minReasonLength ký tự)
@@ -90,22 +93,27 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.SubmitRatin
             var trimmedEvidence = request.EvidenceUrl?.Trim() ?? string.Empty;
             if (string.IsNullOrEmpty(trimmedEvidence))
             {
-                throw new ArgumentException("Vui lòng cung cấp đường dẫn tài liệu / ảnh chụp minh chứng cho việc điều chỉnh điểm.");
+                throw new ArgumentException("Vui lòng đính kèm tệp văn bản / hình ảnh minh chứng cho việc điều chỉnh điểm.");
             }
 
             double? oldScore = taskItem.RatingScore;
+            double? oldSystemScore = taskItem.SystemScore;
+            double? oldEvaluatorScore = taskItem.EvaluatorScore;
+
             double scoreDelta = Math.Abs(request.NewScore - (oldScore ?? request.NewScore));
 
             RatingApprovalStatusEnum approvalStatus;
             if (scoreDelta <= _options.ApprovalThreshold)
             {
-                // Độ lệch <= 1.0: Áp dụng ngay lập tức
+                // Độ lệch <= threshold (1.0đ): Áp dụng ngay lập tức
                 approvalStatus = RatingApprovalStatusEnum.Applied;
                 taskItem.RatingScore = request.NewScore;
+                if (request.NewSystemScore.HasValue) taskItem.SystemScore = request.NewSystemScore;
+                if (request.NewEvaluatorScore.HasValue) taskItem.EvaluatorScore = request.NewEvaluatorScore;
             }
             else
             {
-                // Độ lệch > 1.0: Cần cấp trên duyệt (Maker-Checker). Điểm cũ GIỮ NGUYÊN!
+                // Độ lệch > threshold (10.0đ): Cần cấp trên duyệt (Maker-Checker). Điểm cũ GIỮ NGUYÊN!
                 approvalStatus = RatingApprovalStatusEnum.PendingApproval;
             }
 
@@ -114,7 +122,11 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.SubmitRatin
                 Id = Guid.NewGuid(),
                 TaskItemId = taskItem.Id,
                 OldScore = oldScore,
+                OldSystemScore = oldSystemScore,
+                OldEvaluatorScore = oldEvaluatorScore,
                 NewScore = request.NewScore,
+                NewSystemScore = request.NewSystemScore,
+                NewEvaluatorScore = request.NewEvaluatorScore,
                 ScoreDelta = scoreDelta,
                 ChangedByUserId = request.CurrentUserId,
                 ChangedAt = DateTime.UtcNow,
@@ -136,8 +148,8 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.SubmitRatin
                 EntityName = "TaskItem",
                 EntityId = taskItem.Id.ToString(),
                 Details = approvalStatus == RatingApprovalStatusEnum.Applied
-                    ? $"Đã điều chỉnh điểm đánh giá việc \"{taskItem.Title}\" từ {(oldScore.HasValue ? oldScore.Value.ToString("F1") : "Chưa chấm")} thành {request.NewScore:F1} (Áp dụng ngay)."
-                    : $"Đề xuất điều chỉnh điểm việc \"{taskItem.Title}\" từ {(oldScore.HasValue ? oldScore.Value.ToString("F1") : "Chưa chấm")} thành {request.NewScore:F1} (Chờ cấp trên duyệt do chênh lệch > {_options.ApprovalThreshold:F1} điểm).",
+                    ? $"Đã điều chỉnh điểm đánh giá việc \"{taskItem.Title}\" từ {(oldScore.HasValue ? oldScore.Value.ToString("F1") : "Chưa chấm")} thành {request.NewScore:F1}/100 (Áp dụng ngay)."
+                    : $"Đề xuất điều chỉnh điểm việc \"{taskItem.Title}\" từ {(oldScore.HasValue ? oldScore.Value.ToString("F1") : "Chưa chấm")} thành {request.NewScore:F1}/100 (Chờ cấp trên duyệt do chênh lệch > {_options.ApprovalThreshold:F1} điểm).",
                 IpAddress = "127.0.0.1"
             };
             _context.AuditLogs.Add(auditLog);
@@ -150,7 +162,11 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.SubmitRatin
                 TaskItemId = ratingHistory.TaskItemId,
                 TaskItemTitle = taskItem.Title,
                 OldScore = ratingHistory.OldScore,
+                OldSystemScore = ratingHistory.OldSystemScore,
+                OldEvaluatorScore = ratingHistory.OldEvaluatorScore,
                 NewScore = ratingHistory.NewScore,
+                NewSystemScore = ratingHistory.NewSystemScore,
+                NewEvaluatorScore = ratingHistory.NewEvaluatorScore,
                 ScoreDelta = ratingHistory.ScoreDelta,
                 ChangedByUserId = ratingHistory.ChangedByUserId,
                 ChangedByUserName = currentUser.FullName,

@@ -85,10 +85,12 @@ Mỗi khi nhận yêu cầu phát triển tính năng mới, AI phải tuân th�
 
 ---
 
-## 📚 5. THAM CHIẾU CÁC QUY TẮC CHI TIẾT
+## 📚 5. THAM CHIẾU CÁC QUY TẮC & BỘ NHỚ CHI TIẾT
 - Chi tiết Bảo Mật & Git: [security.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/.agents/rules/security.md)
 - Chi tiết Backend .NET 8: [backend.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/.agents/rules/backend.md)
 - Chi tiết Frontend Next.js: [frontend.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/.agents/rules/frontend.md)
 - Chi tiết Quy Trình Workflow: [workflow.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/.agents/rules/workflow.md)
-- Kiến Trúc & Quyết Định: [DECISIONS.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/docs/architecture/DECISIONS.md)
+- Bộ Nhớ Kỹ Thuật (Technical Memory): [MEMORY.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/docs/business/MEMORY.md)
 - Bối Cảnh Nghiệp Vụ Xã: [BUSINESS_MEMORY.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/docs/business/BUSINESS_MEMORY.md)
+- Kiến Trúc & Quyết Định (ADRs): [DECISIONS.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/docs/architecture/DECISIONS.md)
+- Toàn Bộ Wiki Tri Thức: [wiki/index.md](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/wiki/index.md)

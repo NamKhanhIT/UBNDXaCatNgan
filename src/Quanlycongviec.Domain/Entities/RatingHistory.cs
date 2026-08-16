@@ -13,11 +13,15 @@ namespace Quanlycongviec.Domain.Entities
         /// Điểm số trước khi chỉnh sửa (null nếu là lần đầu chấm)
         /// </summary>
         public double? OldScore { get; set; }
+        public double? OldSystemScore { get; set; }
+        public double? OldEvaluatorScore { get; set; }
 
         /// <summary>
         /// Điểm số mới đề xuất
         /// </summary>
         public double NewScore { get; set; }
+        public double? NewSystemScore { get; set; }
+        public double? NewEvaluatorScore { get; set; }
 
         /// <summary>
         /// Độ lệch tuyệt đối: Math.Abs(NewScore - (OldScore ?? NewScore))

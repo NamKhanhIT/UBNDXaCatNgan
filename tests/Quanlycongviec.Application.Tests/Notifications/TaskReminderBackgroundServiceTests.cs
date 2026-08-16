@@ -45,6 +45,9 @@ namespace Quanlycongviec.Application.Tests.Notifications
             var zaloServiceMock = new Mock<IZaloNotificationService>();
             services.AddSingleton(zaloServiceMock.Object);
 
+            var webPushServiceMock = new Mock<IWebPushNotificationService>();
+            services.AddSingleton(webPushServiceMock.Object);
+
             return services.BuildServiceProvider();
         }
 

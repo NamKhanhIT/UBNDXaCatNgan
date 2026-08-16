@@ -11,6 +11,7 @@ namespace Quanlycongviec.Domain.Enums
         WeeklySummary,
         Comment,
         Reviewed,
-        EventReminder
+        EventReminder,
+        SubTaskProgress     // Thông báo 2 chiều khi tick SubTask (Prompt F)
     }
 }

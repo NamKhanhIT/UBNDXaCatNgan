@@ -35,6 +35,8 @@ namespace Quanlycongviec.Infrastructure.Persistence
         public DbSet<CalendarEvent> CalendarEvents => Set<CalendarEvent>();
         public DbSet<EventParticipant> EventParticipants => Set<EventParticipant>();
         public DbSet<EventReminderOffset> EventReminderOffsets => Set<EventReminderOffset>();
+        public DbSet<TaskReviewAnnotation> TaskReviewAnnotations => Set<TaskReviewAnnotation>();
+        public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -261,6 +263,65 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasOne(r => r.Event)
                     .WithMany(e => e.ReminderOffsets)
                     .HasForeignKey(r => r.EventId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── TaskReviewAnnotation: Indexes & Enum conversions ──
+            modelBuilder.Entity<TaskReviewAnnotation>(entity =>
+            {
+                entity.Property(a => a.Severity)
+                    .HasConversion<string>()
+                    .HasMaxLength(30);
+
+                entity.Property(a => a.ResolvedStatus)
+                    .HasConversion<string>()
+                    .HasMaxLength(30);
+
+                entity.HasIndex(a => a.TaskItemId);
+                entity.HasIndex(a => a.CreatedByUserId);
+                entity.HasIndex(a => a.ResolvedStatus);
+
+                entity.HasOne(a => a.TaskItem)
+                    .WithMany(t => t.Annotations)
+                    .HasForeignKey(a => a.TaskItemId)
+                    .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(a => a.CreatedByUser)
+                    .WithMany()
+                    .HasForeignKey(a => a.CreatedByUserId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(a => a.ResolvedByUser)
+                    .WithMany()
+                    .HasForeignKey(a => a.ResolvedByUserId)
+                    .OnDelete(DeleteBehavior.SetNull);
+            });
+
+            // ── PushSubscription: Lưu trữ thông tin đăng ký nhận thông báo đẩy Web Push ──
+            modelBuilder.Entity<PushSubscription>(entity =>
+            {
+                entity.Property(p => p.Endpoint)
+                    .IsRequired()
+                    .HasMaxLength(1000);
+
+                entity.Property(p => p.P256dhKey)
+                    .IsRequired()
+                    .HasMaxLength(255);
+
+                entity.Property(p => p.AuthKey)
+                    .IsRequired()
+                    .HasMaxLength(255);
+
+                entity.Property(p => p.DeviceLabel)
+                    .HasMaxLength(150);
+
+                entity.HasIndex(p => p.UserId);
+                entity.HasIndex(p => p.Endpoint);
+                entity.HasIndex(p => new { p.UserId, p.IsActive });
+
+                entity.HasOne(p => p.User)
+                    .WithMany(u => u.PushSubscriptions)
+                    .HasForeignKey(p => p.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
         }

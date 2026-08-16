@@ -36,6 +36,51 @@ namespace Quanlycongviec.Infrastructure
             services.AddScoped<IPasswordHasher, PasswordHasher>();
             services.AddScoped<IJwtTokenService, JwtTokenService>();
             services.AddScoped<IZaloNotificationService, ZaloNotificationService>();
+            services.AddScoped<ISystemScoreCalculator, SystemScoreCalculator>();
+            services.AddScoped<IWebPushNotificationService, WebPushNotificationService>();
+
+            // ── AI Provider Registration (Prompt F) ──
+            services.Configure<Quanlycongviec.Application.Common.Options.AiProviderOptions>(
+                configuration.GetSection(Quanlycongviec.Application.Common.Options.AiProviderOptions.SectionName));
+            services.Configure<Quanlycongviec.Application.Common.Options.FileUploadOptions>(
+                configuration.GetSection(Quanlycongviec.Application.Common.Options.FileUploadOptions.SectionName));
+
+            var aiProviderType = configuration["AiProvider:Type"] ?? "Ollama";
+
+            if (string.Equals(aiProviderType, "ApiCompatible", StringComparison.OrdinalIgnoreCase))
+            {
+                var acknowledged = configuration.GetValue<bool>("AiProvider:Api:DataSovereigntyAcknowledged");
+                if (!acknowledged)
+                {
+                    throw new InvalidOperationException(
+                        "Bạn đang cấu hình gửi nội dung văn bản hành chính ra ngoài máy chủ nội bộ tới nhà " +
+                        "cung cấp AI bên thứ ba (AiProvider:Api:BaseUrl). Đây là quyết định chính sách dữ liệu, " +
+                        "không phải quyết định kỹ thuật — cần được người có thẩm quyền của xã xác nhận. Nếu đã " +
+                        "hiểu rõ và đồng ý, đặt AiProvider:Api:DataSovereigntyAcknowledged = true trong cấu hình.");
+                }
+
+                services.AddHttpClient<IDocumentAiService, Quanlycongviec.Infrastructure.AI.ApiCompatibleDocumentAiService>();
+            }
+            else
+            {
+                // Mặc định: Ollama nội bộ — dữ liệu không rời máy chủ
+                services.AddHttpClient<IDocumentAiService, Quanlycongviec.Infrastructure.AI.OllamaDocumentAiService>();
+            }
+
+            // OCR Service (PdfPig + OpenXml + Tesseract placeholder)
+            services.AddScoped<IOcrService, Quanlycongviec.Infrastructure.AI.CompositeOcrService>();
+
+            // Chữ ký số (no-op — chưa có nhà cung cấp thật)
+            services.AddScoped<ISignatureProvider, Quanlycongviec.Infrastructure.AI.NoOpSignatureProvider>();
+
+            services.Configure<Quanlycongviec.Application.Common.Options.ScoringOptions>(
+                configuration.GetSection(Quanlycongviec.Application.Common.Options.ScoringOptions.SectionName));
+            services.Configure<Quanlycongviec.Application.Common.Options.RatingRevisionOptions>(
+                configuration.GetSection(Quanlycongviec.Application.Common.Options.RatingRevisionOptions.SectionName));
+            services.Configure<Quanlycongviec.Application.Common.Options.WebPushOptions>(
+                configuration.GetSection(Quanlycongviec.Application.Common.Options.WebPushOptions.SectionName));
+            services.Configure<Quanlycongviec.Application.Common.Options.DailyDigestOptions>(
+                configuration.GetSection(Quanlycongviec.Application.Common.Options.DailyDigestOptions.SectionName));
 
             // ── SignalR Real-Time ──
             services.AddSignalR();

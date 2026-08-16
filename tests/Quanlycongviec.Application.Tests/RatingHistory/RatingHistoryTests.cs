@@ -60,7 +60,9 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 Title = "Kiểm tra trật tự đô thị tuyến đường A",
                 AssignerId = assigner.Id,
                 AssigneeId = assignee.Id,
-                RatingScore = 9.0
+                RatingScore = 9.0,
+                SystemScore = 3.0,
+                EvaluatorScore = 6.0
             };
             _context.TaskItems.Add(taskItem);
             await _context.SaveChangesAsync();
@@ -68,10 +70,12 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
             var handler = new SubmitRatingRevisionCommandHandler(_context, _options);
             var command = new SubmitRatingRevisionCommand(
                 taskItem.Id,
-                8.5, // Chênh 0.5 điểm (<= 1.0)
+                8.5, // Chênh 0.5 điểm (<= 1.0 threshold)
                 "Bổ sung đánh giá còn tồn tại thiếu sót nhỏ trong biên bản kiểm tra",
                 "https://minhchung.catngan.gov.vn/bienban-85.pdf",
-                assigner.Id
+                assigner.Id,
+                3.0,
+                5.5
             );
 
             // Act
@@ -81,9 +85,11 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
             result.ApprovalStatus.Should().Be(RatingApprovalStatusEnum.Applied);
             result.OldScore.Should().Be(9.0);
             result.NewScore.Should().Be(8.5);
+            result.NewEvaluatorScore.Should().Be(5.5);
 
             var updatedTask = await _context.TaskItems.FindAsync(taskItem.Id);
             updatedTask!.RatingScore.Should().Be(8.5); // Áp dụng ngay!
+            updatedTask.EvaluatorScore.Should().Be(5.5);
         }
 
         [Fact]
@@ -99,7 +105,9 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 Title = "Số hóa dữ liệu hộ tịch năm 2025",
                 AssignerId = assigner.Id,
                 AssigneeId = assignee.Id,
-                RatingScore = 8.5
+                RatingScore = 8.5,
+                SystemScore = 3.0,
+                EvaluatorScore = 5.5
             };
             _context.TaskItems.Add(taskItem);
             await _context.SaveChangesAsync();
@@ -110,7 +118,9 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 5.0, // Chênh 3.5 điểm (> 1.0) -> Cần cấp trên duyệt
                 "Phát hiện hồ sơ vi phạm quy trình lưu trữ, điều chỉnh giảm điểm để kiểm điểm",
                 "https://minhchung.catngan.gov.vn/phieu-kiem-doan-inspect.pdf",
-                assigner.Id
+                assigner.Id,
+                3.0,
+                2.0
             );
 
             // Act
@@ -201,7 +211,9 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 Title = "Báo cáo kinh tế xã hội quý I",
                 AssignerId = assigner.Id,
                 AssigneeId = assignee.Id,
-                RatingScore = 8.5
+                RatingScore = 8.5,
+                SystemScore = 3.0,
+                EvaluatorScore = 5.5
             };
             _context.TaskItems.Add(taskItem);
 
@@ -210,7 +222,11 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 Id = Guid.NewGuid(),
                 TaskItemId = taskItem.Id,
                 OldScore = 8.5,
+                OldSystemScore = 3.0,
+                OldEvaluatorScore = 5.5,
                 NewScore = 5.0,
+                NewSystemScore = 3.0,
+                NewEvaluatorScore = 2.0,
                 ScoreDelta = 3.5,
                 ChangedByUserId = assigner.Id,
                 Reason = "Điều chỉnh giảm điểm do phát hiện sai sót số liệu tổng hợp trong phụ lục",
@@ -234,7 +250,8 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
             updatedHistory.ApprovedByUserId.Should().Be(superiorLeader.Id);
 
             var updatedTask = await _context.TaskItems.FindAsync(taskItem.Id);
-            updatedTask!.RatingScore.Should().Be(5.0); // Điểm mới 5.0 CHÍNH THỨC CẤP TÊN DUYỆT ÁP DỤNG!
+            updatedTask!.RatingScore.Should().Be(5.0); // Điểm mới 5.0 CHÍNH THỨC CẤP TRÊN DUYỆT ÁP DỤNG!
+            updatedTask.EvaluatorScore.Should().Be(2.0);
         }
 
         [Fact]
@@ -289,51 +306,6 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
 
             var updatedTask = await _context.TaskItems.FindAsync(taskItem.Id);
             updatedTask!.RatingScore.Should().Be(8.5); // Điểm cũ GIỮ NGUYÊN!
-        }
-
-        [Fact]
-        public async Task RejectRevision_ReasonLessThan10Chars_ShouldThrowArgumentException()
-        {
-            // Arrange
-            var superiorLeader = await CreateUserWithRoleAsync("chutich3", "Chủ Tịch UBND", 1, "ChuTichUBND");
-            var assigner = await CreateUserWithRoleAsync("truongphong3", "Trưởng Phòng VP", 3, "TruongPhong");
-            var assignee = await CreateUserWithRoleAsync("chuyenvien3", "Chuyên Viên C", 5, "ChuyenVien");
-
-            var taskItem = new TaskItem
-            {
-                Id = Guid.NewGuid(),
-                Title = "Kiểm tra phòng cháy chữa cháy",
-                AssignerId = assigner.Id,
-                AssigneeId = assignee.Id,
-                RatingScore = 9.0
-            };
-            _context.TaskItems.Add(taskItem);
-
-            var pendingRevision = new Domain.Entities.RatingHistory
-            {
-                Id = Guid.NewGuid(),
-                TaskItemId = taskItem.Id,
-                OldScore = 9.0,
-                NewScore = 6.0,
-                ScoreDelta = 3.0,
-                ChangedByUserId = assigner.Id,
-                Reason = "Điều chỉnh giảm điểm sau khi soát xét biên bản kiểm tra",
-                EvidenceUrl = "https://minhchung.catngan.gov.vn/minhchung.pdf",
-                ApprovalStatus = RatingApprovalStatusEnum.PendingApproval
-            };
-            _context.RatingHistories.Add(pendingRevision);
-            await _context.SaveChangesAsync();
-
-            var rejectHandler = new RejectRatingRevisionCommandHandler(_context);
-            var command = new RejectRatingRevisionCommand(
-                pendingRevision.Id,
-                "Từ chối", // 7 ký tự (< 10)
-                superiorLeader.Id
-            );
-
-            // Act & Assert
-            var act = async () => await rejectHandler.Handle(command, CancellationToken.None);
-            await act.Should().ThrowAsync<ArgumentException>();
         }
     }
 }

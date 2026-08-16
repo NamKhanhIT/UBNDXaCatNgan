@@ -25,6 +25,16 @@ export async function createTaskApi(payload: CreateTaskPayload) {
   });
 }
 
+export interface UpdateTaskStatusPayload {
+  status: string;
+  ratingScore?: number;
+  systemScore?: number;
+  evaluatorScore?: number;
+  submissionNote?: string;
+  rejectionReason?: string;
+  newExtendedDueDate?: string;
+}
+
 export interface TaskItemDto {
   id: string;
   title: string;
@@ -39,11 +49,18 @@ export interface TaskItemDto {
   status: string;
   type: string;
   estimatedEffortHours: number;
+  startDate?: string;
   dueDate?: string;
+  completedAt?: string;
+  submissionNote?: string;
+  systemScore?: number;
+  evaluatorScore?: number;
   ratingScore?: number;
   rejectionReason?: string;
   progressPercentage: number;
   isEscalated: boolean;
+  openAnnotationCount?: number;
+  totalAnnotationCount?: number;
   createdAt: string;
 }
 
@@ -105,19 +122,23 @@ export async function getTasksApi(params?: GetTasksParams) {
 
 export async function updateTaskStatusApi(
   taskId: string,
-  status: string,
+  payloadOrStatus: UpdateTaskStatusPayload | string,
   ratingScore?: number,
   rejectionReason?: string,
   newExtendedDueDate?: string
 ) {
-  return await apiFetch(`/api/v1/Tasks/${taskId}/status`, {
+  const payload: UpdateTaskStatusPayload = typeof payloadOrStatus === 'string'
+    ? {
+        status: payloadOrStatus,
+        ratingScore,
+        rejectionReason,
+        newExtendedDueDate,
+      }
+    : payloadOrStatus;
+
+  return await apiFetch<{ success: boolean; message: string }>(`/api/v1/Tasks/${taskId}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      status,
-      ratingScore,
-      rejectionReason,
-      newExtendedDueDate,
-    }),
+    body: JSON.stringify(payload),
   });
 }
 

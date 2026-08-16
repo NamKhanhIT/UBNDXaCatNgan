@@ -47,11 +47,39 @@ import type {
   RatingHistoryDto,
   RatingApprovalStatusEnum,
 } from '../services/rating-history.service';
+import {
+  getTaskAnnotationsApi,
+  createTaskAnnotationApi,
+  resolveTaskAnnotationApi,
+  getTaskSystemScoreApi,
+} from '../services/task-annotation.service';
+import type {
+  TaskReviewAnnotationDto,
+  SystemScoreBreakdownDto,
+} from '../services/task-annotation.service';
+import {
+  isPushNotificationSupported,
+  isIosDevice,
+  isIosStandalonePwa,
+  registerServiceWorker,
+  getExistingPushSubscription,
+  subscribeCurrentDevice,
+  unsubscribeCurrentDevice,
+  getMyPushSubscriptionsApi,
+  sendTestPushApi,
+  unsubscribePushApi,
+  getAutoDeviceLabel,
+} from '../services/push-notification.service';
+import type { PushSubscriptionDto } from '../services/push-notification.service';
 import { DocumentViewerModal } from '../components/DocumentViewerModal';
 import { RevokeDocumentModal } from '../components/RevokeDocumentModal';
 import { DocumentHistoryModal } from '../components/DocumentHistoryModal';
 import { GoogleCalendarView } from '../components/GoogleCalendarView';
-import { getFileViewUrl } from '../services/files.service';
+import { AiUploadModal } from '../components/AiUploadModal';
+import { AiReviewModal } from '../components/AiReviewModal';
+import { AiAssignmentModal } from '../components/AiAssignmentModal';
+import { AiChecklistModal } from '../components/AiChecklistModal';
+import { getFileViewUrl, uploadAndAnalyzeApi } from '../services/files.service';
 
 /* ═══════════════════════════════════════════════════════════════
    FONTAWESOME 6 HELPER COMPONENT
@@ -205,7 +233,11 @@ interface Task {
   attachments: string[];
   comments: Comment[];
   statusHistory: StatusChange[];
+  submissionNote?: string;
+  systemScore?: number;
+  evaluatorScore?: number;
   rating?: number;
+  ratingScore?: number;
   rejectionReason?: string;
   context: RoleCode;
   sourceInboxId?: string;
@@ -806,9 +838,9 @@ const EVALUATION_TIERS: EvaluationTier[] = [
     level: 1,
     code: 'XUAT_SAC',
     label: 'XUẤT SẮC',
-    subText: 'Hoàn thành xuất sắc (9.0 – 10.0 điểm) — Vượt chỉ tiêu & chất lượng cao',
+    subText: 'Hoàn thành xuất sắc (9.0 – 10.0 điểm) — Vượt tiến độ & chất lượng xuất sắc',
     badgeClass: 'badge-success',
-    icon: 'trophy',
+    icon: 'award',
     color: '#047857',
     bgColor: '#ecfdf5',
     borderColor: '1px solid #a7f3d0',
@@ -828,7 +860,7 @@ const EVALUATION_TIERS: EvaluationTier[] = [
     level: 3,
     code: 'DAT',
     label: 'ĐẠT YÊU CẦU',
-    subText: 'Hoàn thành (6.0 – 7.4 điểm) — Đạt mức yêu cầu cơ bản',
+    subText: 'Hoàn thành nhiệm vụ (6.0 – 7.4 điểm) — Đạt mức yêu cầu cơ bản',
     badgeClass: 'badge-medium',
     icon: 'thumbs-up',
     color: '#b45309',
@@ -839,7 +871,7 @@ const EVALUATION_TIERS: EvaluationTier[] = [
     level: 4,
     code: 'CAN_CAI_THIEN',
     label: 'CẦN CẢI THIỆN',
-    subText: 'Cần cải thiện (4.0 – 5.9 điểm) — Chậm tiến độ hoặc cần sửa đổi nhẹ',
+    subText: 'Cần cải thiện (4.0 – 5.9 điểm) — Chậm tiến độ hoặc cần sửa đổi',
     badgeClass: 'badge-warning',
     icon: 'triangle-exclamation',
     color: '#c2410c',
@@ -850,7 +882,7 @@ const EVALUATION_TIERS: EvaluationTier[] = [
     level: 5,
     code: 'CHUA_DAT',
     label: 'CHƯA ĐẠT',
-    subText: 'Chưa đạt (1.0 – 3.9 điểm) — Không hoàn thành nhiệm vụ / vi phạm quy định',
+    subText: 'Không hoàn thành (< 4.0 điểm) — Không đạt yêu cầu nhiệm vụ',
     badgeClass: 'badge-urgent',
     icon: 'circle-xmark',
     color: '#b91c1c',
@@ -860,10 +892,11 @@ const EVALUATION_TIERS: EvaluationTier[] = [
 ];
 
 function getEvaluationTier(score: number): EvaluationTier {
-  if (score >= 9.0) return EVALUATION_TIERS[0];
-  if (score >= 7.5) return EVALUATION_TIERS[1];
-  if (score >= 6.0) return EVALUATION_TIERS[2];
-  if (score >= 4.0) return EVALUATION_TIERS[3];
+  const normalized = score > 10.0 ? score / 10.0 : score;
+  if (normalized >= 9.0) return EVALUATION_TIERS[0];
+  if (normalized >= 7.5) return EVALUATION_TIERS[1];
+  if (normalized >= 6.0) return EVALUATION_TIERS[2];
+  if (normalized >= 4.0) return EVALUATION_TIERS[3];
   return EVALUATION_TIERS[4];
 }
 
@@ -1163,6 +1196,9 @@ export default function DashboardPage() {
   const [ratingRevisionNewScore, setRatingRevisionNewScore] = useState(8.0);
   const [ratingRevisionReason, setRatingRevisionReason] = useState('');
   const [ratingRevisionEvidenceUrl, setRatingRevisionEvidenceUrl] = useState('');
+  const [ratingRevisionFileName, setRatingRevisionFileName] = useState('');
+  const [ratingRevisionFileSize, setRatingRevisionFileSize] = useState('');
+  const [ratingRevisionFileType, setRatingRevisionFileType] = useState('');
   const [taskRatingHistory, setTaskRatingHistory] = useState<RatingHistoryDto[]>([]);
   const [pendingRatingRevisions, setPendingRatingRevisions] = useState<RatingHistoryDto[]>([]);
   const [showPendingRatingRevisionsModal, setShowPendingRatingRevisionsModal] = useState(false);
@@ -1248,6 +1284,25 @@ export default function DashboardPage() {
   const [aiExtracting, setAiExtracting] = useState(false);
   const [aiResult, setAiResult] = useState<any>(null);
   const [ocrText, setOcrText] = useState('');
+
+  // ── PROMPT F: AI Document Analysis & Task Assignment States ──
+  const [showAiUploadModal, setShowAiUploadModal] = useState(false);
+  const [aiUploadTargetDocId, setAiUploadTargetDocId] = useState<string>('');
+  const [aiUploadTargetDocSymbol, setAiUploadTargetDocSymbol] = useState<string>('');
+
+  const [showAiReviewModal, setShowAiReviewModal] = useState(false);
+  const [aiReviewDocId, setAiReviewDocId] = useState<string>('');
+  const [aiReviewAnalysisData, setAiReviewAnalysisData] = useState<any>(null);
+
+  const [showAiAssignmentModal, setShowAiAssignmentModal] = useState(false);
+  const [aiAssignDocId, setAiAssignDocId] = useState<string>('');
+  const [aiAssignAnalysisData, setAiAssignAnalysisData] = useState<any>(null);
+
+  const [showAiChecklistModal, setShowAiChecklistModal] = useState(false);
+  const [aiChecklistTaskId, setAiChecklistTaskId] = useState<string>('');
+  const [aiChecklistTaskTitle, setAiChecklistTaskTitle] = useState<string>('');
+  const [aiChecklistSubTasks, setAiChecklistSubTasks] = useState<{ id: string; title: string; isCompleted?: boolean }[]>([]);
+  const [isAiAnalyzingFile, setIsAiAnalyzingFile] = useState(false);
   // Document Viewer state
   const [showViewerModal, setShowViewerModal] = useState<boolean>(false);
   const [viewerMail, setViewerMail] = useState<InboxItem | null>(null);
@@ -1261,15 +1316,30 @@ export default function DashboardPage() {
   // New comment state
   const [newComment, setNewComment] = useState('');
 
-  // Approval & Rejection Modals State
+  // Approval & Rejection Modals State (Thang điểm 100: 30đ Hệ Thống + 70đ Người Chấm)
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
-  const [ratingScore, setRatingScore] = useState<number>(5);
+  const [systemScoreBreakdown, setSystemScoreBreakdown] = useState<SystemScoreBreakdownDto | null>(null);
+  const [evaluatorScore, setEvaluatorScore] = useState<number>(60.0);
+  const [ratingScore, setRatingScore] = useState<number>(90.0);
+  const [isLoadingSystemScore, setIsLoadingSystemScore] = useState<boolean>(false);
   const [rejectReason, setRejectReason] = useState('');
   const [newExtendedDate, setNewExtendedDate] = useState('');
   const [submitNote, setSubmitNote] = useState('');
+
+  // ── Chú Thích Khoanh Vùng (Task Review Annotations) State ──
+  const [taskAnnotations, setTaskAnnotations] = useState<TaskReviewAnnotationDto[]>([]);
+  const [selectedAnchorText, setSelectedAnchorText] = useState<string>('');
+  const [selectedAnchorOffset, setSelectedAnchorOffset] = useState<number | null>(null);
+  const [selectionTooltipPos, setSelectionTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const [showAnnotationModal, setShowAnnotationModal] = useState<boolean>(false);
+  const [annotationComment, setAnnotationComment] = useState<string>('');
+  const [annotationSeverity, setAnnotationSeverity] = useState<number>(2); // 1: LoiSai, 2: CanChinhSua, 3: GopY
+  const [activeAnnotationPopover, setActiveAnnotationPopover] = useState<TaskReviewAnnotationDto | null>(null);
+  const [activePopoverPos, setActivePopoverPos] = useState<{ top: number; left: number } | null>(null);
+  const [highlightedAnnotationId, setHighlightedAnnotationId] = useState<string | null>(null);
 
 
   // Inbox State
@@ -1329,6 +1399,106 @@ export default function DashboardPage() {
   const [unreadNotifCount, setUnreadNotifCount] = useState<number>(0);
   const [showNotifDropdown, setShowNotifDropdown] = useState<boolean>(false);
 
+  // ── Web Push & Daily Digest State ──
+  const [showPushSettingsModal, setShowPushSettingsModal] = useState<boolean>(false);
+  const [isPushSupported, setIsPushSupported] = useState<boolean>(false);
+  const [isPushSubscribed, setIsPushSubscribed] = useState<boolean>(false);
+  const [isPushLoading, setIsPushLoading] = useState<boolean>(false);
+  const [pushStatusMessage, setPushStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [myPushSubscriptions, setMyPushSubscriptions] = useState<PushSubscriptionDto[]>([]);
+  const [isIos, setIsIos] = useState<boolean>(false);
+  const [isIosPwa, setIsIosPwa] = useState<boolean>(false);
+  const [deviceLabelInput, setDeviceLabelInput] = useState<string>('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const supported = isPushNotificationSupported();
+      setIsPushSupported(supported);
+      const ios = isIosDevice();
+      setIsIos(ios);
+      const iosPwa = isIosStandalonePwa();
+      setIsIosPwa(iosPwa);
+
+      if (supported) {
+        registerServiceWorker().then(() => {
+          getExistingPushSubscription().then(sub => {
+            setIsPushSubscribed(!!sub);
+          });
+        });
+      }
+    }
+  }, []);
+
+  const fetchMyPushSubscriptions = async () => {
+    try {
+      const list = await getMyPushSubscriptionsApi();
+      setMyPushSubscriptions(list);
+    } catch (e) {
+      console.error('Lỗi khi tải danh sách thiết bị push:', e);
+    }
+  };
+
+  const handleOpenPushSettings = () => {
+    setShowPushSettingsModal(true);
+    setPushStatusMessage(null);
+    setDeviceLabelInput(getAutoDeviceLabel());
+    fetchMyPushSubscriptions();
+  };
+
+  const handleSubscribePush = async () => {
+    setIsPushLoading(true);
+    setPushStatusMessage(null);
+    try {
+      await subscribeCurrentDevice(deviceLabelInput.trim() || undefined);
+      setIsPushSubscribed(true);
+      setPushStatusMessage({ type: 'success', text: 'Đã kích hoạt nhận thông báo đẩy thành công trên thiết bị này!' });
+      await fetchMyPushSubscriptions();
+    } catch (e: any) {
+      setPushStatusMessage({ type: 'error', text: e.message || 'Không thể kích hoạt thông báo đẩy.' });
+    } finally {
+      setIsPushLoading(false);
+    }
+  };
+
+  const handleUnsubscribePush = async () => {
+    setIsPushLoading(true);
+    setPushStatusMessage(null);
+    try {
+      await unsubscribeCurrentDevice();
+      setIsPushSubscribed(false);
+      setPushStatusMessage({ type: 'info', text: 'Đã hủy nhận thông báo trên thiết bị này.' });
+      await fetchMyPushSubscriptions();
+    } catch (e: any) {
+      setPushStatusMessage({ type: 'error', text: e.message || 'Không thể hủy nhận thông báo.' });
+    } finally {
+      setIsPushLoading(false);
+    }
+  };
+
+  const handleSendTestPush = async (endpoint?: string) => {
+    setIsPushLoading(true);
+    setPushStatusMessage(null);
+    try {
+      const res = await sendTestPushApi(endpoint);
+      setPushStatusMessage({ type: 'success', text: res.message || 'Đã gửi thông báo thử nghiệm! Vui lòng kiểm tra màn hình thiết bị.' });
+    } catch (e: any) {
+      setPushStatusMessage({ type: 'error', text: e.message || 'Lỗi khi gửi thông báo thử nghiệm.' });
+    } finally {
+      setIsPushLoading(false);
+    }
+  };
+
+  const handleDeletePushSubscription = async (id: string) => {
+    try {
+      await unsubscribePushApi(undefined, id);
+      await fetchMyPushSubscriptions();
+      const currentSub = await getExistingPushSubscription();
+      setIsPushSubscribed(!!currentSub);
+    } catch (e) {
+      console.error('Lỗi xóa subscription:', e);
+    }
+  };
+
   useEffect(() => {
     if (isLoggedIn) {
       // 1. Fetch real tasks from PostgreSQL API
@@ -1355,7 +1525,11 @@ export default function DashboardPage() {
             attachments: [],
             comments: [],
             statusHistory: [],
+            submissionNote: t.submissionNote,
+            systemScore: t.systemScore,
+            evaluatorScore: t.evaluatorScore,
             rating: t.ratingScore,
+            ratingScore: t.ratingScore,
             rejectionReason: t.rejectionReason,
             context: 'ChuTichUBND' as const
           }));
@@ -1499,6 +1673,17 @@ export default function DashboardPage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [outgoingSearch]);
+
+  // ── Fetch Annotations when Task Detail Drawer opens ──
+  useEffect(() => {
+    if (selectedTaskId) {
+      fetchTaskAnnotations(selectedTaskId);
+    } else {
+      setTaskAnnotations([]);
+      setSelectionTooltipPos(null);
+      setActiveAnnotationPopover(null);
+    }
+  }, [selectedTaskId]);
 
   // Reset page về 1 khi người dùng đổi bộ lọc văn bản đi
   useEffect(() => {
@@ -1709,7 +1894,7 @@ export default function DashboardPage() {
         avatarSrc: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&q=80",
         name: "Nguyễn Văn Nam",
         handle: "Chuyên viên Văn phòng HĐND & UBND",
-        text: "Giao diện tinh gọn, trợ lý AI hỗ trợ tự động bốc tách công văn PDF cực kỳ nhanh chóng."
+        text: "Hệ thống điều hành trực quan, hỗ trợ số hóa và tiếp nhận văn bản chỉ đạo nhanh chóng, chính xác."
       },
     ];
 
@@ -1748,36 +1933,150 @@ export default function DashboardPage() {
     addToast('Đã đổi ca làm việc', `Công việc "${targetTask?.title || taskId}" đã chuyển sang ca ${SHIFT_CONFIG[nextShift].label}`, 'info');
   };
 
-  const handleApproveTask = (taskId: string) => {
+  const fetchTaskAnnotations = async (taskId: string) => {
+    try {
+      const list = await getTaskAnnotationsApi(taskId);
+      setTaskAnnotations(list || []);
+    } catch (e) {
+      console.warn('Could not fetch annotations:', e);
+      setTaskAnnotations([]);
+    }
+  };
+
+  const handleApproveTask = async (taskId: string) => {
     setSelectedTaskId(taskId);
-    setRatingScore(9.0); // Mặc định 9.0/10 (Mức 1: Xuất sắc)
+    setIsLoadingSystemScore(true);
+    setEvaluatorScore(60.0); // Mặc định 60/70 (Mức Tốt)
     setShowApproveModal(true);
+
+    try {
+      const breakdown = await getTaskSystemScoreApi(taskId);
+      setSystemScoreBreakdown(breakdown);
+      const totalSys = breakdown?.totalSystemScore ?? 30.0;
+      setRatingScore(Math.min(100.0, totalSys + 60.0));
+    } catch (e) {
+      console.warn('Could not calculate system score from API, using default 30.0:', e);
+      setSystemScoreBreakdown({
+        onTimeScore: 15.0,
+        checklistScore: 10.0,
+        noRejectionScore: 5.0,
+        totalSystemScore: 30.0,
+        daysLate: 0,
+        totalSubTasks: 0,
+        completedSubTasks: 0,
+        rejectionCount: 0
+      });
+      setRatingScore(90.0);
+    } finally {
+      setIsLoadingSystemScore(false);
+    }
   };
 
   const confirmApproveTask = async () => {
     if (!selectedTaskId) return;
     const targetTask = tasks.find(t => t.id === selectedTaskId);
-    const tier = getEvaluationTier(ratingScore);
+    const totalSys = systemScoreBreakdown?.totalSystemScore ?? 30.0;
+    const finalTotal = Math.min(100.0, totalSys + evaluatorScore);
+    const tier = getEvaluationTier(finalTotal);
 
-    // Call PostgreSQL API
-    await updateTaskStatusApi(selectedTaskId, 'Completed', ratingScore);
+    // Call PostgreSQL API with 100-point rating and breakdown
+    try {
+      await updateTaskStatusApi(selectedTaskId, {
+        status: 'Completed',
+        systemScore: totalSys,
+        evaluatorScore: evaluatorScore,
+        ratingScore: finalTotal
+      });
+    } catch (e) {
+      console.warn('API error during status update:', e);
+    }
 
     setTasks(prev => prev.map(t =>
       t.id === selectedTaskId ? {
         ...t,
         status: 'Hoan_Thanh' as TaskStatus,
         progress: 100,
-        rating: ratingScore,
+        systemScore: totalSys,
+        evaluatorScore: evaluatorScore,
+        rating: finalTotal,
+        ratingScore: finalTotal,
         statusHistory: [...t.statusHistory, {
-          from: 'Chờ duyệt', to: `Hoàn thành (Đánh giá: ${ratingScore.toFixed(1)}/10 — Mức ${tier.level}: ${tier.label})`,
+          from: 'Chờ duyệt', to: `Hoàn thành (Đánh giá: ${finalTotal.toFixed(1)}/100 — Mức ${tier.level}: ${tier.label})`,
           by: ROLE_CONFIG[activeRole].label, at: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
           asRole: ROLE_CONFIG[activeRole].label,
         }],
       } : t
     ));
-    addToast('Nghiệm thu thành công', `Đã phê duyệt "${targetTask?.title || selectedTaskId}" — Đánh giá: ${ratingScore.toFixed(1)}/10 điểm (Mức ${tier.level}: ${tier.label}).`, 'success');
+    addToast('Nghiệm thu thành công', `Đã phê duyệt "${targetTask?.title || selectedTaskId}" — Đánh giá: ${finalTotal.toFixed(1)}/100 điểm (Mức ${tier.level}: ${tier.label}).`, 'success');
     setShowApproveModal(false);
     setSelectedTaskId(null);
+  };
+
+  // ── Handlers cho Chú Thích Khoanh Vùng (Annotations) ──
+  const handleTextSelection = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      setSelectionTooltipPos(null);
+      return;
+    }
+    const text = selection.toString().trim();
+    if (!text || text.length < 2) {
+      setSelectionTooltipPos(null);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    setSelectedAnchorText(text);
+    setSelectedAnchorOffset(range.startOffset);
+    setSelectionTooltipPos({
+      top: rect.top - 42,
+      left: rect.left + rect.width / 2 - 50
+    });
+  };
+
+  const handleOpenAnnotationModal = () => {
+    setAnnotationComment('');
+    setAnnotationSeverity(2); // Cần chỉnh sửa
+    setShowAnnotationModal(true);
+    setSelectionTooltipPos(null);
+  };
+
+  const handleCreateAnnotation = async (taskId: string) => {
+    if (!selectedAnchorText.trim()) return;
+    if (!annotationComment.trim()) {
+      addToast('Cảnh báo', 'Vui lòng nhập nội dung góp ý / nhận xét!', 'warning');
+      return;
+    }
+
+    try {
+      const created = await createTaskAnnotationApi(taskId, {
+        anchorText: selectedAnchorText,
+        startOffsetHint: selectedAnchorOffset ?? undefined,
+        commentText: annotationComment.trim(),
+        severity: annotationSeverity
+      });
+      setTaskAnnotations(prev => [...prev, created]);
+      addToast('Thêm chú thích thành công', `Đã khoanh vùng và thêm chú thích nhận xét.`, 'success');
+      setShowAnnotationModal(false);
+      setSelectedAnchorText('');
+      window.getSelection()?.removeAllRanges();
+    } catch (e: any) {
+      addToast('Lỗi tạo chú thích', e.message || 'Không thể tạo chú thích', 'danger');
+    }
+  };
+
+  const handleResolveAnnotation = async (taskId: string, annotationId: string) => {
+    try {
+      const updated = await resolveTaskAnnotationApi(taskId, annotationId);
+      setTaskAnnotations(prev => prev.map(a => a.id === annotationId ? updated : a));
+      addToast('Đã sửa xong', 'Đã đánh dấu hoàn thành xử lý góp ý này.', 'success');
+      if (activeAnnotationPopover?.id === annotationId) {
+        setActiveAnnotationPopover(null);
+      }
+    } catch (e: any) {
+      addToast('Lỗi giải quyết', e.message || 'Không thể đánh dấu đã sửa', 'danger');
+    }
   };
 
   const handleRejectTask = (taskId: string) => {
@@ -1819,10 +2118,14 @@ export default function DashboardPage() {
 
   // ── Rating Revision Handlers (Sửa Đánh Giá Chống Thiên Vị) ──
   const handleOpenRatingRevisionModal = (task: any) => {
-    const currentScore = task.rating !== undefined && task.rating !== null ? task.rating : (task.ratingScore ?? 8.0);
+    const rawScore = task.rating !== undefined && task.rating !== null ? task.rating : (task.ratingScore ?? 8.0);
+    const currentScore = rawScore > 10.0 ? rawScore / 10.0 : rawScore;
     setRatingRevisionNewScore(currentScore);
     setRatingRevisionReason('');
     setRatingRevisionEvidenceUrl('');
+    setRatingRevisionFileName('');
+    setRatingRevisionFileSize('');
+    setRatingRevisionFileType('');
     setShowRatingRevisionModal(true);
   };
 
@@ -1833,7 +2136,7 @@ export default function DashboardPage() {
       return;
     }
     if (!ratingRevisionEvidenceUrl.trim()) {
-      addToast('Thiếu minh chứng', 'Vui lòng cung cấp đường dẫn / tài liệu minh chứng đính kèm!', 'warning');
+      addToast('Thiếu tệp minh chứng', 'Vui lòng chọn tệp văn bản hoặc hình ảnh minh chứng từ máy tính!', 'warning');
       return;
     }
 
@@ -1943,9 +2246,9 @@ export default function DashboardPage() {
     const res = await createCommentApi(taskId, commentText);
     if (res && res.success) {
       if (res.data?.mentionedUsers && res.data.mentionedUsers.length > 0) {
-        addToast('Đã gửi ý kiến & @mention', `Đã tự động gửi thông báo SignalR cho: ${res.data.mentionedUsers.join(', ')}`, 'success');
+        addToast('Đã gửi ý kiến chỉ đạo', `Đã chuyển thông báo trực tiếp đến: ${res.data.mentionedUsers.join(', ')}`, 'success');
       } else {
-        addToast('Đã gửi ý kiến', 'Bình luận đã được lưu vào CSDL PostgreSQL.', 'info');
+        addToast('Đã gửi ý kiến', 'Ý kiến xử lý đã được lưu vào hồ sơ công việc.', 'info');
       }
       getActivityLogApi().then(r => { if (r.success && r.data) setActivityLogs(r.data.items); });
     }
@@ -2064,7 +2367,7 @@ export default function DashboardPage() {
     };
     setTasks(prev => [newTask, ...prev]);
     setNewTitle(''); setNewDesc(''); setNewAssignee(''); setNewDueDate('2026-07-29'); setNewEffort('8'); setAttachedFiles([]);
-    addToast('Giao việc thành công', `Đã giao việc "${newTask.title}" cho đ/c ${newAssignee} (Đã đồng bộ PostgreSQL)`, 'success');
+    addToast('Giao việc thành công', `Đã giao nhiệm vụ "${newTask.title}" cho đồng chí ${newAssignee}`, 'success');
     setActiveModule('workcenter');
     setWorkcenterTab('today');
   };
@@ -2077,7 +2380,7 @@ export default function DashboardPage() {
       setTimeout(() => {
         setVoiceText('Giao đồng chí Nam rà soát tiến độ thu ngân sách xã tháng 7 và nộp báo cáo trước 17h ngày 29/07.');
         setIsRecording(false);
-        addToast('AI Trích xuất thành công', 'Đã phân tích giọng nói và điền tự động vào form giao việc!', 'success');
+        addToast('Tiếp nhận thành công', 'Đã nhận dạng giọng nói và tự động điền phiếu giao việc!', 'success');
       }, 2500);
     }
   };
@@ -2096,8 +2399,56 @@ export default function DashboardPage() {
         citation: 'Văn bản chỉ đạo số 88/UBND-VP',
         status: 'BẢN NHÁP — Chờ Lãnh đạo duyệt phát hành',
       });
-      addToast('OCR AI Trích xuất thành công', 'Đã quét xong văn bản chỉ đạo!', 'info');
+      addToast('Bóc tách văn bản thành công', 'Đã quét và trích xuất nội dung văn bản chỉ đạo!', 'info');
     }, 2000);
+  };
+
+  // ── PROMPT F: Direct Document File Upload & AI Analysis Handler ──
+  const handleAnalyzeUploadedDocument = async (file: File) => {
+    setIsAiAnalyzingFile(true);
+    try {
+      const res = await uploadAndAnalyzeApi(file);
+      if (res.success && res.analysisResult) {
+        const ar = res.analysisResult;
+        if (ar.title) setNewTitle(ar.title);
+        if (ar.summary) {
+          const desc = ar.summary + (ar.objectives ? `\n\n🎯 Mục tiêu / Yêu cầu cụ thể:\n${ar.objectives}` : '');
+          setNewDesc(desc);
+        }
+        if (ar.deadlineDate) {
+          setNewDueDate(ar.deadlineDate.split('T')[0]);
+        }
+        if (ar.subjects && Array.isArray(ar.subjects) && ar.subjects.length > 0) {
+          const newItems = ar.subjects.map((sub: string, idx: number) => ({
+            id: (Date.now() + idx).toString(),
+            text: sub,
+            done: false
+          }));
+          setChecklistItems(newItems);
+        }
+        if (ar.category) {
+          const catStr = String(ar.category);
+          if (catStr.includes('Du_An') || catStr.includes('Project')) setNewCategory('Du_An');
+          else if (catStr.includes('Dot_Xuat') || catStr.includes('AdHoc')) setNewCategory('Dot_Xuat');
+          else setNewCategory('BAU');
+        }
+        if (ar.suggestedDepartmentName) {
+          const candidate = activeStaffList.find(s => s.departmentName === ar.suggestedDepartmentName || s.role.includes(ar.suggestedDepartmentName));
+          if (candidate) {
+            setNewAssignee(candidate.name);
+          }
+        }
+        addToast('Bóc tách văn bản thành công', 'Đã tự động trích xuất tiêu đề, nội dung chỉ đạo, hạn chót và danh mục đầu việc!', 'success');
+      } else if (res.aiError) {
+        addToast('Thông báo', res.aiError, 'warning');
+      } else {
+        addToast('Lỗi phân tích', res.error || 'Không thể phân tích tệp văn bản.', 'danger');
+      }
+    } catch (err: any) {
+      addToast('Lỗi', err.message || 'Lỗi khi gửi tệp phân tích.', 'danger');
+    } finally {
+      setIsAiAnalyzingFile(false);
+    }
   };
 
   // Calendar week navigation
@@ -2391,9 +2742,54 @@ export default function DashboardPage() {
                       ))
                     )}
                   </div>
+
+                  <div style={{ padding: '8px 12px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      style={{ fontSize: '0.75rem', color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, fontWeight: 600 }}
+                      onClick={() => {
+                        setShowNotifDropdown(false);
+                        handleOpenPushSettings();
+                      }}
+                    >
+                      <Icon name="mobile-screen-button" size={12} />
+                      <span>Cài đặt thông báo trên thiết bị</span>
+                    </button>
+                    <span style={{ fontSize: '0.7rem', color: isPushSubscribed ? '#16a34a' : '#94a3b8', fontWeight: 600 }}>
+                      {isPushSubscribed ? '● Đã bật' : '○ Chưa bật'}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
+
+            {/* Web Push Notification Quick Access Button */}
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{
+                position: 'relative',
+                padding: '6px 12px',
+                background: isPushSubscribed ? '#f0fdf4' : '#fff',
+                borderColor: isPushSubscribed ? '#bbf7d0' : '#e2e8f0',
+                color: isPushSubscribed ? '#166534' : '#475569',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+              onClick={handleOpenPushSettings}
+              title={isPushSubscribed ? 'Thông báo tức thời: Đang hoạt động trên thiết bị này' : 'Bật nhận thông báo trực tiếp trên điện thoại / máy tính'}
+            >
+              <Icon name="mobile-screen-button" size={13} style={{ color: isPushSubscribed ? '#16a34a' : '#64748b' }} />
+              <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>Nhận thông báo</span>
+              <span style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: isPushSubscribed ? '#22c55e' : '#94a3b8',
+                boxShadow: isPushSubscribed ? '0 0 6px #22c55e' : 'none'
+              }} />
+            </button>
 
             {/* Leader Pending Rating Revision Approvals Badge */}
             {ROLE_CONFIG[activeRole].scopeLevel <= 2.0 && pendingRatingRevisions.length > 0 && (
@@ -2477,7 +2873,7 @@ export default function DashboardPage() {
               <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <Icon name="bell" size={18} style={{ color: '#2563eb' }} />
                 <div>
-                  <strong>Thông báo nhiệm vụ hôm nay ({formatDateDisplay(new Date().toISOString())}):</strong> Hệ thống ghi nhận <strong>{kpiData.active}</strong> công việc đang xử lý, <strong>{kpiData.pendingApproval}</strong> việc chờ duyệt, và <strong>{unreadNotifCount}</strong> thông báo mới từ PostgreSQL!
+                  <strong>Thông báo nhiệm vụ hôm nay ({formatDateDisplay(new Date().toISOString())}):</strong> Hệ thống ghi nhận <strong>{kpiData.active}</strong> công việc đang xử lý, <strong>{kpiData.pendingApproval}</strong> việc chờ duyệt, và <strong>{unreadNotifCount}</strong> thông báo mới trong ngày!
                 </div>
               </div>
 
@@ -2834,11 +3230,24 @@ export default function DashboardPage() {
                                   const shift = selectedMail.isUrgent ? 'Sang' : 'Chieu';
 
                                   setInboxItems(prev => prev.map(m => m.id === selectedMail.id ? { ...m, folder: 'scheduled', status: 'scheduled', deadline: dateStr } : m));
-                                  addToast('AI tự động xếp lịch', `Đã xếp lịch xử lý "${selectedMail.subject}" vào ca ${shift === 'Sang' ? 'SÁNG' : 'CHIỀU'} ngày ${formatDateDisplay(dateStr)}.`, 'success');
+                                  addToast('Đã xếp lịch công tác', `Đã bố trí lịch xử lý "${selectedMail.subject}" vào ca ${shift === 'Sang' ? 'SÁNG' : 'CHIỀU'} ngày ${formatDateDisplay(dateStr)}.`, 'success');
                                   await scheduleInboxDocumentApi(selectedMail.id, dateStr, shift);
                                 }}
                               >
-                                <Icon name="wand-magic-sparkles" size={13} style={{ color: '#8b5cf6' }} /> Tự động xếp lịch AI
+                                <Icon name="calendar-check" size={13} style={{ color: '#2563eb' }} /> Bố trí lịch tự động
+                              </button>
+
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                style={{ borderColor: '#3b82f6', color: '#1d4ed8', background: '#eff6ff', fontWeight: 600 }}
+                                onClick={() => {
+                                  setAiUploadTargetDocId(selectedMail.id);
+                                  setAiUploadTargetDocSymbol(selectedMail.documentNumber || selectedMail.documentSymbol || 'Văn bản');
+                                  setShowAiUploadModal(true);
+                                }}
+                              >
+                                <Icon name="wand-magic-sparkles" size={13} style={{ color: '#2563eb' }} /> Bóc tách & Phân tích AI
                               </button>
 
                               <button
@@ -3609,13 +4018,13 @@ export default function DashboardPage() {
                   <div className="card-header">
                     <h2 style={{ margin: 0, fontSize: '1.05rem' }}>
                       <Icon name="clock-rotate-left" size={16} style={{ color: '#2563eb', marginRight: 8 }} />
-                      Nhật Ký Hoạt Động Thời Gian Thực Toàn Xã (PostgreSQL)
+                      Nhật Ký Điều Hành & Hoạt Động Công Vụ Toàn Xã
                     </h2>
                   </div>
                   <div className="card-body">
                     {activityLogs.length === 0 ? (
                       <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)' }}>
-                        Đang kết nối CSDL PostgreSQL...
+                        Đang tải dữ liệu nhật ký điều hành...
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -3645,7 +4054,7 @@ export default function DashboardPage() {
                   <div className="card-header">
                     <h2 style={{ margin: 0, fontSize: '1.05rem' }}>
                       <Icon name="file-shield" size={16} style={{ color: '#dc2626', marginRight: 8 }} />
-                      Sổ Kiểm Toán Append-Only (An Toàn & Bảo Mật CSDL PostgreSQL)
+                      Sổ Theo Dõi & Kiểm Toán Công Vụ (Lưu Trữ Bất Biến & Bảo Mật)
                     </h2>
                   </div>
                   <div className="card-body" style={{ padding: 0 }}>
@@ -4254,10 +4663,78 @@ export default function DashboardPage() {
 
               <div className="create-task-left">
                 <div className="card" style={{ border: 'none', boxShadow: 'none' }}>
-                  <div className="card-header" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: 16, marginBottom: 24 }}>
-                    <h2 style={{ fontSize: '1.2rem' }}><Icon name="circle-plus" size={18} style={{ color: 'var(--accent-blue)' }} /> Thông tin công việc</h2>
+                  <div className="card-header" style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: 16, marginBottom: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h2 style={{ fontSize: '1.2rem', margin: 0 }}><Icon name="circle-plus" size={18} style={{ color: 'var(--accent-blue)' }} /> Thông tin công việc</h2>
+                      <span className="badge" style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', fontSize: '0.75rem', padding: '3px 8px' }}>
+                        <Icon name="wand-magic-sparkles" size={11} style={{ marginRight: 4 }} /> Hỗ trợ số hóa & Phân tích tự động
+                      </span>
+                    </div>
                   </div>
                   <div className="card-body" style={{ padding: 0 }}>
+                    {/* ── PROMPT F: KHU VỰC KÉO THẢ TỆP ĐỂ AI PHÂN TÍCH & ĐIỀN PHIẾU GIAO VIỆC ── */}
+                    <div
+                      style={{
+                        background: isDragging ? '#eff6ff' : '#f8fafc',
+                        border: `2px dashed ${isDragging ? '#2563eb' : '#94a3b8'}`,
+                        borderRadius: 10,
+                        padding: '16px 20px',
+                        marginBottom: 20,
+                        textAlign: 'center',
+                        transition: 'all 0.2s ease',
+                        cursor: 'pointer'
+                      }}
+                      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                      onDragLeave={() => setIsDragging(false)}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                          const file = e.dataTransfer.files[0];
+                          await handleAnalyzeUploadedDocument(file);
+                        }
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        style={{ display: 'none' }}
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx"
+                        onChange={async (e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            const file = e.target.files[0];
+                            await handleAnalyzeUploadedDocument(file);
+                          }
+                        }}
+                      />
+                      {isAiAnalyzingFile ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '12px 0' }}>
+                          <Icon name="spinner" className="fa-spin" size={26} style={{ color: '#2563eb' }} />
+                          <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1e40af' }}>
+                            Đang số hóa bóc tách tệp văn bản & phân tích chỉ đạo...
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                            Trợ lý số đang trích xuất trích yếu, tóm tắt chỉ đạo, hạn chót, phòng ban và danh mục sản phẩm nghiệm thu...
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 4 }}>
+                            <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <Icon name="wand-magic-sparkles" size={16} style={{ color: '#2563eb' }} />
+                            </div>
+                            <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#1e293b' }}>
+                              Kéo thả hoặc bấm để chọn tệp văn bản chỉ đạo (PDF, Word, Ảnh scan)
+                            </span>
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                            Hệ thống sẽ tự động bóc tách nội dung, điền tiêu đề, trích yếu, hạn xử lý và lập danh mục đầu việc nghiệm thu (Prompt F)
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="form-group">
                       <label htmlFor="task-title-input" className="form-label">Tiêu đề công việc <span className="required">*</span></label>
                       <input id="task-title-input" className="form-input" placeholder="VD: Rà soát tiến độ xây dựng nông thôn mới…" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
@@ -4269,12 +4746,12 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="form-group checklist-builder">
-                      <label className="form-label">Checklist Sản phẩm đầu ra (Phục vụ đo lường 40% tiến độ)</label>
+                      <label className="form-label">Danh mục kết quả / Sản phẩm đầu ra (Chiếm 40% tỷ trọng tiến độ)</label>
                       <div className="checklist-input-group">
                         <input
                           type="text"
                           className="form-input"
-                          placeholder="Thêm tiêu chí hoàn thành..."
+                          placeholder="Thêm đầu việc hoặc sản phẩm nghiệm thu..."
                           value={newChecklistText}
                           onChange={(e) => setNewChecklistText(e.target.value)}
                           onKeyDown={(e) => {
@@ -4335,9 +4812,9 @@ export default function DashboardPage() {
                       <div className="form-group">
                         <label htmlFor="task-category-select" className="form-label">Loại việc</label>
                         <select id="task-category-select" className="form-select" value={newCategory} onChange={(e) => setNewCategory(e.target.value as TaskCategory)}>
-                          <option value="BAU">Thường ngày (BAU)</option>
-                          <option value="Dot_Xuat">Đột xuất chỉ đạo</option>
-                          <option value="Du_An">Dự án trọng điểm</option>
+                          <option value="BAU">Nhiệm vụ thường xuyên, định kỳ</option>
+                          <option value="Dot_Xuat">Nhiệm vụ đột xuất, phát sinh</option>
+                          <option value="Du_An">Đề án, Dự án trọng điểm</option>
                         </select>
                       </div>
                     </div>
@@ -4520,70 +4997,106 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              {/* TAB 1: BẢNG ĐÁNH GIÁ NĂNG LỰC */}
+              {/* TAB 1: BẢNG ĐÁNH GIÁ THI ĐUA CÁN BỘ */}
               {reportSubTab === 'evaluation' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  <div className="alert alert-info">
-                    <Icon name="award" size={18} style={{ flexShrink: 0 }} />
-                    <span>Xếp loại năng lực dựa trên dữ liệu thực tế: tỷ lệ hoàn thành đúng hạn và điểm nghiệm thu khách quan (Mô hình GRAD).</span>
+                  <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e40af', padding: '12px 16px', borderRadius: 8 }}>
+                    <Icon name="award" size={18} style={{ flexShrink: 0, color: '#2563eb' }} />
+                    <span style={{ fontSize: '0.84rem', lineHeight: 1.5 }}>
+                      Đánh giá, xếp loại chất lượng cán bộ, công chức dựa trên kết quả thực hiện nhiệm vụ công vụ theo thang điểm 10: <strong>Điểm hệ thống tự động ghi nhận (tối đa 3.0 điểm: đúng hạn, hoàn thành nội dung công việc, không bị hoàn trả)</strong> kết hợp <strong>Điểm thẩm định chất lượng của Lãnh đạo có thẩm quyền (tối đa 7.0 điểm)</strong>.
+                    </span>
                   </div>
 
                   <div className="card">
-                    <div className="card-header">
-                      <h2><Icon name="trophy" size={18} style={{ color: '#2563eb' }} /> BẢNG ĐÁNH GIÁ NĂNG LỰC CÁN BỘ QUÝ III/2026</h2>
+                    <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', padding: '14px 20px' }}>
+                      <h2 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Icon name="award" size={18} style={{ color: '#dc2626' }} />
+                        BẢNG TỔNG HỢP ĐÁNH GIÁ THI ĐUA CÁN BỘ, CÔNG CHỨC QUÝ III/2026
+                      </h2>
+                      <span className="badge badge-blue" style={{ fontWeight: 700, fontSize: '0.75rem' }}>
+                        Thang điểm 10 (3.0đ Hệ thống + 7.0đ Lãnh đạo)
+                      </span>
                     </div>
                     <div style={{ overflowX: 'auto' }}>
                       <table className="data-table">
                         <thead>
                           <tr>
-                            <th scope="col">Cán bộ</th>
-                            <th scope="col">Chức danh & Phòng ban</th>
-                            <th scope="col">Hoàn thành / Tổng giao</th>
-                            <th scope="col">Checklist (40%)</th>
-                            <th scope="col">Lãnh đạo chấm (60%)</th>
-                            <th scope="col">Điểm GRAD</th>
+                            <th scope="col">Cán bộ, công chức</th>
+                            <th scope="col">Chức vụ & Phòng ban</th>
+                            <th scope="col">Nhiệm vụ hoàn thành / Tổng giao</th>
+                            <th scope="col">Hệ thống ghi nhận (Tối đa 3.0đ)</th>
+                            <th scope="col">Lãnh đạo thẩm định (Tối đa 7.0đ)</th>
+                            <th scope="col">Tổng điểm (Thang 10)</th>
                             <th scope="col">Xếp loại thi đua</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {(gradOfficers.length > 0 ? gradOfficers : SAMPLE_STAFF.map(s => ({
-                            userId: s.id,
-                            fullName: s.name,
-                            roleName: s.role,
-                            departmentName: s.departmentName,
-                            totalTasksAssigned: s.totalCompleted,
-                            completedTasksCount: s.completedOnTime,
-                            overdueTasksCount: 0,
-                            checklistProgressScore40: 3.6,
-                            leaderQualityScore60: 5.4,
-                            finalGRADScore: s.score,
-                            tierGrade: getGradLabel(s.score).label
-                          }))).map(officer => {
-                            const isExc = officer.finalGRADScore >= 9.0;
-                            const isGood = officer.finalGRADScore >= 7.5;
-                            const isFair = officer.finalGRADScore >= 6.0;
+                          {(gradOfficers.length > 0 ? gradOfficers : SAMPLE_STAFF.map(s => {
+                            const rawScore = s.score > 10.0 ? s.score / 10.0 : s.score;
+                            const sysScore = Math.round(((s.completedOnTime / Math.max(1, s.totalCompleted)) * 1.5 + 1.0 + 0.4) * 10) / 10;
+                            const leadScore = Math.round(Math.max(0, rawScore - sysScore) * 10) / 10;
+                            return {
+                              userId: s.id,
+                              fullName: s.name,
+                              roleName: s.role,
+                              departmentName: s.departmentName,
+                              totalTasksAssigned: s.totalCompleted,
+                              completedTasksCount: s.completedOnTime,
+                              overdueTasksCount: 0,
+                              systemAutoScore30: Math.min(3.0, sysScore),
+                              leaderEvaluationScore70: Math.min(7.0, leadScore),
+                              finalScore100: Math.min(10.0, rawScore),
+                              finalGRADScore: Math.min(10.0, rawScore),
+                              tierGrade: rawScore >= 9.0 ? 'Hoàn thành xuất sắc nhiệm vụ'
+                                : rawScore >= 7.5 ? 'Hoàn thành tốt nhiệm vụ'
+                                  : rawScore >= 6.0 ? 'Hoàn thành nhiệm vụ'
+                                    : 'Cần cải thiện'
+                            };
+                          })).map(officer => {
+                            const rawSys = officer.systemAutoScore30 ?? ((officer as any).checklistProgressScore40 ? ((officer as any).checklistProgressScore40 / 4.0) * 3.0 : 2.7);
+                            const sysScore = rawSys > 3.0 ? rawSys / 10.0 : rawSys;
+
+                            const rawLead = officer.leaderEvaluationScore70 ?? ((officer as any).leaderQualityScore60 ? ((officer as any).leaderQualityScore60 / 6.0) * 7.0 : 6.3);
+                            const leadScore = rawLead > 7.0 ? rawLead / 10.0 : rawLead;
+
+                            const rawFinal = officer.finalScore100 ?? officer.finalGRADScore;
+                            const finalScore = rawFinal > 10.0 ? rawFinal / 10.0 : rawFinal;
+
+                            const isExc = finalScore >= 9.0;
+                            const isGood = finalScore >= 7.5;
+                            const isFair = finalScore >= 6.0;
                             const badgeClass = isExc ? 'badge-success' : isGood ? 'badge-blue' : isFair ? 'badge-warning' : 'badge-danger';
+
+                            const tierLabel = isExc ? 'Hoàn thành xuất sắc nhiệm vụ'
+                              : isGood ? 'Hoàn thành tốt nhiệm vụ'
+                                : isFair ? 'Hoàn thành nhiệm vụ'
+                                  : 'Không hoàn thành nhiệm vụ';
 
                             return (
                               <tr key={officer.userId}>
                                 <td>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                     <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.78rem', color: '#2563eb' }}>
-                                      {officer.fullName.split(' ').pop()?.[0] || 'NV'}
+                                      {officer.fullName.split(' ').pop()?.[0] || 'CB'}
                                     </div>
-                                    <span style={{ fontWeight: 600 }}>{officer.fullName}</span>
+                                    <span style={{ fontWeight: 700, color: '#0f172a' }}>{officer.fullName}</span>
                                   </div>
                                 </td>
                                 <td style={{ color: 'var(--text-secondary)' }}>
-                                  {officer.roleName}<br /><span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{officer.departmentName}</span>
+                                  <div style={{ fontWeight: 600, color: '#334155' }}>{officer.roleName}</div>
+                                  <span style={{ fontSize: '0.76rem', color: '#64748b' }}>{officer.departmentName}</span>
                                 </td>
-                                <td style={{ fontWeight: 700 }}>{officer.completedTasksCount} / {officer.totalTasksAssigned} việc</td>
-                                <td style={{ fontWeight: 700, color: '#2563eb' }}>{officer.checklistProgressScore40} / 4.0 điểm</td>
-                                <td style={{ fontWeight: 700, color: '#d97706' }}>{officer.leaderQualityScore60} / 6.0 điểm</td>
-                                <td style={{ fontWeight: 800, fontSize: '0.98rem', color: isExc ? '#16a34a' : isGood ? '#2563eb' : isFair ? '#d97706' : '#dc2626' }}>
-                                  {officer.finalGRADScore} / 10
+                                <td style={{ fontWeight: 700 }}>{officer.completedTasksCount} / {officer.totalTasksAssigned} nhiệm vụ</td>
+                                <td style={{ fontWeight: 700, color: '#2563eb' }}>
+                                  {sysScore.toFixed(1)} / 3.0đ
                                 </td>
-                                <td><span className={`badge ${badgeClass}`}>{officer.tierGrade}</span></td>
+                                <td style={{ fontWeight: 700, color: '#d97706' }}>
+                                  {leadScore.toFixed(1)} / 7.0đ
+                                </td>
+                                <td style={{ fontWeight: 800, fontSize: '1rem', color: isExc ? '#16a34a' : isGood ? '#2563eb' : isFair ? '#d97706' : '#dc2626' }}>
+                                  {finalScore.toFixed(1)} / 10đ
+                                </td>
+                                <td><span className={`badge ${badgeClass}`} style={{ fontWeight: 700, fontSize: '0.76rem', padding: '4px 10px' }}>{officer.tierGrade && officer.tierGrade.includes('Hoàn thành') ? officer.tierGrade : tierLabel}</span></td>
                               </tr>
                             );
                           })}
@@ -4917,20 +5430,34 @@ export default function DashboardPage() {
                   <Icon name={SHIFT_CONFIG[selectedTask.shift].icon} size={11} /> {SHIFT_CONFIG[selectedTask.shift].label} ({selectedTask.startTime})
                 </span>
                 {selectedTask.rating && (() => {
-                  const tier = getEvaluationTier(selectedTask.rating);
+                  const normalizedScore = selectedTask.rating > 10.0 ? selectedTask.rating / 10.0 : selectedTask.rating;
+                  const tier = getEvaluationTier(normalizedScore);
+                  const hasBreakdown = selectedTask.systemScore !== null && selectedTask.systemScore !== undefined && selectedTask.evaluatorScore !== null && selectedTask.evaluatorScore !== undefined;
+
+                  const sysScore = (selectedTask.systemScore ?? 0) > 3.0 ? (selectedTask.systemScore ?? 0) / 10.0 : (selectedTask.systemScore ?? 0);
+                  const evalScore = (selectedTask.evaluatorScore ?? 0) > 7.0 ? (selectedTask.evaluatorScore ?? 0) / 10.0 : (selectedTask.evaluatorScore ?? 0);
+
                   return (
                     <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       <span className={`badge ${tier.badgeClass}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Icon name={tier.icon} size={11} /> Đánh giá: {selectedTask.rating.toFixed(1)}/10 — Mức {tier.level}: {tier.label}
+                        <Icon name={tier.icon} size={11} /> Đánh giá: {normalizedScore.toFixed(1)}/10 — {tier.label}
                       </span>
+                      {hasBreakdown && (
+                        <span style={{ fontSize: '0.72rem', color: '#64748b', background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
+                          (Hệ thống: <strong>{sysScore.toFixed(1)}đ</strong> + Lãnh đạo: <strong>{evalScore.toFixed(1)}đ</strong>)
+                        </span>
+                      )}
                       {ROLE_CONFIG[activeRole].scopeLevel <= 3.0 && (
                         <button
                           type="button"
                           className="btn btn-outline btn-xs"
                           onClick={() => {
-                            setRatingRevisionNewScore(selectedTask.rating || 8.0);
+                            setRatingRevisionNewScore(normalizedScore);
                             setRatingRevisionReason('');
                             setRatingRevisionEvidenceUrl('');
+                            setRatingRevisionFileName('');
+                            setRatingRevisionFileSize('');
+                            setRatingRevisionFileType('');
                             setShowRatingRevisionModal(true);
                           }}
                           style={{ fontSize: '0.72rem', padding: '2px 8px', fontWeight: 600 }}
@@ -4962,6 +5489,269 @@ export default function DashboardPage() {
                 <div><strong>Hạn chót:</strong> {formatDateDisplay(selectedTask.dueDate)}</div>
                 <div><strong>Giờ định mức:</strong> {selectedTask.effortHours} giờ</div>
               </div>
+
+              {/* ── BÁO CÁO KẾT QUẢ NỘP BÀI & CHÚ THÍCH KHOANH VÙNG (INLINE ANNOTATIONS) ── */}
+              <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 14, marginBottom: 18 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="file-lines" size={15} style={{ color: '#2563eb' }} />
+                    Văn Bản Kết Quả Nộp & Chú Thích Khoanh Vùng
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                    Bôi đen đoạn văn để thêm nhận xét
+                  </span>
+                </div>
+
+                {/* Submission Text Content with Interactive Selection & Annotation Highlighting */}
+                <div style={{ position: 'relative' }}>
+                  {(() => {
+                    const sampleSubmissionText = selectedTask.submissionNote || `Báo cáo tổng hợp số liệu đã được kiểm tra chéo với Phòng Kinh tế - Địa chính và hoàn thiện theo đúng biểu mẫu Nghị định số 61/2018/NĐ-CP và Quyết định 468/QĐ-TTg của Thủ tướng Chính phủ. Kính trình Lãnh đạo UBND xã xem xét nghiệm thu và chỉ đạo bổ sung các nội dung liên quan đến phương án số hóa 100% kết quả giải quyết TTHC còn hiệu lực.`;
+
+                    // Render annotated segments
+                    const activeAnns = taskAnnotations.filter(a => sampleSubmissionText.includes(a.anchorText));
+
+                    let renderedElements: React.ReactNode[] = [];
+                    if (activeAnns.length === 0) {
+                      renderedElements = [sampleSubmissionText];
+                    } else {
+                      // Match and highlight annotations
+                      let lastIdx = 0;
+                      const sortedAnns = [...activeAnns].sort((a, b) => {
+                        const idxA = sampleSubmissionText.indexOf(a.anchorText, a.startOffsetHint || 0);
+                        const idxB = sampleSubmissionText.indexOf(b.anchorText, b.startOffsetHint || 0);
+                        return idxA - idxB;
+                      });
+
+                      sortedAnns.forEach((ann, i) => {
+                        const foundIdx = sampleSubmissionText.indexOf(ann.anchorText, lastIdx);
+                        if (foundIdx !== -1 && foundIdx >= lastIdx) {
+                          if (foundIdx > lastIdx) {
+                            renderedElements.push(sampleSubmissionText.substring(lastIdx, foundIdx));
+                          }
+                          const isResolved = ann.resolvedStatus === 'Resolved';
+                          const isLoiSai = ann.severity === 1 || ann.severityText === 'LoiSai';
+                          const isCanSua = ann.severity === 2 || ann.severityText === 'CanChinhSua';
+
+                          const highlightBg = isResolved ? '#f1f5f9' : isLoiSai ? '#fee2e2' : isCanSua ? '#ffedd5' : '#eff6ff';
+                          const borderBottomColor = isResolved ? '#94a3b8' : isLoiSai ? '#ef4444' : isCanSua ? '#f97316' : '#3b82f6';
+                          const textColor = isResolved ? '#64748b' : isLoiSai ? '#991b1b' : isCanSua ? '#9a3412' : '#1e40af';
+
+                          renderedElements.push(
+                            <mark
+                              key={`ann_${ann.id}_${i}`}
+                              onClick={(e) => {
+                                const rect = (e.target as HTMLElement).getBoundingClientRect();
+                                setActiveAnnotationPopover(ann);
+                                setActivePopoverPos({ top: rect.bottom + 6, left: Math.max(10, rect.left - 20) });
+                              }}
+                              style={{
+                                background: highlightBg,
+                                color: textColor,
+                                borderBottom: `2px solid ${borderBottomColor}`,
+                                padding: '1px 3px',
+                                borderRadius: 3,
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                textDecoration: isResolved ? 'line-through' : 'none',
+                                opacity: isResolved ? 0.75 : 1,
+                                transition: 'all 0.15s ease'
+                              }}
+                              title={`[${ann.severityText || 'Góp ý'}] ${ann.commentText} — Nhấn để xem chi tiết`}
+                            >
+                              {ann.anchorText}
+                              {!isResolved && (
+                                <span style={{ fontSize: '0.65rem', marginLeft: 3, color: borderBottomColor }}>
+                                  <Icon name={isLoiSai ? 'circle-exclamation' : isCanSua ? 'pen' : 'comment'} size={9} />
+                                </span>
+                              )}
+                            </mark>
+                          );
+                          lastIdx = foundIdx + ann.anchorText.length;
+                        }
+                      });
+                      if (lastIdx < sampleSubmissionText.length) {
+                        renderedElements.push(sampleSubmissionText.substring(lastIdx));
+                      }
+                    }
+
+                    return (
+                      <div
+                        onMouseUp={handleTextSelection}
+                        style={{
+                          background: '#f8fafc',
+                          padding: '12px 14px',
+                          borderRadius: 8,
+                          border: '1px solid #e2e8f0',
+                          fontSize: '0.85rem',
+                          lineHeight: 1.7,
+                          color: '#1e293b',
+                          cursor: 'text',
+                          userSelect: 'text'
+                        }}
+                      >
+                        {renderedElements}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Floating Action Button "Thêm nhận xét" right above user text selection */}
+                  {selectionTooltipPos && (
+                    <div
+                      style={{
+                        position: 'fixed',
+                        top: selectionTooltipPos.top,
+                        left: selectionTooltipPos.left,
+                        zIndex: 9999,
+                        display: 'flex',
+                        gap: 4
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-xs"
+                        onClick={handleOpenAnnotationModal}
+                        style={{
+                          boxShadow: '0 4px 12px rgba(37,99,235,0.35)',
+                          fontWeight: 700,
+                          fontSize: '0.75rem',
+                          padding: '4px 10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <Icon name="comment-dots" size={12} /> Thêm nhận xét
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Popover on Clicking Highlighted Text */}
+                  {activeAnnotationPopover && (
+                    <div
+                      style={{
+                        position: 'fixed',
+                        top: activePopoverPos?.top ?? 200,
+                        left: activePopoverPos?.left ?? 200,
+                        zIndex: 9999,
+                        background: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: 8,
+                        padding: 12,
+                        width: 290,
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                        fontSize: '0.8rem'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                        <span className={`badge ${activeAnnotationPopover.severity === 1 ? 'badge-urgent' : activeAnnotationPopover.severity === 2 ? 'badge-warning' : 'badge-blue'}`} style={{ fontSize: '0.68rem', padding: '1px 6px' }}>
+                          {activeAnnotationPopover.severityText || (activeAnnotationPopover.severity === 1 ? 'Lỗi sai' : activeAnnotationPopover.severity === 2 ? 'Cần sửa' : 'Góp ý')}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => setActiveAnnotationPopover(null)}
+                          style={{ padding: 2, height: 'auto', color: '#94a3b8' }}
+                        >
+                          <Icon name="xmark" size={12} />
+                        </button>
+                      </div>
+
+                      <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: 4, lineHeight: 1.4 }}>
+                        {activeAnnotationPopover.commentText}
+                      </div>
+
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', marginBottom: 8 }}>
+                        Bởi <strong>{activeAnnotationPopover.createdByUserName}</strong> • {new Date(activeAnnotationPopover.createdAt).toLocaleString('vi-VN')}
+                      </div>
+
+                      {activeAnnotationPopover.resolvedStatus === 'Open' ? (
+                        <button
+                          type="button"
+                          className="btn btn-success btn-xs"
+                          style={{ width: '100%', fontSize: '0.72rem', padding: '4px 8px' }}
+                          onClick={() => handleResolveAnnotation(selectedTask.id, activeAnnotationPopover.id)}
+                        >
+                          <Icon name="check" size={11} style={{ marginRight: 4 }} /> Đánh dấu đã sửa xong
+                        </button>
+                      ) : (
+                        <div style={{ fontSize: '0.7rem', color: '#16a34a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Icon name="circle-check" size={11} /> Đã sửa xong ({activeAnnotationPopover.resolvedByUserName || 'Cán bộ'})
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* List of Annotations Pane */}
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed #e2e8f0' }}>
+                  <div style={{ fontWeight: 700, fontSize: '0.8rem', color: '#334155', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>
+                      <Icon name="comments" size={12} style={{ color: '#2563eb', marginRight: 4 }} />
+                      Danh Sách Góp Ý & Chú Thích ({taskAnnotations.length})
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                      {taskAnnotations.filter(a => a.resolvedStatus === 'Open').length} đang mở / {taskAnnotations.filter(a => a.resolvedStatus === 'Resolved').length} đã sửa
+                    </span>
+                  </div>
+
+                  {taskAnnotations.length === 0 ? (
+                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', fontStyle: 'italic', padding: '4px 0' }}>
+                      Chưa có chú thích nào. Bôi đen một đoạn chữ trên văn bản kết quả để thêm nhận xét!
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {taskAnnotations.map(ann => {
+                        const isResolved = ann.resolvedStatus === 'Resolved';
+                        return (
+                          <div
+                            key={ann.id}
+                            style={{
+                              background: isResolved ? '#f8fafc' : '#ffffff',
+                              border: `1px solid ${isResolved ? '#e2e8f0' : ann.severity === 1 ? '#fecaca' : ann.severity === 2 ? '#fed7aa' : '#bfdbfe'}`,
+                              borderRadius: 6,
+                              padding: '8px 10px',
+                              fontSize: '0.78rem',
+                              opacity: isResolved ? 0.75 : 1
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span className={`badge ${ann.severity === 1 ? 'badge-urgent' : ann.severity === 2 ? 'badge-warning' : 'badge-blue'}`} style={{ fontSize: '0.65rem', padding: '1px 5px' }}>
+                                  {ann.severityText || (ann.severity === 1 ? 'Lỗi sai' : ann.severity === 2 ? 'Cần sửa' : 'Góp ý')}
+                                </span>
+                                <span style={{ fontStyle: 'italic', color: '#475569', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  "{ann.anchorText}"
+                                </span>
+                              </div>
+                              {isResolved ? (
+                                <span style={{ fontSize: '0.68rem', color: '#16a34a', fontWeight: 600 }}>
+                                  <Icon name="check" size={10} /> Đã sửa
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="btn btn-outline btn-xs"
+                                  style={{ fontSize: '0.68rem', padding: '1px 6px', color: '#16a34a', borderColor: '#86efac' }}
+                                  onClick={() => handleResolveAnnotation(selectedTask.id, ann.id)}
+                                >
+                                  Đã sửa xong
+                                </button>
+                              )}
+                            </div>
+                            <div style={{ color: '#1e293b', fontWeight: 500, lineHeight: 1.4, margin: '3px 0' }}>
+                              {ann.commentText}
+                            </div>
+                            <div style={{ fontSize: '0.68rem', color: '#94a3b8' }}>
+                              {ann.createdByUserName} • {new Date(ann.createdAt).toLocaleString('vi-VN')}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* ── LUẬT 72/2025: KHỐI PHẢN BIỆN UBMTTQ CHO NHIỆM VỤ DỰ ÁN / NGHỊ QUYẾT ── */}
               {selectedTask.category === 'Du_An' && (
                 <div style={{ background: '#fdf2f2', border: '1px solid #fca5a5', borderRadius: 8, padding: 14, marginBottom: 18 }}>
@@ -5057,10 +5847,17 @@ export default function DashboardPage() {
                           </div>
 
                           {item.evidenceUrl && (
-                            <div style={{ marginTop: 4, fontSize: '0.78rem' }}>
+                            <div style={{ marginTop: 6, fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: 6 }}>
                               <strong>Minh chứng:</strong>{' '}
-                              <a href={item.evidenceUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
-                                <Icon name="paperclip" size={11} /> {item.evidenceUrl.length > 45 ? item.evidenceUrl.substring(0, 45) + '...' : item.evidenceUrl}
+                              <a
+                                href={item.evidenceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="badge badge-blue"
+                                style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px' }}
+                              >
+                                <Icon name={item.evidenceUrl.startsWith('data:image/') ? 'image' : 'file-lines'} size={11} />
+                                {item.evidenceUrl.startsWith('data:') ? 'Xem tệp minh chứng đính kèm' : (item.evidenceUrl.length > 40 ? item.evidenceUrl.substring(0, 40) + '...' : item.evidenceUrl)}
                               </a>
                             </div>
                           )}
@@ -5101,8 +5898,8 @@ export default function DashboardPage() {
                   <input
                     className="form-input"
                     style={{ fontSize: '0.82rem' }}
-                    placeholder="Nhập ý kiến chỉ đạo hoặc phản hồi (dùng @username để nhắc tên)…"
-                    aria-label="Nhập ý kiến chỉ đạo hoặc phản hồi"
+                    placeholder="Nhập ý kiến chỉ đạo, xử lý (gõ @ để gửi thông báo trực tiếp đến cán bộ phụ trách)…"
+                    aria-label="Nhập ý kiến chỉ đạo, xử lý"
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
                   />
@@ -5114,6 +5911,7 @@ export default function DashboardPage() {
             </div>
 
             <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'flex-end', gap: 8, background: '#f8fafc' }}>
+              {/* ── BUTTONS ── */}
               {(selectedTask.status === 'Dang_Xu_Ly' || selectedTask.status === 'Tu_Choi') && ROLE_CONFIG[activeRole].scopeLevel >= 2.5 && (
                 <button type="button" className="btn btn-primary btn-sm" onClick={() => handleSubmitTask(selectedTask.id)}>
                   <Icon name="paper-plane" size={12} /> Xin Nghiệm Thu
@@ -5138,258 +5936,154 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
-         DAILY WELCOME POP-UP MODAL
+         MODAL: CHẤM ĐIỂM & NGHIỆM THU (THANG 10: 3 ĐIỂM HỆ THỐNG + 7 ĐIỂM NGƯỜI CHẤM)
          ═══════════════════════════════════════════════════════════════ */}
-      {showWelcomeModal && (
+      {showApproveModal && (
         <div className="welcome-modal-overlay">
-          <div className="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-modal-title">
-            <div className="welcome-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#fffbeb', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon name="sun" size={24} style={{ color: '#d97706' }} />
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 580 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <Icon name="clipboard-check" size={20} /> CHẤM ĐIỂM & NGHIỆM THU CÔNG VIỆC
+              </h2>
+              <span className="badge badge-success" style={{ fontSize: '0.75rem', padding: '3px 8px' }}>
+                Thang 100 Điểm
+              </span>
+            </div>
+
+            <div className="alert alert-info" style={{ marginBottom: 16, fontSize: '0.8rem', lineHeight: 1.5 }}>
+              <Icon name="circle-info" size={14} style={{ marginRight: 6 }} />
+              Đánh giá theo quy chuẩn <strong>Thang 10 điểm</strong>: <strong>3 điểm</strong> hệ thống tự động tính khách quan + <strong>7 điểm</strong> do người chấm quyết định.
+            </div>
+
+            {/* ── 1. ĐIỂM HỆ THỐNG TỰ TÍNH (30 ĐIỂM) ── */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <span style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="gears" size={14} style={{ color: '#2563eb' }} /> 1. Điểm Hệ Thống Tự Tính:
+                </span>
+                <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#2563eb' }}>
+                  {isLoadingSystemScore ? 'Đang tính…' : `${(systemScoreBreakdown?.totalSystemScore ?? 30.0).toFixed(1)} / 30.0 đ`}
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, fontSize: '0.78rem' }}>
+                {/* Tiêu chí 1: Đúng hạn */}
+                <div style={{ background: '#ffffff', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}>
+                  <div style={{ color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="clock" size={11} style={{ color: '#2563eb' }} /> Đúng hạn
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a', marginTop: 2 }}>
+                    {(systemScoreBreakdown?.onTimeScore ?? 1.5).toFixed(1)} / 1.5 đ
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: (systemScoreBreakdown?.daysLate ?? 0) > 0 ? '#dc2626' : '#16a34a', marginTop: 2 }}>
+                    {(systemScoreBreakdown?.daysLate ?? 0) > 0 ? `Trễ ${systemScoreBreakdown?.daysLate} ngày (-${((systemScoreBreakdown?.daysLate ?? 0) * 2).toFixed(1)}đ)` : 'Đúng/Trước hạn'}
+                  </div>
                 </div>
-                <div>
-                  <h2 id="welcome-modal-title" style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-                    KÍNH CHÀO BÙI VĂN HÙNG — CHỦ TỊCH UBND XÃ CÁT NGẠN
-                  </h2>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                    Báo cáo tổng hợp tình hình công việc hôm nay (Thứ Hai, ngày 26/07/2026)
+
+                {/* Tiêu chí 2: Sản phẩm đầu ra */}
+                <div style={{ background: '#ffffff', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}>
+                  <div style={{ color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="list-check" size={11} style={{ color: '#16a34a' }} /> Sản phẩm
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a', marginTop: 2 }}>
+                    {(systemScoreBreakdown?.checklistScore ?? 10.0).toFixed(1)} / 10.0 đ
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 2 }}>
+                    {systemScoreBreakdown && systemScoreBreakdown.totalSubTasks > 0 ? `${systemScoreBreakdown.completedSubTasks}/${systemScoreBreakdown.totalSubTasks} đầu việc` : '100% đạt chuẩn'}
+                  </div>
+                </div>
+
+                {/* Tiêu chí 3: Không bị trả lại */}
+                <div style={{ background: '#ffffff', padding: '8px 10px', borderRadius: 6, border: '1px solid #cbd5e1' }}>
+                  <div style={{ color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Icon name="rotate-left" size={11} style={{ color: '#d97706' }} /> Trả lại
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a', marginTop: 2 }}>
+                    {(systemScoreBreakdown?.noRejectionScore ?? 5.0).toFixed(1)} / 5.0 đ
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: (systemScoreBreakdown?.rejectionCount ?? 0) > 0 ? '#dc2626' : '#16a34a', marginTop: 2 }}>
+                    {(systemScoreBreakdown?.rejectionCount ?? 0) > 0 ? `${systemScoreBreakdown?.rejectionCount} lần yêu cầu sửa` : '0 lần trả lại'}
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="welcome-body">
-              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 14, marginBottom: 16, fontSize: '0.85rem', lineHeight: 1.5 }}>
-                <Icon name="circle-info" size={15} style={{ color: '#2563eb', marginRight: 6 }} />
-                <span>Hôm nay ca Sáng có <strong>4 công việc phát sinh trùng ca</strong> và <strong>{kpiData.pendingApproval}</strong> công việc trình xin ý kiến phê duyệt của Chủ tịch xã.</span>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, textAlign: 'center', marginBottom: 20 }}>
-                <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#2563eb', fontVariantNumeric: 'tabular-nums' }}>{kpiData.active}</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>Cần Xử Lý</div>
-                </div>
-                <div style={{ background: '#fffbeb', padding: 12, borderRadius: 8, border: '1px solid #fef3c7' }}>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#d97706', fontVariantNumeric: 'tabular-nums' }}>{kpiData.nearDeadline}</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>Sắp Hết Hạn</div>
-                </div>
-                <div style={{ background: '#fef2f2', padding: 12, borderRadius: 8, border: '1px solid #fecaca' }}>
-                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#dc2626', fontVariantNumeric: 'tabular-nums' }}>{kpiData.overdue}</div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 700 }}>Quá Hạn</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="welcome-actions">
-              <button type="button" className="btn btn-primary" style={{ width: '100%', padding: '10px 16px' }} onClick={() => setShowWelcomeModal(false)}>
-                <Icon name="check" size={14} /> Đóng & Vào Dashboard Làm Việc
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════
-         PRINT WEEKLY SCHEDULE MODAL
-         ═══════════════════════════════════════════════════════════════ */}
-      {showPrintModal && (
-        <div className="print-modal-overlay">
-          <div className="print-modal" role="dialog" aria-modal="true" aria-labelledby="print-modal-title">
-            <div className="print-modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingBottom: 14, borderBottom: '1px solid var(--border-color)' }}>
-              <h2 id="print-modal-title" style={{ fontSize: '1.05rem', fontWeight: 800 }}>Xem Trước Bản In Lịch Công Tác Tuần</h2>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => window.print()}>
-                  <Icon name="print" size={14} /> In Ngay (Print)
-                </button>
-                <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowPrintModal(false)}>
-                  Đóng
-                </button>
-              </div>
-            </div>
-
-            <div className="print-doc-header">
-              <div style={{ textAlign: 'center', textTransform: 'uppercase' }}>
-                <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>ỦY BAN NHÂN DÂN XÃ CÁT NGẠN</div>
-                <div style={{ fontWeight: 800, fontSize: '1.1rem', marginTop: 4 }}>LỊCH CÔNG TÁC TUẦN</div>
-                <div style={{ fontSize: '0.8rem', fontStyle: 'italic', marginTop: 2, textTransform: 'none' }}>
-                  (Từ ngày {weekDays[0].dayNumber} đến ngày {weekDays[6].dayNumber} tháng 7 năm 2026)
+            {/* ── 2. ĐIỂM NGƯỜI CHẤM QUYẾT ĐỊNH (70 ĐIỂM) ── */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label className="form-label" style={{ fontWeight: 700, fontSize: '0.85rem', color: '#1e293b', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="user-check" size={14} style={{ color: '#16a34a' }} /> 2. Điểm Người Chấm Quyết Định:
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="number"
+                    min={0}
+                    max={70}
+                    step={0.5}
+                    value={evaluatorScore}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setEvaluatorScore(Math.min(70, Math.max(0, val)));
+                    }}
+                    style={{ width: 70, padding: '4px 8px', textAlign: 'right', fontWeight: 800, fontSize: '1rem', color: '#16a34a', borderRadius: 6, border: '1.5px solid #86efac' }}
+                  />
+                  <span style={{ fontWeight: 700, color: '#64748b', fontSize: '0.88rem' }}>/ 70.0 đ</span>
                 </div>
               </div>
-            </div>
 
-            <table className="data-table" style={{ marginTop: 16 }}>
-              <thead>
-                <tr>
-                  <th scope="col" style={{ width: 110 }}>Thứ / Ngày</th>
-                  <th scope="col" style={{ width: 80 }}>Buổi</th>
-                  <th scope="col">Nội dung công việc chỉ đạo</th>
-                  <th scope="col" style={{ width: 160 }}>Cán bộ phụ trách</th>
-                </tr>
-              </thead>
-              <tbody>
-                {weekDays.map(day => {
-                  const morningTasks = visibleTasks.filter(t => t.dueDate === day.dateStr && t.shift === 'Sang');
-                  const afternoonTasks = visibleTasks.filter(t => t.dueDate === day.dateStr && t.shift === 'Chieu');
+              {/* Slider 0 - 70 */}
+              <input
+                type="range"
+                min={0}
+                max={70}
+                step={0.5}
+                value={evaluatorScore}
+                onChange={(e) => setEvaluatorScore(parseFloat(e.target.value))}
+                style={{ width: '100%', height: 6, accentColor: '#16a34a', cursor: 'pointer', marginBottom: 10 }}
+              />
 
-                  return (
-                    <React.Fragment key={day.dateStr}>
-                      <tr>
-                        <td rowSpan={2} style={{ fontWeight: 800, textAlign: 'center', background: '#f8fafc', verticalAlign: 'middle' }}>
-                          {day.fullDateDisplay}
-                        </td>
-                        <td style={{ fontWeight: 700, color: '#d97706' }}>SÁNG</td>
-                        <td>
-                          {morningTasks.length === 0 ? '—' : (
-                            morningTasks.map(t => <div key={t.id}>• {t.title} ({PRIORITY_LABELS[t.priority]})</div>)
-                          )}
-                        </td>
-                        <td>{morningTasks.map(t => t.assignee).join(', ') || '—'}</td>
-                      </tr>
-                      <tr>
-                        <td style={{ fontWeight: 700, color: '#2563eb' }}>CHIỀU</td>
-                        <td>
-                          {afternoonTasks.length === 0 ? '—' : (
-                            afternoonTasks.map(t => <div key={t.id}>• {t.title} ({PRIORITY_LABELS[t.priority]})</div>)
-                          )}
-                        </td>
-                        <td>{afternoonTasks.map(t => t.assignee).join(', ') || '—'}</td>
-                      </tr>
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-
-            <div className="print-doc-footer" style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-              <div style={{ width: '45%' }}>
-                <strong>Nơi nhận:</strong><br />
-                - Thường trực Đảng ủy (b/c);<br />
-                - Thường trực HĐND xã;<br />
-                - Lãnh đạo UBND xã;<br />
-                - Trưởng các ban ngành, đoàn thể;<br />
-                - Cán bộ công chức xã;<br />
-                - Lưu: VT, VP.
-              </div>
-              <div style={{ width: '45%', textAlign: 'center' }}>
-                <strong>TL. CHỦ TỊCH</strong><br />
-                CHÁNH VĂN PHÒNG<br /><br /><br />
-                <strong>Nguyễn Đình Hùng</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-
-      {/* ═══════════════════════════════════════════════════════════════
-         SUBMIT / APPROVE / REJECT MODALS
-         ═══════════════════════════════════════════════════════════════ */}
-      {showSubmitModal && (
-        <div className="welcome-modal-overlay">
-          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 450 }}>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 800, marginBottom: 16 }}>Nộp Kết Quả Xin Nghiệm Thu</h2>
-            <div className="form-group">
-              <label className="form-label">Ghi chú kết quả thực hiện</label>
-              <textarea className="form-textarea" rows={3} placeholder="Mô tả kết quả công việc đã hoàn thành..." value={submitNote} onChange={e => setSubmitNote(e.target.value)} />
-            </div>
-            <div className="alert alert-info" style={{ marginBottom: 16, fontSize: '0.8rem' }}>
-              <Icon name="file-arrow-up" size={14} style={{ marginRight: 6 }} /> Vui lòng đính kèm báo cáo ở phần bình luận trước khi nộp.
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button className="btn btn-outline" onClick={() => setShowSubmitModal(false)}>Hủy</button>
-              <button className="btn btn-primary" onClick={confirmSubmitTask}>Gửi Lãnh Đạo Duyệt</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showApproveModal && (
-        <div className="welcome-modal-overlay">
-          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 520 }}>
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: 14, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="clipboard-check" size={20} /> CHẤM ĐIỂM & NGHỆM THU CÔNG VIỆC
-            </h2>
-
-            <div className="alert alert-info" style={{ marginBottom: 16, fontSize: '0.82rem' }}>
-              <Icon name="circle-info" size={14} style={{ marginRight: 6 }} />
-              Đánh giá theo thang <strong>10 điểm</strong> chuẩn bộ máy cấp xã. Điểm đánh giá sẽ tự động cập nhật vào thi đua cán bộ.
-            </div>
-
-            {/* 10-Point Rating Selector Bar */}
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label className="form-label" style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Chọn điểm chất lượng (1.0 – 10.0 điểm):</span>
-                <span style={{ fontWeight: 800, fontSize: '1.1rem', color: getEvaluationTier(ratingScore).color }}>
-                  {ratingScore.toFixed(1)} / 10.0
-                </span>
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(scoreVal => {
-                  const isSelected = Math.round(ratingScore) === scoreVal;
-                  const itemTier = getEvaluationTier(scoreVal);
-                  return (
-                    <button
-                      key={scoreVal}
-                      type="button"
-                      onClick={() => setRatingScore(scoreVal)}
-                      className="btn"
-                      style={{
-                        padding: '8px 0',
-                        fontSize: '0.9rem',
-                        fontWeight: 800,
-                        borderRadius: 8,
-                        border: `1.5px solid ${isSelected ? itemTier.color : '#e2e8f0'}`,
-                        background: isSelected ? itemTier.bgColor : '#ffffff',
-                        color: isSelected ? itemTier.color : '#64748b',
-                        boxShadow: isSelected ? `0 2px 8px ${itemTier.color}33` : 'none',
-                        transition: 'all 0.15s ease',
-                      }}
-                      title={`Mức ${itemTier.level}: ${itemTier.label} (${scoreVal} điểm)`}
-                    >
-                      {scoreVal}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Tier Level Quick Selector Tabs */}
-            <div style={{ marginBottom: 18 }}>
-              <label className="form-label" style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 6 }}>
-                Chọn nhanh theo 5 phân cấp đánh giá:
-              </label>
+              {/* 5 Preset Quick Buttons for Evaluator (0 - 70) */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {EVALUATION_TIERS.map(tier => {
-                  const activeTier = getEvaluationTier(ratingScore);
-                  const isCurrent = activeTier.code === tier.code;
+                {[
+                  { label: 'Xuất sắc', score: 68.0, color: '#047857', bg: '#ecfdf5', icon: 'trophy' },
+                  { label: 'Tốt', score: 60.0, color: '#1d4ed8', bg: '#eff6ff', icon: 'star' },
+                  { label: 'Đạt yêu cầu', score: 48.0, color: '#b45309', bg: '#fffbeb', icon: 'thumbs-up' },
+                  { label: 'Cần cải thiện', score: 35.0, color: '#c2410c', bg: '#fff7ed', icon: 'triangle-exclamation' },
+                  { label: 'Chưa đạt', score: 20.0, color: '#b91c1c', bg: '#fef2f2', icon: 'circle-xmark' },
+                ].map(p => {
+                  const isSelected = Math.abs(evaluatorScore - p.score) < 0.5;
                   return (
                     <button
-                      key={tier.code}
+                      key={p.label}
                       type="button"
-                      onClick={() => setRatingScore(tier.level === 1 ? 9.5 : tier.level === 2 ? 8.5 : tier.level === 3 ? 7.0 : tier.level === 4 ? 5.0 : 3.0)}
+                      onClick={() => setEvaluatorScore(p.score)}
                       style={{
-                        padding: '4px 10px',
+                        padding: '4px 8px',
                         fontSize: '0.75rem',
                         fontWeight: 700,
                         borderRadius: 6,
-                        border: `1px solid ${isCurrent ? tier.color : '#cbd5e1'}`,
-                        background: isCurrent ? tier.bgColor : '#f8fafc',
-                        color: isCurrent ? tier.color : '#475569',
+                        border: `1px solid ${isSelected ? p.color : '#cbd5e1'}`,
+                        background: isSelected ? p.bg : '#ffffff',
+                        color: isSelected ? p.color : '#475569',
                         cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4
                       }}
                     >
-                      <Icon name={tier.icon} size={11} style={{ marginRight: 4 }} />
-                      Mức {tier.level}: {tier.label}
+                      <Icon name={p.icon} size={11} /> {p.label} ({p.score}đ)
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Live Preview Card of Selected Evaluation Tier */}
+            {/* ── 3. TỔNG ĐIỂM NGHIỆM THU (THANG 100) PREVIEW ── */}
             {(() => {
-              const currentTier = getEvaluationTier(ratingScore);
+              const totalSys = systemScoreBreakdown?.totalSystemScore ?? 30.0;
+              const totalScore = Math.min(100.0, totalSys + evaluatorScore);
+              const currentTier = getEvaluationTier(totalScore);
+
               return (
                 <div
                   style={{
@@ -5419,16 +6113,19 @@ export default function DashboardPage() {
                   >
                     <Icon name={currentTier.icon} size={20} style={{ color: currentTier.color }} />
                   </div>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 800, fontSize: '1rem', textTransform: 'uppercase' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                      <span style={{ fontWeight: 800, fontSize: '0.98rem', textTransform: 'uppercase' }}>
                         Mức {currentTier.level}: {currentTier.label}
                       </span>
-                      <span className={`badge ${currentTier.badgeClass}`} style={{ fontSize: '0.7rem' }}>
-                        {ratingScore.toFixed(1)} / 10.0 Điểm
+                      <span className={`badge ${currentTier.badgeClass}`} style={{ fontSize: '0.78rem', fontWeight: 800 }}>
+                        {totalScore.toFixed(1)} / 100.0 Điểm
                       </span>
                     </div>
-                    <div style={{ fontSize: '0.8rem', marginTop: 4, opacity: 0.95, lineHeight: 1.45 }}>
+                    <div style={{ fontSize: '0.78rem', marginTop: 4, opacity: 0.95 }}>
+                      Điểm Hệ Thống: <strong>{totalSys.toFixed(1)}đ</strong> + Người Chấm: <strong>{evaluatorScore.toFixed(1)}đ</strong>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', marginTop: 2, opacity: 0.85 }}>
                       {currentTier.subText}
                     </div>
                   </div>
@@ -5439,7 +6136,7 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
               <button className="btn btn-outline" onClick={() => setShowApproveModal(false)}>Hủy</button>
               <button className="btn btn-success" onClick={confirmApproveTask}>
-                <Icon name="check" size={14} /> Xác Nhận Nghiệm Thu
+                <Icon name="check" size={14} style={{ marginRight: 6 }} /> Xác Nhận Nghiệm Thu ({(Math.min(100.0, (systemScoreBreakdown?.totalSystemScore ?? 30.0) + evaluatorScore)).toFixed(1)} Điểm)
               </button>
             </div>
           </div>
@@ -5447,10 +6144,11 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
-         MODAL: YÊU CẦU SỬA ĐÁNH GIÁ CÔNG VIỆC (CHỐNG THIÊN VỊ)
+         MODAL: YÊU CẦU SỬA ĐÁNH GIÁ CÔNG VIỆC (CHỐNG THIÊN VỊ - THANG 10)
          ═══════════════════════════════════════════════════════════════ */}
       {showRatingRevisionModal && selectedTask && (() => {
-        const oldScore = selectedTask.rating !== undefined && selectedTask.rating !== null ? selectedTask.rating : 0;
+        const rawOld = selectedTask.rating !== undefined && selectedTask.rating !== null ? selectedTask.rating : (selectedTask.ratingScore ?? 0);
+        const oldScore = rawOld > 10.0 ? rawOld / 10.0 : rawOld;
         const delta = Math.abs(ratingRevisionNewScore - oldScore);
         const isPendingApprovalNeeded = delta > 1.0;
         const isReasonValid = ratingRevisionReason.trim().length >= 30;
@@ -5460,48 +6158,43 @@ export default function DashboardPage() {
           <div className="welcome-modal-overlay">
             <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 560 }}>
               <h2 style={{ fontSize: '1.1rem', fontWeight: 800, marginBottom: 14, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Icon name="pen-to-square" size={18} style={{ color: '#2563eb' }} /> YÊU CẦU SỬA ĐÁNH GIÁ CÔNG VIỆC
+                <Icon name="pen-to-square" size={18} style={{ color: '#2563eb' }} /> YÊU CẦU ĐIỀU CHỈNH ĐIỂM ĐÁNH GIÁ (THANG 10)
               </h2>
 
               <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 14, fontSize: '0.82rem', border: '1px solid #e2e8f0' }}>
                 <div style={{ fontWeight: 700, color: '#0f172a' }}>{selectedTask.title}</div>
                 <div style={{ color: '#64748b', marginTop: 2 }}>
-                  Điểm đánh giá hiện tại: <strong>{oldScore > 0 ? `${oldScore.toFixed(1)} điểm` : 'Chưa chấm'}</strong>
+                  Điểm đánh giá hiện tại: <strong>{oldScore > 0 ? `${oldScore.toFixed(1)} / 10.0 điểm` : 'Chưa chấm'}</strong>
                 </div>
               </div>
 
               {/* 10-Point Score Selector */}
               <div className="form-group" style={{ marginBottom: 14 }}>
                 <label className="form-label" style={{ marginBottom: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>Chọn điểm mới đề xuất (1.0 – 10.0 điểm):</span>
-                  <span style={{ fontWeight: 800, fontSize: '1.1rem', color: '#2563eb' }}>
+                  <span>Chọn điểm mới đề xuất (0.0 – 10.0 điểm):</span>
+                  <span style={{ fontWeight: 800, fontSize: '1.15rem', color: '#2563eb' }}>
                     {ratingRevisionNewScore.toFixed(1)} / 10.0
                   </span>
                 </label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(scoreVal => {
-                    const isSelected = Math.round(ratingRevisionNewScore) === scoreVal;
-                    return (
-                      <button
-                        key={scoreVal}
-                        type="button"
-                        onClick={() => setRatingRevisionNewScore(scoreVal)}
-                        className="btn"
-                        style={{
-                          padding: '8px 0',
-                          fontSize: '0.85rem',
-                          fontWeight: 800,
-                          borderRadius: 6,
-                          border: `1.5px solid ${isSelected ? '#2563eb' : '#cbd5e1'}`,
-                          background: isSelected ? '#eff6ff' : '#ffffff',
-                          color: isSelected ? '#2563eb' : '#475569',
-                          boxShadow: isSelected ? '0 2px 6px rgba(37,99,235,0.2)' : 'none',
-                        }}
-                      >
-                        {scoreVal}
-                      </button>
-                    );
-                  })}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    step={0.1}
+                    value={ratingRevisionNewScore}
+                    onChange={(e) => setRatingRevisionNewScore(parseFloat(e.target.value))}
+                    style={{ flex: 1, accentColor: '#2563eb', cursor: 'pointer' }}
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    step={0.1}
+                    value={ratingRevisionNewScore}
+                    onChange={(e) => setRatingRevisionNewScore(Math.min(10, Math.max(0, parseFloat(e.target.value) || 0)))}
+                    style={{ width: 70, padding: '4px 8px', textAlign: 'right', fontWeight: 800, fontSize: '0.95rem', borderRadius: 6, border: '1px solid #cbd5e1' }}
+                  />
                 </div>
               </div>
 
@@ -5509,12 +6202,12 @@ export default function DashboardPage() {
               {isPendingApprovalNeeded ? (
                 <div className="alert alert-warning" style={{ background: '#fffbeb', border: '1px solid #fef3c7', color: '#b45309', padding: '10px 12px', borderRadius: 8, marginBottom: 14, fontSize: '0.8rem' }}>
                   <Icon name="triangle-exclamation" size={14} style={{ marginRight: 6 }} />
-                  Độ lệch {delta.toFixed(1)} điểm (<strong>&gt; 1.0 điểm</strong>). Thay đổi này <strong>cần Cấp trên phê duyệt</strong> trước khi có hiệu lực chính thức!
+                  Độ chênh lệch {delta.toFixed(1)} điểm (<strong>&gt; 1.0 điểm</strong>). Đề xuất này <strong>cần Lãnh đạo cấp trên phê duyệt (Kiểm soát hai bước)</strong> trước khi có hiệu lực chính thức!
                 </div>
               ) : (
                 <div className="alert alert-info" style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', color: '#047857', padding: '10px 12px', borderRadius: 8, marginBottom: 14, fontSize: '0.8rem' }}>
                   <Icon name="circle-check" size={14} style={{ marginRight: 6 }} />
-                  Độ lệch {delta.toFixed(1)} điểm (<strong>&le; 1.0 điểm</strong>). Điểm mới sẽ được <strong>áp dụng ngay lập tức</strong>.
+                  Độ chênh lệch {delta.toFixed(1)} điểm (<strong>&le; 1.0 điểm</strong>). Điểm mới sẽ được <strong>áp dụng ngay lập tức</strong>.
                 </div>
               )}
 
@@ -5535,16 +6228,107 @@ export default function DashboardPage() {
                 />
               </div>
 
-              {/* Evidence URL Input */}
+              {/* Evidence File / Image Picker */}
               <div className="form-group" style={{ marginBottom: 16 }}>
-                <label className="form-label">Minh chứng đính kèm (Biên bản, ảnh chụp, URL tài liệu) <span className="required">*</span></label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="https://minhchung.catngan.gov.vn/bienban-suadiem.pdf"
-                  value={ratingRevisionEvidenceUrl}
-                  onChange={e => setRatingRevisionEvidenceUrl(e.target.value)}
-                />
+                <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <span>Tệp / Hình ảnh minh chứng đính kèm <span className="required">*</span></span>
+                  {ratingRevisionFileName && (
+                    <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 600 }}>
+                      <Icon name="circle-check" size={11} /> Đã chọn tệp
+                    </span>
+                  )}
+                </label>
+
+                {!ratingRevisionEvidenceUrl ? (
+                  <label style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    padding: '18px 16px',
+                    border: '2px dashed #cbd5e1',
+                    borderRadius: 8,
+                    background: '#f8fafc',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    textAlign: 'center'
+                  }}>
+                    <input
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xlsx,.xls"
+                      style={{ display: 'none' }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setRatingRevisionFileName(file.name);
+                          setRatingRevisionFileSize((file.size / 1024).toFixed(1) + ' KB');
+                          setRatingRevisionFileType(file.type);
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            setRatingRevisionEvidenceUrl(ev.target?.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                    <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb' }}>
+                      <Icon name="cloud-arrow-up" size={18} />
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 700, color: '#2563eb', fontSize: '0.85rem' }}>Bấm để chọn tệp hoặc ảnh chụp minh chứng từ máy tính</span>
+                      <p style={{ margin: '4px 0 0', fontSize: '0.74rem', color: '#64748b' }}>Hỗ trợ biên bản PDF, Word (.docx), Excel, ảnh chụp JPG/PNG</p>
+                    </div>
+                  </label>
+                ) : (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    background: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    borderRadius: 8
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 6, background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#2563eb', flexShrink: 0 }}>
+                        <Icon name={ratingRevisionFileType.includes('image') ? 'image' : 'file-lines'} size={18} />
+                      </div>
+                      <div style={{ overflow: 'hidden' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.84rem', color: '#1e3a8a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {ratingRevisionFileName || 'Tệp minh chứng đã chọn'}
+                        </div>
+                        <div style={{ fontSize: '0.73rem', color: '#64748b' }}>{ratingRevisionFileSize || 'Định dạng hợp lệ'}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {ratingRevisionEvidenceUrl.startsWith('data:image/') && (
+                        <a
+                          href={ratingRevisionEvidenceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn btn-sm btn-outline"
+                          style={{ padding: '3px 8px', fontSize: '0.74rem', background: '#fff' }}
+                        >
+                          <Icon name="eye" size={11} /> Xem ảnh
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        style={{ padding: '3px 8px', fontSize: '0.74rem' }}
+                        onClick={() => {
+                          setRatingRevisionEvidenceUrl('');
+                          setRatingRevisionFileName('');
+                          setRatingRevisionFileSize('');
+                          setRatingRevisionFileType('');
+                        }}
+                      >
+                        <Icon name="trash-can" size={11} /> Đổi tệp khác
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -5553,14 +6337,85 @@ export default function DashboardPage() {
                   className="btn btn-primary"
                   disabled={!isReasonValid || !isEvidenceValid}
                   onClick={handleSubmitRatingRevision}
+                  style={{ opacity: isReasonValid && isEvidenceValid ? 1 : 0.6 }}
                 >
-                  <Icon name="paper-plane" size={14} /> Gửi Đề Xuất Sửa Điểm
+                  <Icon name="paper-plane" size={13} style={{ marginRight: 6 }} /> Gửi Đề Xuất Sửa Điểm
                 </button>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {/* ═══════════════════════════════════════════════════════════════
+         MODAL: TẠO CHÚ THÍCH KHOANH VÙNG (TASK REVIEW ANNOTATION)
+         ═══════════════════════════════════════════════════════════════ */}
+      {showAnnotationModal && selectedTask && (
+        <div className="welcome-modal-overlay">
+          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 480 }}>
+            <h2 style={{ fontSize: '1.05rem', fontWeight: 800, marginBottom: 14, color: '#2563eb', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="comment-dots" size={18} /> THÊM CHÚ THÍCH KHOANH VÙNG
+            </h2>
+
+            <div style={{ background: '#f8fafc', padding: 10, borderRadius: 6, border: '1px solid #e2e8f0', marginBottom: 14, fontSize: '0.8rem' }}>
+              <div style={{ color: '#64748b', fontSize: '0.72rem', fontWeight: 600, marginBottom: 2 }}>Đoạn văn bản được chọn:</div>
+              <div style={{ fontStyle: 'italic', color: '#1e293b', background: '#ffffff', padding: '6px 8px', borderRadius: 4, borderLeft: '3px solid #2563eb' }}>
+                "{selectedAnchorText}"
+              </div>
+            </div>
+
+            {/* Severity Selector */}
+            <div className="form-group" style={{ marginBottom: 14 }}>
+              <label className="form-label" style={{ marginBottom: 6 }}>Mức độ nhận xét / góp ý:</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                {[
+                  { value: 1, label: 'Lỗi sai', color: '#ef4444', bg: '#fee2e2', border: '#fca5a5' },
+                  { value: 2, label: 'Cần chỉnh sửa', color: '#f97316', bg: '#ffedd5', border: '#fdba74' },
+                  { value: 3, label: 'Góp ý', color: '#3b82f6', bg: '#eff6ff', border: '#93c5fd' },
+                ].map(sev => (
+                  <button
+                    key={sev.value}
+                    type="button"
+                    onClick={() => setAnnotationSeverity(sev.value)}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 6,
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      border: `1.5px solid ${annotationSeverity === sev.value ? sev.color : '#e2e8f0'}`,
+                      background: annotationSeverity === sev.value ? sev.bg : '#ffffff',
+                      color: annotationSeverity === sev.value ? sev.color : '#64748b',
+                      cursor: 'pointer',
+                      textAlign: 'center'
+                    }}
+                  >
+                    {sev.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Comment Textarea */}
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <label className="form-label">Nội dung nhận xét chi tiết: <span className="required">*</span></label>
+              <textarea
+                className="form-textarea"
+                rows={3}
+                placeholder="Nhập ý kiến chỉ đạo, hướng dẫn sửa đổi hoặc góp ý hoàn thiện..."
+                value={annotationComment}
+                onChange={e => setAnnotationComment(e.target.value)}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button className="btn btn-outline" onClick={() => setShowAnnotationModal(false)}>Hủy</button>
+              <button className="btn btn-primary" onClick={() => handleCreateAnnotation(selectedTask.id)}>
+                <Icon name="check" size={13} style={{ marginRight: 6 }} /> Lưu Chú Thích
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════════
          MODAL: PHÊ DUYỆT ĐỀ XUẤT SỬA ĐÁNH GIÁ (DÀNH CHO LÃNH ĐẠO CẤP TRÊN)
@@ -5755,8 +6610,8 @@ export default function DashboardPage() {
               if (suggestion) {
                 return (
                   <div className="alert alert-info" style={{ padding: '8px 12px', fontSize: '0.8rem', marginBottom: 12 }}>
-                    <Icon name="wand-magic-sparkles" size={14} style={{ color: '#8b5cf6', marginRight: 6 }} />
-                    Gợi ý AI: <strong>{suggestion.name}</strong> ({suggestion.departmentName}) có tải công việc thấp nhất.
+                    <Icon name="wand-magic-sparkles" size={14} style={{ color: '#2563eb', marginRight: 6 }} />
+                    Đề xuất điều phối: <strong>{suggestion.name}</strong> ({suggestion.departmentName}) hiện có khối lượng công việc phù hợp nhất.
                     <button
                       type="button"
                       className="btn btn-outline btn-xs"
@@ -5872,7 +6727,7 @@ export default function DashboardPage() {
                     );
                     setTransferHistory(prev => [record, ...prev]);
 
-                    addToast('Điều chuyển thành công', `Đã điều chuyển công việc "${targetTask.title}" từ ${transferFromStaff} sang ${targetName} trong CSDL PostgreSQL`, 'success');
+                    addToast('Điều chuyển thành công', `Đã điều chuyển công việc "${targetTask.title}" từ ${transferFromStaff} sang ${targetName}`, 'success');
                     setShowTransferModal(false);
                     setTransferReason('');
                     setTransferToStaffId('');
@@ -6147,7 +7002,7 @@ export default function DashboardPage() {
               {/* Thông tin Cấp trên vs Cấp dưới notification */}
               {formDestinationLevel === 'Subordinate' ? (
                 <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, padding: '8px 12px', fontSize: '0.83rem', color: '#1e40af', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span><Icon name="info-circle" size={13} /> Văn bản gửi cấp dưới/phòng ban sẽ tự động kích hoạt tính năng <strong>Giao nhiệm vụ vào Trung tâm điều hành</strong>.</span>
+                  <span><Icon name="info-circle" size={13} /> Văn bản gửi cấp dưới hoặc ban ngành sẽ <strong>tự động tạo nhiệm vụ theo dõi trên Hệ thống Điều hành</strong>.</span>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontWeight: 700 }}>
                     <input
                       type="checkbox"
@@ -6340,7 +7195,7 @@ export default function DashboardPage() {
 
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowCreateOutgoingModal(false)}>Hủy</button>
-                
+
                 {editingOutgoingDoc && (
                   <button
                     type="button"
@@ -6712,146 +7567,6 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
-         MODAL: YÊU CẦU ĐIỀU CHỈNH ĐIỂM ĐÁNH GIÁ (KÈM MAKER-CHECKER THRESHOLD)
-         ═══════════════════════════════════════════════════════════════ */}
-      {showRatingRevisionModal && selectedTask && (
-        <div className="welcome-modal-overlay">
-          <div className="welcome-modal" role="dialog" aria-modal="true" style={{ maxWidth: 580 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
-              <h2 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Icon name="pen-to-square" size={18} style={{ color: '#2563eb' }} />
-                Yêu Cầu Sửa Đánh Giá & Nghiệm Thu
-              </h2>
-              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowRatingRevisionModal(false)}>
-                <Icon name="xmark" size={16} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, fontSize: '0.85rem' }}>
-                <div>Công việc: <strong>{selectedTask.title}</strong></div>
-                <div>Điểm hiện tại: <strong style={{ color: '#2563eb' }}>{selectedTask.rating ? `${selectedTask.rating.toFixed(1)} / 10 điểm` : 'Chưa chấm'}</strong></div>
-              </div>
-
-              {/* Dynamic Threshold Alert */}
-              {(() => {
-                const oldScore = selectedTask.rating || ratingRevisionNewScore;
-                const delta = Math.abs(ratingRevisionNewScore - oldScore);
-                const isOverThreshold = delta > 1.0;
-
-                return isOverThreshold ? (
-                  <div className="alert alert-warning" style={{ margin: 0, fontSize: '0.85rem', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    <Icon name="triangle-exclamation" size={16} style={{ color: '#d97706', marginTop: 2, flexShrink: 0 }} />
-                    <div>
-                      <strong>Cảnh báo Maker-Checker:</strong> Mức chênh lệch <strong>{delta.toFixed(1)} điểm</strong> (&gt; 1.0 điểm). Yêu cầu này <strong>bắt buộc phải chờ Lãnh đạo cấp trên phê duyệt</strong> mới thực sự thay đổi điểm số.
-                    </div>
-                  </div>
-                ) : (
-                  <div className="alert alert-info" style={{ margin: 0, fontSize: '0.85rem', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    <Icon name="circle-check" size={16} style={{ color: '#2563eb', marginTop: 2, flexShrink: 0 }} />
-                    <div>
-                      Mức chênh lệch <strong>{delta.toFixed(1)} điểm</strong> (≤ 1.0 điểm): Điểm số đánh giá mới sẽ được <strong>tự động áp dụng ngay lập tức</strong>.
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Score Selector */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Chọn điểm số mới (thang 10) <span style={{ color: '#dc2626' }}>*</span></label>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                  {[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 8.5, 9.0, 9.5, 10.0].map(score => (
-                    <button
-                      key={score}
-                      type="button"
-                      className={`btn btn-sm ${ratingRevisionNewScore === score ? 'btn-primary' : 'btn-outline'}`}
-                      onClick={() => setRatingRevisionNewScore(score)}
-                      style={{ minWidth: 42, padding: '4px 8px', fontWeight: ratingRevisionNewScore === score ? 800 : 500 }}
-                    >
-                      {score.toFixed(1)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Reason Textarea with live character counter */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <label className="form-label" style={{ margin: 0 }}>Lý do thay đổi điểm <span style={{ color: '#dc2626' }}>*</span></label>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: ratingRevisionReason.trim().length >= 30 ? '#16a34a' : '#dc2626' }}>
-                    ({ratingRevisionReason.trim().length} / 30 ký tự {ratingRevisionReason.trim().length >= 30 ? '✓ Hợp lệ' : '— Cần thêm ' + (30 - ratingRevisionReason.trim().length) + ' ký tự'})
-                  </span>
-                </div>
-                <textarea
-                  className="form-control"
-                  rows={4}
-                  placeholder="Nhập lý do chi tiết giải trình việc tăng/giảm điểm số (bắt buộc tối thiểu 30 ký tự để chống thiên vị)..."
-                  value={ratingRevisionReason}
-                  onChange={(e) => setRatingRevisionReason(e.target.value)}
-                  style={{ fontSize: '0.88rem' }}
-                />
-              </div>
-
-              {/* Evidence Url Input */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label">Đường dẫn tài liệu / ảnh chụp minh chứng <span style={{ color: '#dc2626' }}>*</span></label>
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="VD: https://minhchung.catngan.gov.vn/bien-ban-kiem-tra.pdf"
-                  value={ratingRevisionEvidenceUrl}
-                  onChange={(e) => setRatingRevisionEvidenceUrl(e.target.value)}
-                  style={{ fontSize: '0.88rem' }}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
-              <button type="button" className="btn btn-outline" onClick={() => setShowRatingRevisionModal(false)}>Hủy</button>
-              
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={ratingRevisionReason.trim().length < 30 || !ratingRevisionEvidenceUrl.trim()}
-                onClick={async () => {
-                  if (ratingRevisionReason.trim().length < 30) {
-                    addToast('Thiếu thông tin', 'Lý do thay đổi điểm phải chứa ít nhất 30 ký tự!', 'warning');
-                    return;
-                  }
-                  if (!ratingRevisionEvidenceUrl.trim()) {
-                    addToast('Thiếu minh chứng', 'Vui lòng nhập đường dẫn minh chứng đính kèm!', 'warning');
-                    return;
-                  }
-
-                  const res = await submitRatingRevisionApi(selectedTask.id, {
-                    newScore: ratingRevisionNewScore,
-                    reason: ratingRevisionReason.trim(),
-                    evidenceUrl: ratingRevisionEvidenceUrl.trim(),
-                  });
-
-                  if (res.success && res.data) {
-                    if (res.data.approvalStatus === 'Applied') {
-                      addToast('Áp Dụng Thành Công!', `Đã điều chỉnh điểm đánh giá thành ${res.data.newScore.toFixed(1)} điểm.`, 'success');
-                      setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, rating: res.data!.newScore } : t));
-                    } else {
-                      addToast('Đã Gửi Yêu Cầu Duyệt', `Do chênh lệch > 1.0 điểm, yêu cầu đã được chuyển tới Lãnh đạo cấp trên phê duyệt.`, 'info');
-                    }
-                    setShowRatingRevisionModal(false);
-                    fetchTaskRatingHistory(selectedTask.id);
-                    fetchPendingRatingRevisions();
-                  } else {
-                    addToast('Lỗi', res.error || 'Không thể gửi yêu cầu điều chỉnh điểm.', 'danger');
-                  }
-                }}
-              >
-                <Icon name="paper-plane" size={14} /> Gửi Đề Xuất Điều Chỉnh
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════
          MODAL: PHÊ DUYỆT SỬA ĐIỂM DÀNH CHO LÃNH ĐẠO CẤP TRÊN (MAKER-CHECKER)
          ═══════════════════════════════════════════════════════════════ */}
       {showPendingRatingRevisionsModal && (
@@ -6889,8 +7604,8 @@ export default function DashboardPage() {
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, background: '#ffffff', padding: 10, borderRadius: 6, border: '1px solid #f1f5f9', marginBottom: 10 }}>
-                      <div>Điểm hiện tại: <strong style={{ color: '#64748b' }}>{item.oldScore !== null && item.oldScore !== undefined ? `${item.oldScore.toFixed(1)} / 10` : 'Chưa chấm'}</strong></div>
-                      <div>Điểm đề xuất mới: <strong style={{ color: '#2563eb', fontSize: '1rem' }}>{item.newScore.toFixed(1)} / 10</strong></div>
+                      <div>Điểm hiện tại: <strong style={{ color: '#64748b' }}>{item.oldScore !== null && item.oldScore !== undefined ? `${(item.oldScore > 10 ? item.oldScore / 10 : item.oldScore).toFixed(1)} / 10` : 'Chưa chấm'}</strong></div>
+                      <div>Điểm đề xuất mới: <strong style={{ color: '#2563eb', fontSize: '1rem' }}>{(item.newScore > 10 ? item.newScore / 10 : item.newScore).toFixed(1)} / 10</strong></div>
                     </div>
 
                     <div style={{ fontSize: '0.82rem', color: '#334155', marginBottom: 6 }}>
@@ -6898,10 +7613,30 @@ export default function DashboardPage() {
                     </div>
 
                     {item.evidenceUrl && (
-                      <div style={{ fontSize: '0.8rem', marginBottom: 12 }}>
-                        <strong>Minh chứng:</strong>{' '}
-                        <a href={item.evidenceUrl} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'underline' }}>
-                          <Icon name="paperclip" size={11} /> {item.evidenceUrl}
+                      <div style={{
+                        marginTop: 8,
+                        marginBottom: 12,
+                        padding: '8px 12px',
+                        background: '#f1f5f9',
+                        borderRadius: 6,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                        fontSize: '0.8rem'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                          <Icon name={item.evidenceUrl.startsWith('data:image/') ? 'image' : 'file-lines'} size={13} style={{ color: '#2563eb', flexShrink: 0 }} />
+                          <span style={{ fontWeight: 600, color: '#334155' }}>Tài liệu / Hình ảnh minh chứng đính kèm</span>
+                        </div>
+                        <a
+                          href={item.evidenceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn btn-sm btn-primary"
+                          style={{ padding: '3px 10px', fontSize: '0.75rem', fontWeight: 600, textDecoration: 'none' }}
+                        >
+                          <Icon name="eye" size={11} /> Mở xem minh chứng
                         </a>
                       </div>
                     )}
@@ -6951,6 +7686,364 @@ export default function DashboardPage() {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
               <button type="button" className="btn btn-outline" onClick={() => setShowPendingRatingRevisionsModal(false)}>Đóng</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+         MODAL CÀI ĐẶT THÔNG BÁO ĐẨY (WEB PUSH NOTIFICATIONS)
+         ═══════════════════════════════════════════════════════════════ */}
+      {showPushSettingsModal && (
+        <div className="modal-backdrop" style={{ zIndex: 9999 }}>
+          <div className="modal-card" style={{ maxWidth: 720, width: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #1e3a8a, #2563eb)', color: '#ffffff', borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255, 255, 255, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="bell" size={18} style={{ color: '#ffffff' }} />
+                </div>
+                <div>
+                  <h3 className="modal-title" style={{ color: '#ffffff', margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>
+                    Cài Đặt Nhận Thông Báo Trực Tiếp Trên Thiết Bị
+                  </h3>
+                  <div style={{ fontSize: '0.78rem', color: '#bfdbfe', marginTop: 2 }}>
+                    Nhận nhắc việc & tóm tắt nhiệm vụ mỗi ngày trực tiếp trên điện thoại và máy tính
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowPushSettingsModal(false)}
+                style={{ color: '#ffffff', padding: 6 }}
+                aria-label="Đóng cài đặt thông báo"
+              >
+                <Icon name="xmark" size={16} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {/* Status Message Alert */}
+              {pushStatusMessage && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  background: pushStatusMessage.type === 'success' ? '#f0fdf4' : pushStatusMessage.type === 'error' ? '#fef2f2' : '#eff6ff',
+                  border: `1px solid ${pushStatusMessage.type === 'success' ? '#bbf7d0' : pushStatusMessage.type === 'error' ? '#fecaca' : '#bfdbfe'}`,
+                  color: pushStatusMessage.type === 'success' ? '#166534' : pushStatusMessage.type === 'error' ? '#991b1b' : '#1e40af'
+                }}>
+                  <Icon
+                    name={pushStatusMessage.type === 'success' ? 'circle-check' : pushStatusMessage.type === 'error' ? 'circle-xmark' : 'circle-info'}
+                    size={16}
+                  />
+                  <span>{pushStatusMessage.text}</span>
+                </div>
+              )}
+
+              {/* CARD 1: THIẾT BỊ HIỆN TẠI */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 10,
+                padding: '16px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                      width: 38,
+                      height: 38,
+                      borderRadius: 8,
+                      background: isPushSubscribed ? '#dcfce7' : '#f1f5f9',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <Icon
+                        name="laptop"
+                        size={18}
+                        style={{ color: isPushSubscribed ? '#16a34a' : '#64748b' }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a' }}>Thiết Bị Này</div>
+                      <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 1 }}>
+                        {getAutoDeviceLabel()}
+                      </div>
+                    </div>
+                  </div>
+
+                  <span className="badge" style={{
+                    background: isPushSubscribed ? '#dcfce7' : '#f1f5f9',
+                    color: isPushSubscribed ? '#15803d' : '#64748b',
+                    border: `1px solid ${isPushSubscribed ? '#86efac' : '#cbd5e1'}`,
+                    fontWeight: 700,
+                    fontSize: '0.75rem',
+                    padding: '4px 10px',
+                    borderRadius: 20,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}>
+                    <span style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: isPushSubscribed ? '#16a34a' : '#94a3b8'
+                    }} />
+                    {isPushSubscribed ? 'Đang bật nhận thông báo' : 'Chưa kích hoạt'}
+                  </span>
+                </div>
+
+                {/* Device Label Input */}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: 5 }}>
+                    Đặt tên nhận diện cho thiết bị này:
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={deviceLabelInput}
+                    onChange={(e) => setDeviceLabelInput(e.target.value)}
+                    placeholder="Ví dụ: Máy tính phòng Địa chính, iPhone cá nhân..."
+                    style={{ fontSize: '0.85rem' }}
+                  />
+                </div>
+
+                {/* Action Buttons for Current Device */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
+                  {!isPushSubscribed ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleSubscribePush}
+                      disabled={isPushLoading}
+                      style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px' }}
+                    >
+                      <Icon name="bell" size={14} />
+                      <span>{isPushLoading ? 'Đang kích hoạt...' : 'Bật Thông Báo Trên Thiết Bị Này'}</span>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        onClick={() => handleSendTestPush()}
+                        disabled={isPushLoading}
+                        style={{
+                          fontWeight: 700,
+                          color: '#2563eb',
+                          borderColor: '#93c5fd',
+                          background: '#eff6ff',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <Icon name="paper-plane" size={13} />
+                        <span>Gửi Thử Nghiệm Ngay</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-danger"
+                        onClick={handleUnsubscribePush}
+                        disabled={isPushLoading}
+                        style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                      >
+                        <Icon name="bell-slash" size={13} />
+                        <span>Tắt Trên Thiết Bị Này</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* CARD 2: HƯỚNG DẪN DÀNH CHO IPHONE & IPAD (iOS SAFARI) */}
+              <div style={{
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                borderRadius: 10,
+                padding: '16px',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name="mobile-screen-button" size={16} style={{ color: '#d97706' }} />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: '0.88rem', fontWeight: 800, color: '#92400e' }}>
+                      Hướng Dẫn Kích Hoạt Trên iPhone & iPad (iOS Safari)
+                    </h4>
+                    <div style={{ fontSize: '0.75rem', color: '#b45309', marginTop: 2 }}>
+                      Theo chuẩn bảo mật của Apple, Web Push trên iOS chỉ hoạt động khi thêm vào Màn hình chính (PWA)
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 12 }}>
+                  <div style={{ background: '#ffffff', padding: '10px 12px', borderRadius: 8, border: '1px solid #fef3c7' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#b45309', marginBottom: 4 }}>
+                      1️⃣ Bước 1: Mở Safari
+                    </div>
+                    <div style={{ fontSize: '0.76rem', color: '#475569', lineHeight: 1.4 }}>
+                      Mở trang web này bằng trình duyệt <strong>Safari</strong> trên iPhone.
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', padding: '10px 12px', borderRadius: 8, border: '1px solid #fef3c7' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#b45309', marginBottom: 4 }}>
+                      2️⃣ Bước 2: Thêm vào MH chính
+                    </div>
+                    <div style={{ fontSize: '0.76rem', color: '#475569', lineHeight: 1.4 }}>
+                      Nhấn nút <strong>Chia sẻ (biểu tượng ⎋)</strong> $\rightarrow$ chọn <strong>"Thêm vào Màn hình chính"</strong>.
+                    </div>
+                  </div>
+
+                  <div style={{ background: '#ffffff', padding: '10px 12px', borderRadius: 8, border: '1px solid #fef3c7' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#b45309', marginBottom: 4 }}>
+                      3️⃣ Bước 3: Bật thông báo
+                    </div>
+                    <div style={{ fontSize: '0.76rem', color: '#475569', lineHeight: 1.4 }}>
+                      Mở app từ Màn hình chính, vào đây bấm <strong>"Bật Thông Báo"</strong>.
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* CARD 3: DANH SÁCH THIẾT BỊ ĐÃ LIÊN KẾT */}
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: 10,
+                padding: '16px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Icon name="shield-halved" size={15} style={{ color: '#2563eb' }} />
+                    <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#0f172a' }}>
+                      Thiết Bị Đã Liên Kết ({myPushSubscriptions.length})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs"
+                    onClick={fetchMyPushSubscriptions}
+                    title="Làm mới danh sách thiết bị"
+                    style={{ color: '#2563eb', fontWeight: 600 }}
+                  >
+                    <Icon name="rotate" size={12} /> Tải lại
+                  </button>
+                </div>
+
+                {myPushSubscriptions.length === 0 ? (
+                  <div style={{ padding: '18px 12px', textAlign: 'center', color: '#94a3b8', fontSize: '0.82rem', background: '#f8fafc', borderRadius: 8 }}>
+                    Chưa có thiết bị nào đăng ký nhận thông báo. Bấm nút phía trên để đăng ký thiết bị này.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {myPushSubscriptions.map(sub => (
+                      <div
+                        key={sub.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '10px 14px',
+                          borderRadius: 8,
+                          border: '1px solid #f1f5f9',
+                          background: sub.isActive ? '#ffffff' : '#f8fafc'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <Icon
+                            name={sub.deviceLabel?.includes('iPhone') || sub.deviceLabel?.includes('Android') ? 'mobile-screen-button' : 'laptop'}
+                            size={16}
+                            style={{ color: sub.isActive ? '#2563eb' : '#94a3b8' }}
+                          />
+                          <div>
+                            <div style={{ fontSize: '0.84rem', fontWeight: 700, color: '#1e293b' }}>
+                              {sub.deviceLabel || 'Thiết bị làm việc'}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                              Đăng ký: {formatDateTimeDisplay(sub.createdAt)} {sub.lastUsedAt && `• Gửi gần nhất: ${formatDateTimeDisplay(sub.lastUsedAt)}`}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-xs"
+                            onClick={() => handleSendTestPush(sub.endpoint)}
+                            disabled={isPushLoading}
+                            style={{ color: '#2563eb', borderColor: '#bfdbfe', background: '#eff6ff' }}
+                            title="Gửi thông báo thử nghiệm tới thiết bị này"
+                          >
+                            <Icon name="paper-plane" size={11} /> Thử
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline btn-danger btn-xs"
+                            onClick={() => handleDeletePushSubscription(sub.id)}
+                            title="Hủy đăng ký nhận tin trên thiết bị này"
+                          >
+                            <Icon name="trash" size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* CARD 4: LỊCH THÔNG BÁO TỰ ĐỘNG */}
+              <div style={{
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 10,
+                padding: '14px 16px'
+              }}>
+                <div style={{ fontWeight: 800, fontSize: '0.84rem', color: '#334155', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="calendar-check" size={14} style={{ color: '#16a34a' }} />
+                  <span>Các Thông Báo Tự Động Sẽ Được Gửi Tới Bạn:</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: '0.78rem', color: '#475569' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: '#d97706' }}></span>
+                    <span><strong>07:30 Sáng mỗi ngày:</strong> Tóm tắt việc cần xử lý hôm nay</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: '#2563eb' }}></span>
+                    <span><strong>Trước hạn 3 ngày & 1 ngày:</strong> Nhắc việc tiến độ</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: '#dc2626' }}></span>
+                    <span><strong>Trễ hạn & Leo thang:</strong> Cảnh báo khẩn cấp</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ color: '#7c3aed' }}></span>
+                    <span><strong>Lịch sự kiện & Họp:</strong> Nhắc trước giờ khai mạc</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', background: '#f8fafc' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setShowPushSettingsModal(false)}
+                style={{ fontWeight: 600 }}
+              >
+                Đóng
+              </button>
             </div>
           </div>
         </div>
@@ -7022,6 +8115,76 @@ export default function DashboardPage() {
         documentId={historyDocItem?.id || ''}
         documentTitle={historyDocItem?.subject || historyDocItem?.title || 'Văn bản hành chính'}
         documentNumberSymbol={`Số: ${historyDocItem?.documentNumber || '---'}/${historyDocItem?.documentSymbol || 'UBND-VP'}`}
+      />
+
+      {/* ═══════════════════════════════════════════════════════════════
+         PROMPT F: MODALS LUỒNG SỐ HÓA, PHÂN TÍCH & GIAO VIỆC TỰ ĐỘNG
+         ═══════════════════════════════════════════════════════════════ */}
+      <AiUploadModal
+        isOpen={showAiUploadModal}
+        onClose={() => setShowAiUploadModal(false)}
+        documentId={aiUploadTargetDocId}
+        documentNumberSymbol={aiUploadTargetDocSymbol}
+        onAnalysisComplete={(result) => {
+          setShowAiUploadModal(false);
+          setAiReviewDocId(aiUploadTargetDocId);
+          setAiReviewAnalysisData(result);
+          setShowAiReviewModal(true);
+        }}
+      />
+
+      <AiReviewModal
+        isOpen={showAiReviewModal}
+        onClose={() => setShowAiReviewModal(false)}
+        documentId={aiReviewDocId}
+        initialData={aiReviewAnalysisData}
+        departments={Object.values(DEPARTMENTS).map(d => ({ id: d.code, name: d.name }))}
+        onProceedToAssign={(docId, analysisData) => {
+          setShowAiReviewModal(false);
+          setAiAssignDocId(docId);
+          setAiAssignAnalysisData(analysisData);
+          setShowAiAssignmentModal(true);
+        }}
+        onConfirmSuccess={(route, data) => {
+          setShowAiReviewModal(false);
+          if (route === 'event') {
+            addToast('Tạo lịch thành công', 'Đã tạo lịch công tác từ dữ liệu phân tích văn bản.', 'success');
+            setActiveModule('workcenter');
+            setWorkcenterTab('week');
+          } else if (route === 'review') {
+            addToast('Đã lưu kết quả', 'Đã lưu tóm tắt và hạn xử lý cho văn bản chỉ đạo.', 'info');
+          }
+        }}
+      />
+
+      <AiAssignmentModal
+        isOpen={showAiAssignmentModal}
+        onClose={() => setShowAiAssignmentModal(false)}
+        documentId={aiAssignDocId}
+        analysisData={aiAssignAnalysisData}
+        departments={Object.values(DEPARTMENTS).map(d => ({ id: d.code, name: d.name }))}
+        allUsers={dbUsers.length > 0 ? dbUsers.map(u => ({ id: u.id, name: u.fullName, role: u.roleName || u.activeRoleCode, departmentId: (u as any).departmentId || '', departmentName: (u as any).departmentName || '' })) : activeStaffList.map(s => ({ id: s.id, name: s.name, role: s.role, departmentId: s.departmentCode, departmentName: s.departmentName }))}
+        onTaskCreated={(taskItemId, subTasks) => {
+          setShowAiAssignmentModal(false);
+          setAiChecklistTaskId(taskItemId);
+          setAiChecklistTaskTitle(aiAssignAnalysisData?.title || 'Nhiệm vụ mới');
+          setAiChecklistSubTasks(subTasks);
+          setShowAiChecklistModal(true);
+          setActiveModule('workcenter');
+          setWorkcenterTab('today');
+          addToast('Giao việc thành công', 'Đã tạo nhiệm vụ chính thức và danh mục đầu việc tự động!', 'success');
+        }}
+      />
+
+      <AiChecklistModal
+        isOpen={showAiChecklistModal}
+        onClose={() => setShowAiChecklistModal(false)}
+        taskItemId={aiChecklistTaskId}
+        taskTitle={aiChecklistTaskTitle}
+        subTasks={aiChecklistSubTasks}
+        onSubTaskToggled={(result) => {
+          addToast('Cập nhật tiến độ', `Tiến độ nhiệm vụ hiện tại: ${result.progressPercentage}%`, 'info');
+        }}
       />
     </div>
   );

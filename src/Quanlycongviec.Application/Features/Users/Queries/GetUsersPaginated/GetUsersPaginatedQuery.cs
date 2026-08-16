@@ -67,8 +67,12 @@ namespace Quanlycongviec.Application.Features.Users.Queries.GetUsersPaginated
 
             var users = await query.ToListAsync(cancellationToken);
 
-            var capacities = await _context.WorkloadCapacities
-                .ToDictionaryAsync(w => w.UserId, w => w, cancellationToken);
+            var capacitiesList = await _context.WorkloadCapacities
+                .ToListAsync(cancellationToken);
+
+            var capacities = capacitiesList
+                .GroupBy(w => w.UserId)
+                .ToDictionary(g => g.Key, g => g.First());
 
             var userDtos = users.Select(u =>
             {

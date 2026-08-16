@@ -506,6 +506,45 @@ namespace Quanlycongviec.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AiCategory")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("AiConfidenceScore")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime?>("AiEventEndDateTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("AiEventStartDateTime")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("AiExtractedDeadline")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AiExtractedSubjects")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AiObjectives")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AiProcessingStatus")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("AiReviewedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("AiReviewedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AiSuggestedDepartmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AiSummary")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AiTitle")
+                        .HasColumnType("text");
+
                     b.Property<string>("AttachmentUrl")
                         .HasColumnType("text");
 
@@ -773,6 +812,60 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.ToTable("OutgoingDocuments");
                 });
 
+            modelBuilder.Entity("Quanlycongviec.Domain.Entities.PushSubscription", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AuthKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DeviceLabel")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("Endpoint")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastUsedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("P256dhKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Endpoint");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("UserId", "IsActive");
+
+                    b.ToTable("PushSubscriptions");
+                });
+
             modelBuilder.Entity("Quanlycongviec.Domain.Entities.RatingHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -806,10 +899,22 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<double?>("NewEvaluatorScore")
+                        .HasColumnType("double precision");
+
                     b.Property<double>("NewScore")
                         .HasColumnType("double precision");
 
+                    b.Property<double?>("NewSystemScore")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("OldEvaluatorScore")
+                        .HasColumnType("double precision");
+
                     b.Property<double?>("OldScore")
+                        .HasColumnType("double precision");
+
+                    b.Property<double?>("OldSystemScore")
                         .HasColumnType("double precision");
 
                     b.Property<string>("Reason")
@@ -1060,6 +1165,9 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Property<double>("EstimatedEffortHours")
                         .HasColumnType("double precision");
 
+                    b.Property<double?>("EvaluatorScore")
+                        .HasColumnType("double precision");
+
                     b.Property<bool>("IsDelegatedAction")
                         .HasColumnType("boolean");
 
@@ -1094,6 +1202,12 @@ namespace Quanlycongviec.Infrastructure.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("SubmissionNote")
+                        .HasColumnType("text");
+
+                    b.Property<double?>("SystemScore")
+                        .HasColumnType("double precision");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1117,6 +1231,67 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.ToTable("TaskItems");
                 });
 
+            modelBuilder.Entity("Quanlycongviec.Domain.Entities.TaskReviewAnnotation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AnchorText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("CommentText")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("ResolvedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ResolvedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResolvedStatus")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("Severity")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int?>("StartOffsetHint")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TaskItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("ResolvedByUserId");
+
+                    b.HasIndex("ResolvedStatus");
+
+                    b.HasIndex("TaskItemId");
+
+                    b.ToTable("TaskReviewAnnotations");
+                });
+
             modelBuilder.Entity("Quanlycongviec.Domain.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1132,6 +1307,9 @@ namespace Quanlycongviec.Infrastructure.Migrations
 
                     b.Property<string>("Email")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Expertise")
                         .HasColumnType("text");
 
                     b.Property<string>("FullName")
@@ -1154,6 +1332,9 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<int>("YearsOfExperience")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ZaloPhoneNumber")
                         .HasColumnType("text");
@@ -1368,6 +1549,17 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Quanlycongviec.Domain.Entities.PushSubscription", b =>
+                {
+                    b.HasOne("Quanlycongviec.Domain.Entities.User", "User")
+                        .WithMany("PushSubscriptions")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Quanlycongviec.Domain.Entities.RatingHistory", b =>
                 {
                     b.HasOne("Quanlycongviec.Domain.Entities.TaskItem", "TaskItem")
@@ -1466,6 +1658,32 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Navigation("Department");
                 });
 
+            modelBuilder.Entity("Quanlycongviec.Domain.Entities.TaskReviewAnnotation", b =>
+                {
+                    b.HasOne("Quanlycongviec.Domain.Entities.User", "CreatedByUser")
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Quanlycongviec.Domain.Entities.User", "ResolvedByUser")
+                        .WithMany()
+                        .HasForeignKey("ResolvedByUserId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Quanlycongviec.Domain.Entities.TaskItem", "TaskItem")
+                        .WithMany("Annotations")
+                        .HasForeignKey("TaskItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("CreatedByUser");
+
+                    b.Navigation("ResolvedByUser");
+
+                    b.Navigation("TaskItem");
+                });
+
             modelBuilder.Entity("Quanlycongviec.Domain.Entities.User", b =>
                 {
                     b.HasOne("Quanlycongviec.Domain.Entities.Department", "PrimaryDepartment")
@@ -1532,6 +1750,8 @@ namespace Quanlycongviec.Infrastructure.Migrations
 
             modelBuilder.Entity("Quanlycongviec.Domain.Entities.TaskItem", b =>
                 {
+                    b.Navigation("Annotations");
+
                     b.Navigation("Comments");
 
                     b.Navigation("SubTasks");
@@ -1546,6 +1766,8 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Navigation("DelegationsGiven");
 
                     b.Navigation("DelegationsReceived");
+
+                    b.Navigation("PushSubscriptions");
 
                     b.Navigation("UserRoles");
                 });
