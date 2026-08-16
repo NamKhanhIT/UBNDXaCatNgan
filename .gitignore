@@ -73,3 +73,6 @@ desktop.ini
 *.tmp
 tmp/
 scratch/
+uploads/
+[U|u]ploads/
+**/uploads/**
