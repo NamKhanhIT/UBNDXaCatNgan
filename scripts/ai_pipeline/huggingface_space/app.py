@@ -8,7 +8,7 @@ from typing import List, Optional
 
 import torch
 import gradio as gr
-from fastapi import HTTPException
+from fastapi import HTTPException, Header, Depends, status
 from pydantic import BaseModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -845,9 +845,40 @@ def list_models():
     }
 
 
+# ---------------------------------------------------------------------------
+# XÁC THỰC BẢO MẬT API (SECURITY & ACCESS CONTROL)
+# ---------------------------------------------------------------------------
+SPACE_API_KEY = os.getenv("SPACE_API_KEY", "").strip()
+
+def verify_api_key(authorization: Optional[str] = Header(None)):
+    """Kiểm tra Bearer Token nếu SPACE_API_KEY được cấu hình trên Space Secrets."""
+    if not SPACE_API_KEY:
+        return True
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="⚠️ Yêu cầu Header 'Authorization: Bearer <API_KEY>' để truy cập AI Gateway của UBND Cấp Xã."
+        )
+    token = authorization.replace("Bearer ", "").strip()
+    if token != SPACE_API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="⚠️ API Key không hợp lệ hoặc không có quyền truy cập."
+        )
+    return True
+
+
 @demo.app.post("/v1/chat/completions")
-def chat_completions(req: ChatCompletionRequest):
+def chat_completions(req: ChatCompletionRequest, auth: bool = Depends(verify_api_key)):
     try:
+        # Kiểm tra kích thước payload chống DoS & cạn kiệt VRAM
+        total_input_len = sum(len(m.content) for m in req.messages)
+        if total_input_len > 32000:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="⚠️ Dung lượng văn bản vượt quá giới hạn an toàn (tối đa 32,000 ký tự)."
+            )
+
         formatted_messages = [
             {"role": m.role, "content": m.content} for m in req.messages
         ]
@@ -894,6 +925,8 @@ def chat_completions(req: ChatCompletionRequest):
                 "total_tokens": -1,
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Lỗi xử lý API: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Lỗi xử lý AI: {str(e)}")
