@@ -1,21 +1,25 @@
-name: UBNDXaCN CI Pipeline
+name: Continuous Integration (CI)
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches:
+      - main
+      - develop
   pull_request:
-    branches: [ main, master ]
+    branches:
+      - main
+      - develop
 
 jobs:
-  backend-ci:
-    name: Build & Test Backend (.NET 8)
+  backend-test:
+    name: Backend .NET 8 Build & Unit Tests
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup .NET 8 SDK
+      - name: Setup .NET SDK 8.0
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
@@ -24,34 +28,34 @@ jobs:
         run: dotnet restore Quanlycongviec.sln
 
       - name: Build Solution
-        run: dotnet build Quanlycongviec.sln --no-restore -c Release
+        run: dotnet build Quanlycongviec.sln --configuration Release --no-restore
 
-      - name: Run Tests
-        run: dotnet test Quanlycongviec.sln --no-build -c Release --verbosity normal
+      - name: Run Unit & Integration Tests
+        run: dotnet test Quanlycongviec.sln --configuration Release --no-build --verbosity normal
 
-  frontend-ci:
-    name: Build Frontend (Next.js)
+  frontend-build:
+    name: Frontend Web Build Check
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: frontend/web
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20.x
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '20.x'
           cache: 'npm'
-          cache-dependency-path: 'frontend/web/package-lock.json'
+          cache-dependency-path: frontend/web/package-lock.json
 
-      - name: Install Frontend Dependencies
-        run: |
-          cd frontend/web
-          npm ci
+      - name: Install Dependencies
+        run: npm ci
 
-      - name: Build Frontend App
+      - name: Build Frontend Application
         env:
           NEXT_PUBLIC_API_URL: http://localhost:5000/api
-        run: |
-          cd frontend/web
-          npm run build
+        run: npm run build
