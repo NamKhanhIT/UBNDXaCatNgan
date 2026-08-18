@@ -63,13 +63,19 @@ faiss_index/
 *.index
 *.sqlite3
 
-# Private / Raw Training Datasets (Chặn rò rỉ dữ liệu hành chính thực tế)
+# Training Datasets & Binary Documents (Chặn tuyệt đối dữ liệu nghiệp vụ)
+*.jsonl
+!scripts/ai_pipeline/data/sample_template.jsonl
+*.pdf
+*.docx
+*.doc
+*.xlsx
+*.xls
 scripts/ai_pipeline/data/raw/
 scripts/ai_pipeline/data/private/
+scripts/ai_pipeline/huggingface_space/data/
 scripts/ai_pipeline/data/*_raw.*
 scripts/ai_pipeline/data/*_private.*
-*.raw.jsonl
-*.unmasked.jsonl
 
 # Jupyter Notebook Checkpoints
 .ipynb_checkpoints/
