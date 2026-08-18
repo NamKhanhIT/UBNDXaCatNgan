@@ -1,6 +1,6 @@
 # ==========================================
 # Comprehensive .gitignore for UBNDXaCN
-# Includes .NET 8, Next.js, VS, Secrets & OS
+# Includes .NET 8, Next.js, VS, Secrets, OS & AI/ML
 # ==========================================
 
 # ------------------------------------------
@@ -8,6 +8,10 @@
 # ------------------------------------------
 .env
 .env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 appsettings.Development.json
 appsettings.Development.*.json
 appsettings.Secrets.json
@@ -18,9 +22,61 @@ launchSettings.json
 *.pfx
 *.key
 *.crt
+*.secret
+*.token
+secrets/
+private/
 
 # ------------------------------------------
-# 2. Backup Archives & Large Files
+# 2. AI / ML / Model Weights & Training Data Security
+# ------------------------------------------
+# Model weights & Checkpoints (Bảo vệ tài sản trí tuệ & chống rò rỉ dung lượng lớn)
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.ckpt
+*.h5
+*.joblib
+*.pkl
+
+# Training outputs, checkpoints & LoRA adapters
+outputs_*/
+models_export/
+checkpoint-*/
+checkpoints/
+lora_model/
+lora_adapter/
+runs/
+wandb/
+tb_logs/
+.cache/
+hf_cache/
+
+# Vector Databases & Embeddings Index
+vector_db/
+chroma_db/
+faiss_index/
+*.faiss
+*.index
+*.sqlite3
+
+# Private / Raw Training Datasets (Chặn rò rỉ dữ liệu hành chính thực tế)
+scripts/ai_pipeline/data/raw/
+scripts/ai_pipeline/data/private/
+scripts/ai_pipeline/data/*_raw.*
+scripts/ai_pipeline/data/*_private.*
+*.raw.jsonl
+*.unmasked.jsonl
+
+# Jupyter Notebook Checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# ------------------------------------------
+# 3. Backup Archives & Large Files
 # ------------------------------------------
 *.zip
 *.7z
@@ -29,7 +85,7 @@ launchSettings.json
 UBNDXaCN.zip
 
 # ------------------------------------------
-# 3. .NET / C# Build Artifacts & IDE Files
+# 4. .NET / C# Build Artifacts & IDE Files
 # ------------------------------------------
 bin/
 obj/
@@ -48,7 +104,7 @@ TestResults/
 *.ide/
 
 # ------------------------------------------
-# 4. Frontend (Node.js / Next.js / React)
+# 5. Frontend (Node.js / Next.js / React)
 # ------------------------------------------
 node_modules/
 .next/
@@ -63,7 +119,7 @@ yarn-error.log*
 .eslintcache
 
 # ------------------------------------------
-# 5. OS & Temporary Files
+# 6. OS & Temporary Files
 # ------------------------------------------
 .DS_Store
 Thumbs.db
@@ -76,3 +132,15 @@ scratch/
 uploads/
 [U|u]ploads/
 **/uploads/**
+
+# ------------------------------------------
+# 7. Python Artifacts & Caches
+# ------------------------------------------
+__pycache__/
+**/__pycache__/**
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
