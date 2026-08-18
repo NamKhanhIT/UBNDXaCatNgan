@@ -58,8 +58,17 @@ Hệ thống được phát triển chuyên biệt phục vụ công tác chỉ 
 
 ---
 
+## Bối Cảnh Hành Chính Cấp Xã Mới
+- **Địa bàn hành chính:** Xã Cát Ngạn, Tỉnh Nghệ An.
+- **Căn cứ thành lập:** Nghị quyết số 1678/NQ-UBTVQH15 ngày 16/6/2025 của Ủy ban Thường vụ Quốc hội về việc sắp xếp các đơn vị hành chính cấp xã của tỉnh Nghệ An năm 2025.
+- **Nguồn gốc hợp nhất:** Thành lập trên cơ sở sáp nhập 03 xã cũ gồm **Xã Minh Sơn, Xã Cát Văn, Xã Phong Thịnh**.
+- **Cấp quản lý:** Trực thuộc trực tiếp **UBND Tỉnh Nghệ An** theo mô hình chính quyền địa phương 2 cấp (Luật 72/2025/QH15).
+
+---
+
 ## Các Trang Wiki Liên Quan
 
+- [Đơn Vị Hành Chính Cấp Xã Nghệ An (NQ 1678/NQ-UBTVQH15)](../concepts/don-vi-hanh-chinh-nghe-an-nghi-quyet-1678.md)
 - [Thang Điểm 10 Đánh Giá Cán Bộ](../concepts/thang-diem-10-danh-gia-can-bo.md)
 - [Quy Chế Maker-Checker Sửa Điểm](../concepts/quy-che-maker-checker-sua-diem.md)
 - [Web Push W3C & Thông Báo Công Vụ](../concepts/web-push-w3c-thong-bao-cong-vu.md)

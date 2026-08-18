@@ -16,6 +16,7 @@
 - [Thang Điểm 10 Đánh Giá Thi Đua Cán Bộ](concepts/thang-diem-10-danh-gia-can-bo.md) — Cơ cấu 3.0đ Hệ thống tự động + 7.0đ Lãnh đạo thẩm định và 5 khung xếp loại thi đua.
 - [Quy Chế Kiểm Soát Chéo Sửa Điểm (Maker-Checker)](concepts/quy-che-maker-checker-sua-diem.md) — Cơ chế chống thiên vị, ngưỡng lệch $> 1.0$đ và đính kèm tệp minh chứng từ máy tính.
 - [Web Push W3C & Thông Báo Công Vụ](concepts/web-push-w3c-thong-bao-cong-vu.md) — Chuẩn mở thông báo đẩy không phụ thuộc Zalo, tích hợp PWA cho iOS và máy tính.
+- [Đơn Vị Hành Chính Cấp Xã Nghệ An (NQ 1678/NQ-UBTVQH15)](concepts/don-vi-hanh-chinh-nghe-an-nghi-quyet-1678.md) — Danh mục 130 ĐVHC cấp xã tỉnh Nghệ An sau sáp nhập và bối cảnh thành lập Xã Cát Ngạn.
 
 ---
 

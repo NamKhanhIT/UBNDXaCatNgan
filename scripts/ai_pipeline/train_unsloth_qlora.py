@@ -33,7 +33,8 @@ LOAD_IN_4BIT = True  # Tiết kiệm 4x VRAM khi load base model
 # Yêu cầu tối thiểu: Google Colab Pro (A100 40GB) hoặc Kaggle T4x2
 BASE_MODEL_NAME = "unsloth/Qwen3-14B-unsloth-bnb-4bit"
 OUTPUT_DIR = "outputs_qwen3_ubnd"
-DATASET_PATH = "scripts/ai_pipeline/data/ubnd_administrative_dataset.jsonl"
+TRAIN_DATASET_PATH = "scripts/ai_pipeline/data/ubnd_train.jsonl"
+TEST_DATASET_PATH = "scripts/ai_pipeline/data/ubnd_test.jsonl"
 MERGED_MODEL_DIR = "models_export/qwen3-14b-ubnd"
 
 
@@ -78,17 +79,20 @@ def main():
     )
 
     # -----------------------------------------------------------------------
-    # 4. CHUẨN BỊ VÀ ĐỊNH DẠNG DỮ LIỆU HUẤN LUYỆN
+    # 4. CHUẨN BỊ VÀ ĐỊNH DẠNG DỮ LIỆU HUẤN LUYỆN & KIỂM THỬ ĐỘC LẬP
     # -----------------------------------------------------------------------
-    print(f"\n[3/5] Đang nạp tập dữ liệu hành chính từ: {DATASET_PATH}...")
-    if not os.path.exists(DATASET_PATH):
+    print(f"\n[3/5] Đang nạp tập Train từ {TRAIN_DATASET_PATH} và Test từ {TEST_DATASET_PATH}...")
+    if not os.path.exists(TRAIN_DATASET_PATH) or not os.path.exists(TEST_DATASET_PATH):
         raise FileNotFoundError(
-            f"Không tìm thấy tệp {DATASET_PATH}. "
+            f"Không tìm thấy tệp dữ liệu Train/Test. "
             f"Vui lòng chạy generate_administrative_dataset.py trước!"
         )
 
-    dataset = load_dataset("json", data_files={"train": DATASET_PATH}, split="train")
-    print(f"Tổng số mẫu huấn luyện: {len(dataset)}")
+    raw_datasets = load_dataset(
+        "json",
+        data_files={"train": TRAIN_DATASET_PATH, "test": TEST_DATASET_PATH}
+    )
+    print(f"Tổng số mẫu Train: {len(raw_datasets['train'])} | Tổng số mẫu Test: {len(raw_datasets['test'])}")
 
     def formatting_prompts_func(examples):
         convos = examples["messages"]
@@ -100,29 +104,36 @@ def main():
         ]
         return {"text": texts}
 
-    dataset = dataset.map(formatting_prompts_func, batched=True)
+    train_dataset = raw_datasets["train"].map(formatting_prompts_func, batched=True)
+    eval_dataset = raw_datasets["test"].map(formatting_prompts_func, batched=True)
 
     # -----------------------------------------------------------------------
     # 5. TIẾN HÀNH HUẤN LUYỆN VỚI SFTTrainer
     # -----------------------------------------------------------------------
-    print("\n[4/5] Đang bắt đầu huấn luyện SFTTrainer...")
+    print("\n[4/5] Đang bắt đầu huấn luyện SFTTrainer với đánh giá validation định kỳ...")
     trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
-        train_dataset=dataset,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         dataset_text_field="text",
         max_seq_length=MAX_SEQ_LENGTH,
         dataset_num_proc=2,
         packing=False,  # Không pack để giữ nguyên cấu trúc hội thoại
         args=TrainingArguments(
             per_device_train_batch_size=2,
+            per_device_eval_batch_size=2,
             gradient_accumulation_steps=8,  # Tăng từ 4 lên 8 cho model 14B
             warmup_steps=10,
-            num_train_epochs=3,  # 3 epochs đạt độ hội tụ cao cho 600 mẫu
+            num_train_epochs=3,  # 3 epochs đạt độ hội tụ cao cho 800 mẫu train
             learning_rate=2e-4,
             fp16=not is_bfloat16_supported(),
             bf16=is_bfloat16_supported(),
             logging_steps=10,
+            eval_strategy="steps",
+            eval_steps=20,
+            save_strategy="steps",
+            save_steps=50,
             optim="adamw_8bit",
             weight_decay=0.01,
             lr_scheduler_type="cosine",
