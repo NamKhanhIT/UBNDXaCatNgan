@@ -121,3 +121,16 @@
   - Cung cấp `NoOpSignatureProvider` trong tầng Infrastructure phục vụ giai đoạn phát triển và kiểm thử.
   - Cho phép cắm (plug-in) nhà cung cấp ký số thật mà không làm thay đổi các quy tắc nghiệp vụ cốt lõi.
 
+---
+
+## ADR-14: Kiến Trúc Hybrid RAG 2 Lớp & Nâng Cấp Multimodal LLM (Qwen3.8-27B-FP8)
+- **Bối cảnh**: Hệ thống RAG ban đầu chỉ tra cứu BM25 tĩnh trên 5 văn bản hardcode, không có vector database và không thể nạp thêm tài liệu pháp lý/địa phương mới; mô hình cũ (Qwen3-14B) không hỗ trợ thị giác đọc ảnh trực tiếp.
+- **Quyết định**:
+  - **Kiến trúc Hybrid RAG 2 lớp**:
+    1. *Lớp 1 (Tri thức lõi)*: Duy trì 5 văn bản pháp lý chuẩn xác (NQ 1678, Luật 72, NĐ 30) với cơ chế tìm kiếm BM25 in-memory độ tin cậy 100%.
+    2. *Lớp 2 (Tài liệu người dùng nạp)*: Sử dụng **ChromaDB PersistentClient** kết hợp mô hình embedding đa ngôn ngữ **`BAAI/bge-m3`** (dense 1024 chiều) và metadata lưu trữ trong SQLite hỗ trợ phân trang thật.
+  - **Mô hình nền tảng**: Nâng cấp lên **`Qwen/Qwen3.8-27B-FP8`** hỗ trợ đồng thời phân tích văn bản chuyên sâu và đọc ảnh scan công văn trực tiếp (Vision Multimodal) trên ZeroGPU.
+  - **Chống ảo giác (Anti-hallucination)**: Tự động tổng hợp danh mục trích dẫn nguồn và áp đặt chỉ thị trả lời rõ *"Không tìm thấy thông tin liên quan trong cơ sở tri thức"* khi không có tài liệu khớp.
+  - **Chỉ số đánh giá định lượng**: Bổ sung chỉ số **Retrieval Recall@K** trong hệ thống benchmark để đo lường độc lập chất lượng tìm kiếm trước khi sinh văn bản.
+
+
