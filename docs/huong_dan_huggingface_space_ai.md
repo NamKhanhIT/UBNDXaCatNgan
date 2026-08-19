@@ -41,9 +41,9 @@ Tài liệu này hướng dẫn cách triển khai máy chủ AI **Qwen2.5-3B** 
 4. Cuộn xuống dưới, nhấn nút **Commit changes to main**.
 
 #### CÁCH 2: Dùng Script Tự Động Qua Dòng Lệnh
-Mở PowerShell tại thư mục dự án và chạy:
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/ai_pipeline/deploy_to_huggingface.ps1
+Mở Terminal/PowerShell tại thư mục dự án và chạy:
+```bash
+python scripts/ai_pipeline/setup_huggingface.py
 ```
 
 ---
