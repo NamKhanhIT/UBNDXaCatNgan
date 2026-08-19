@@ -73,14 +73,18 @@ Hệ thống được thiết kế tối ưu cho mô hình tổ chức chính qu
 ├── Database:     PostgreSQL + Entity Framework Core (UTC DateTime chuẩn hóa)
 ├── Realtime:     ASP.NET Core SignalR WebSockets
 ├── Push Notif:   W3C Web Push Protocol (VAPID Encryption)
-├── AI Engine:    Qwen2.5-3B Local LLM (Ollama) / OpenAI-Compatible API
+├── AI Engine:    Qwen (Ollama local / OpenAI-Compatible API / HF ZeroGPU)
 ├── OCR:          PdfPig + OpenXML Document Parsing
-└── Frontend:     Next.js 14 (App Router), React, TypeScript, Tailwind CSS
+└── Frontend:     Next.js 14 (App Router), React, TypeScript, Tailwind CSS, PWA
 ```
 
 ---
 
 ## 🚀 5. Hướng dẫn Khởi chạy Nhanh (Getting Started)
+
+> 📖 **Muốn triển khai toàn hệ thống MIỄN PHÍ trên cả máy tính lẫn điện thoại (PWA)?**
+> Đọc ngay: [`docs/DEPLOYMENT_GUIDE.md`](docs/DEPLOYMENT_GUIDE.md) — hướng dẫn 8 bước:
+> Cloudflare Tunnel miễn phí + AI Hugging Face Space ZeroGPU + Oracle Cloud Always Free + Web Push VAPID.
 
 ### Yêu cầu môi trường:
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
@@ -92,7 +96,7 @@ Hệ thống được thiết kế tối ưu cho mô hình tổ chức chính qu
 cd src/Quanlycongviec.Api
 dotnet run
 ```
-> *API khởi chạy tại: `http://localhost:5000` (Swagger UI: `http://localhost:5000/swagger`)*
+> *API khởi chạy tại: `http://localhost:5015` (Swagger UI: `http://localhost:5015/swagger`)*
 
 ### 2. Khởi chạy Frontend (Next.js):
 ```bash

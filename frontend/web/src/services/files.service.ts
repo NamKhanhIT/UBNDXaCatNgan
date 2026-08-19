@@ -1,4 +1,4 @@
-import { apiFetch, getApiBaseUrl } from './api.config';
+import { apiFetch, getApiBaseUrl, getStoredToken } from './api.config';
 
 export interface DocumentAttachmentDto {
   id: string;
@@ -43,7 +43,7 @@ export async function uploadFileApi(
   formData.append('targetType', targetType);
   formData.append('attachmentType', attachmentType);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token = getStoredToken();
   const baseUrl = getApiBaseUrl();
 
   try {
@@ -81,7 +81,7 @@ export async function uploadAndAnalyzeApi(
   formData.append('file', file);
   formData.append('documentId', effectiveDocId);
 
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token = getStoredToken();
   const baseUrl = getApiBaseUrl();
 
   try {

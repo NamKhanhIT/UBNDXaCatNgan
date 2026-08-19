@@ -3,6 +3,8 @@
  * Hệ thống Quản trị & Điều hành UBND Xã Cát Ngạn
  */
 
+const DEFAULT_ICON = '/icon-192.png';
+
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
@@ -16,8 +18,8 @@ self.addEventListener('push', (event) => {
   let data = {
     title: 'UBND Xã Cát Ngạn',
     body: 'Bạn có thông báo mới từ hệ thống điều hành công việc.',
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
+    icon: DEFAULT_ICON,
+    badge: DEFAULT_ICON,
     data: {
       url: '/'
     }
@@ -62,19 +64,65 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Nếu đã có tab mở, focus vào tab đó và điều hướng
+      // Nếu đã có tab mở, focus tab gần nhất và điều hướng (chỉ 1 tab)
       for (const client of clientList) {
-        if (client.url && 'focus' in client) {
-          if ('navigate' in client) {
+        if ('focus' in client) {
+          if (client.url !== targetUrl && 'navigate' in client) {
             client.navigate(targetUrl);
           }
           return client.focus();
         }
       }
       // Nếu chưa có tab nào mở, mở tab mới
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(targetUrl);
-      }
+      return self.clients.openWindow(targetUrl);
     })
+  );
+});
+
+// Xử lý khi push subscription bị thay đổi/hết hạn (trình duyệt tự cấp subscription mới)
+self.addEventListener('pushsubscriptionchange', (event) => {
+  const newSubscription = event.newSubscription || null;
+
+  const notifyClients = () => {
+    return self.clients.matchAll({ type: 'window' }).then((clients) => {
+      clients.forEach((client) => {
+        client.postMessage({ type: 'PUSH_SUBSCRIPTION_CHANGED' });
+      });
+    });
+  };
+
+  if (!newSubscription) {
+    event.waitUntil(notifyClients());
+    return;
+  }
+
+  // Gửi subscription mới lên backend (best-effort; nếu thất bại, ứng dụng sẽ đăng ký lại khi mở trang)
+  const p256dhBuffer = newSubscription.getKey('p256dh');
+  const authBuffer = newSubscription.getKey('auth');
+
+  if (!p256dhBuffer || !authBuffer) {
+    event.waitUntil(notifyClients());
+    return;
+  }
+
+  const p256dhKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(p256dhBuffer))));
+  const authKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(authBuffer))));
+
+  const payload = {
+    endpoint: newSubscription.endpoint,
+    p256dhKey,
+    authKey,
+    deviceLabel: 'Thiết bị (tự đăng ký lại)'
+  };
+
+  event.waitUntil(
+    fetch('/api/v1/Push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      credentials: 'include'
+    })
+      .catch(() => {})
+      .then(notifyClients)
   );
 });

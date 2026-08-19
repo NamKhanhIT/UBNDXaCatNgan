@@ -1,5 +1,5 @@
 import { HubConnection, HubConnectionBuilder, LogLevel, HttpTransportType } from '@microsoft/signalr';
-import { apiFetch, getApiBaseUrl } from './api.config';
+import { apiFetch, getApiBaseUrl, getStoredToken, needsBearerAuth } from './api.config';
 
 export interface NotificationItem {
   id: string;
@@ -65,6 +65,13 @@ export function initSignalRConnection(onNotificationReceived: (notification: Not
     .withUrl(hubUrl, {
       withCredentials: true,
       transport: HttpTransportType.WebSockets | HttpTransportType.LongPolling,
+      // Khi truy cập từ xa (Cloudflare Tunnel / IP mạng / điện thoại), auth bằng Bearer token
+      accessTokenFactory: () => {
+        if (needsBearerAuth()) {
+          return getStoredToken() || '';
+        }
+        return '';
+      },
     })
     .withAutomaticReconnect()
     .configureLogging(LogLevel.Warning)

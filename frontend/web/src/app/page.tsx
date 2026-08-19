@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SignInPage, Testimonial } from '../components/ui/sign-in';
@@ -1425,6 +1425,15 @@ export default function DashboardPage() {
             setIsPushSubscribed(!!sub);
           });
         });
+
+        navigator.serviceWorker.addEventListener('message', (event) => {
+          if (event.data && event.data.type === 'PUSH_SUBSCRIPTION_CHANGED') {
+            getExistingPushSubscription().then(sub => {
+              setIsPushSubscribed(!!sub);
+              if (isLoggedIn) fetchMyPushSubscriptions();
+            });
+          }
+        });
       }
     }
   }, []);
@@ -1879,19 +1888,19 @@ export default function DashboardPage() {
   if (!isLoggedIn) {
     const sampleTestimonials: Testimonial[] = [
       {
-        avatarSrc: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&q=80",
+        avatarSrc: "/images/avatar-1.png",
         name: "Bùi Văn Hùng",
         handle: "Chủ tịch UBND xã Cát Ngạn",
         text: "Hệ thống đôn đốc tự động giúp Thường trực UBND xã xử lý 98% công việc đúng tiến độ."
       },
       {
-        avatarSrc: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&q=80",
+        avatarSrc: "/images/avatar-2.png",
         name: "Trần Thị Mai",
         handle: "Trưởng phòng Địa chính - Xây dựng",
         text: "Bảng phân ca Sáng - Chiều - Tối minh bạch, tránh trùng lặp lịch công tác của cán bộ."
       },
       {
-        avatarSrc: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&q=80",
+        avatarSrc: "/images/avatar-3.png",
         name: "Nguyễn Văn Nam",
         handle: "Chuyên viên Văn phòng HĐND & UBND",
         text: "Hệ thống điều hành trực quan, hỗ trợ số hóa và tiếp nhận văn bản chỉ đạo nhanh chóng, chính xác."
@@ -1900,7 +1909,7 @@ export default function DashboardPage() {
 
     return (
       <SignInPage
-        heroImageSrc="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1600&q=80"
+        heroImageSrc="/images/hero-signin.png"
         testimonials={sampleTestimonials}
         onSignIn={(e, role) => {
           const targetRole = role || 'BiThuDU';

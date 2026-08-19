@@ -10,6 +10,10 @@ namespace Quanlycongviec.Application.Common.Options
 
         public string Type { get; set; } = "Ollama"; // "Ollama" | "ApiCompatible"
         public double ConfidenceThreshold { get; set; } = 0.6;
+        /// <summary>
+        /// Thời gian chờ tối đa cho mỗi request AI (giây). Tránh treo request khi AI server chết.
+        /// </summary>
+        public int TimeoutSeconds { get; set; } = 60;
 
         public OllamaOptions Ollama { get; set; } = new();
         public ApiOptions Api { get; set; } = new();
@@ -18,7 +22,7 @@ namespace Quanlycongviec.Application.Common.Options
     public class OllamaOptions
     {
         public string BaseUrl { get; set; } = "http://localhost:11434";
-        public string Model { get; set; } = "qwen3:1.7b"; // Mặc định nhẹ, người vận hành đổi model theo phần cứng thật
+        public string Model { get; set; } = "qwen2.5:3b"; // Nhẹ, chạy tốt trên CPU máy thường; máy mạnh hơn dùng qwen3:4b
     }
 
     public class ApiOptions

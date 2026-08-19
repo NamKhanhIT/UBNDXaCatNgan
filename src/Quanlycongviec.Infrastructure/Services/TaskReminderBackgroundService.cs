@@ -63,6 +63,9 @@ namespace Quanlycongviec.Infrastructure.Services
                 var webPushService = scope.ServiceProvider.GetService<IWebPushNotificationService>();
 
                 var nowUtc = DateTime.UtcNow;
+                // Quy ước hệ thống: các giá trị thời gian nghiệp vụ (DueDate, StartDateTime)
+                // được lưu theo giờ Việt Nam nhưng đánh dấu Kind=Utc => so sánh trong không gian giờ VN
+                var vnNow = nowUtc.AddHours(7);
 
                 // Lấy các task đang mở (chưa completed) có DueDate
                 var openTasks = await context.TaskItems
@@ -73,8 +76,8 @@ namespace Quanlycongviec.Infrastructure.Services
 
                 foreach (var task in openTasks)
                 {
-                    var dueDateUtc = task.DueDate!.Value.ToUniversalTime();
-                    var timeUntilDue = dueDateUtc - nowUtc;
+                    var dueDateVn = task.DueDate!.Value;
+                    var timeUntilDue = dueDateVn - vnNow;
 
                     // 1. Nhắc nhở trước hạn 3 ngày & 1 ngày
                     if (timeUntilDue > TimeSpan.Zero && timeUntilDue <= TimeSpan.FromDays(3))
@@ -91,7 +94,7 @@ namespace Quanlycongviec.Infrastructure.Services
                     }
 
                     // 2. Nhắc nhở quá hạn
-                    if (nowUtc > dueDateUtc)
+                    if (vnNow > dueDateVn)
                     {
                         await TrySendReminderAsync(
                             context, hubContext, zaloService, webPushService, task, "Overdue",
@@ -102,14 +105,14 @@ namespace Quanlycongviec.Infrastructure.Services
                     }
 
                     // 3. Leo thang công việc khẩn (Urgent + Quá hạn + chưa Leo thang)
-                    if (task.Priority == TaskPriority.Urgent && nowUtc > dueDateUtc && !task.IsEscalated)
+                    if (task.Priority == TaskPriority.Urgent && vnNow > dueDateVn && !task.IsEscalated)
                     {
                         await HandleEscalationAsync(context, hubContext, zaloService, webPushService, task, cancellationToken);
                     }
                 }
 
                 // 4. Quét & Gửi nhắc nhở Sự kiện Lịch (CalendarEvent)
-                await ProcessEventRemindersAsync(context, hubContext, zaloService, webPushService, nowUtc, cancellationToken);
+                await ProcessEventRemindersAsync(context, hubContext, zaloService, webPushService, vnNow, cancellationToken);
 
                 // 5. Tổng hợp định kỳ sáng thứ Hai (Asia/Ho_Chi_Minh)
                 await ProcessWeeklySummaryAsync(context, hubContext, zaloService, webPushService, nowUtc, cancellationToken);
@@ -123,11 +126,9 @@ namespace Quanlycongviec.Infrastructure.Services
             }
         }
 
-        private static string? _lastDailyDigestDate = null;
-
         private async Task ProcessDailyDigestAsync(
             ApplicationDbContext context,
-            IWebPushNotificationService webPushService,
+            IWebPushNotificationService? webPushService,
             DateTime nowUtc,
             CancellationToken cancellationToken)
         {
@@ -140,18 +141,46 @@ namespace Quanlycongviec.Infrastructure.Services
 
             var targetHour = _configuration.GetValue<int>("DailyDigest:Hour", 7);
             var targetMinute = _configuration.GetValue<int>("DailyDigest:Minute", 30);
+            var windowMinutes = _configuration.GetValue<int>("DailyDigest:WindowMinutes", 15);
+            if (windowMinutes <= 0) windowMinutes = 15;
 
-            // Kiểm tra khung giờ và chỉ chạy 1 lần trong ngày
-            bool isTargetTime = (vnTime.Hour == targetHour && vnTime.Minute >= targetMinute) || (vnTime.Hour > targetHour && vnTime.Hour <= targetHour + 1);
+            // Chỉ chạy trong khung giờ chính xác (tránh gửi trễ lệch giờ)
+            bool isTargetTime = vnTime.Hour == targetHour
+                && vnTime.Minute >= targetMinute
+                && vnTime.Minute < targetMinute + windowMinutes;
 
-            if (!isTargetTime || _lastDailyDigestDate == todayStr)
-            {
-                return;
-            }
+            if (!isTargetTime) return;
+
+            // Marker lưu trong DB để chống gửi trùng kể cả khi server khởi động lại
+            var markerType = $"DailyDigest_{todayStr}";
+            bool alreadySent = await context.ReminderLogs
+                .AnyAsync(r => r.ReminderType == markerType && r.TaskItemId == null, cancellationToken);
+
+            if (alreadySent) return;
 
             _logger.LogInformation("Đang chạy tiến trình gửi Bản tóm tắt nhắc việc mỗi ngày (Daily Digest) cho ngày {Date}...", todayStr);
 
+            // Đánh dấu đã gửi TRƯỚC khi gửi để phòng trường hợp gửi lỗi nửa chừng
+            var markerLog = new ReminderLog
+            {
+                TaskItemId = null,
+                ReminderType = markerType,
+                SentAt = nowUtc
+            };
+            context.ReminderLogs.Add(markerLog);
+            try
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateException)
+            {
+                context.Entry(markerLog).State = EntityState.Detached;
+                return;
+            }
+
             // Lấy danh sách user IDs có subscription Web Push đang kích hoạt
+            if (webPushService == null) return;
+
             var userIdsWithPush = await context.PushSubscriptions
                 .Where(s => s.IsActive)
                 .Select(s => s.UserId)
@@ -165,7 +194,7 @@ namespace Quanlycongviec.Infrastructure.Services
                     .ToListAsync(cancellationToken);
 
                 var pendingCount = userTasks.Count;
-                var overdueCount = userTasks.Count(t => t.DueDate.HasValue && t.DueDate.Value.ToUniversalTime() < nowUtc);
+                var overdueCount = userTasks.Count(t => t.DueDate.HasValue && t.DueDate.Value < vnTime);
 
                 if (pendingCount > 0)
                 {
@@ -186,8 +215,6 @@ namespace Quanlycongviec.Infrastructure.Services
                     }
                 }
             }
-
-            _lastDailyDigestDate = todayStr;
         }
 
         private async Task TrySendReminderAsync(
@@ -383,8 +410,9 @@ namespace Quanlycongviec.Infrastructure.Services
 
             var vnNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, vnTimeZone);
 
-            // Chỉ chạy vào sáng thứ Hai
+            // Chỉ chạy vào sáng thứ Hai trong khung giờ 07:00 - 08:00 (tránh gửi lúc nửa đêm / cả ngày)
             if (vnNow.DayOfWeek != DayOfWeek.Monday) return;
+            if (vnNow.Hour < 7 || vnNow.Hour >= 8) return;
 
             int calendarWeek = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(vnNow, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
             string weeklyKey = $"WeeklySummary_{vnNow.Year}_W{calendarWeek}";
@@ -450,24 +478,25 @@ namespace Quanlycongviec.Infrastructure.Services
             IHubContext<NotificationHub> hubContext,
             IZaloNotificationService? zaloService,
             IWebPushNotificationService? webPushService,
-            DateTime nowUtc,
+            DateTime vnNow,
             CancellationToken cancellationToken)
         {
             var activeEvents = await context.CalendarEvents
                 .Include(e => e.Participants)
                 .Include(e => e.ReminderOffsets)
-                .Where(e => !e.IsDeleted && e.EndDateTime >= nowUtc)
+                .Where(e => !e.IsDeleted && e.EndDateTime >= vnNow)
                 .ToListAsync(cancellationToken);
 
             foreach (var evt in activeEvents)
             {
-                var startUtc = evt.StartDateTime.ToUniversalTime();
+                // Quy ước: StartDateTime lưu theo giờ VN (Kind=Utc) => so sánh trực tiếp với giờ VN
+                var startVn = evt.StartDateTime;
 
                 foreach (var offset in evt.ReminderOffsets)
                 {
-                    var triggerTime = startUtc.AddMinutes(-offset.MinutesBefore);
+                    var triggerTime = startVn.AddMinutes(-offset.MinutesBefore);
 
-                    if (nowUtc >= triggerTime && nowUtc <= startUtc.AddMinutes(30))
+                    if (vnNow >= triggerTime && vnNow <= startVn.AddMinutes(30))
                     {
                         string reminderType = $"EventReminder_{evt.Id}_{offset.MinutesBefore}m";
 

@@ -224,7 +224,7 @@ Trỏ về localhost để phát triển trên máy cá nhân:
   "Type": "Ollama",
   "Ollama": {
     "BaseUrl": "http://localhost:11434",
-    "Model": "qwen2.5:3b-instruct-q4_K_M"
+    "Model": "qwen2.5:3b"
   }
 }
 ```
