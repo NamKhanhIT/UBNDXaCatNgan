@@ -77,7 +77,11 @@ scripts/**
 
 # Jupyter Notebook Checkpoints
 .ipynb_checkpoints/
-*/.ipynb_checkpoints/*
+# Internal Guides & Deployment Docs (Bảo mật tài liệu vận hành)
+docs/DEPLOYMENT_GUIDE.md
+docs/huong_dan_*.md
+docs/*_guide.md
+docs/*_GUIDE.md
 
 # ------------------------------------------
 # 3. Backup Archives & Large Files
