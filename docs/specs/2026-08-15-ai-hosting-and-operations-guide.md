@@ -8,10 +8,15 @@
 
 ## 1. Yêu Cầu Phần Cứng & Lựa Chọn Mô Hình AI
 
+> **Lưu ý thống nhất model (cập nhật 08/2026):** Mặc định trong code/config là `qwen2.5:3b`
+> (chạy được trên CPU máy phổ thông). Các model dưới đây là khuyến nghị nâng cấp khi phần cứng
+> cho phép — **kiểm tra `ollama pull <tên-model>` thành công trước khi cấu hình**, vì thư viện
+> model của Ollama thay đổi theo thời gian.
+
 | Cấu Hình Máy Chủ Xã | Model Khuyến Nghị | VRAM / RAM Tối Thiểu | Tốc Độ Ước Tính |
 |---|---|---|---|
 | **Máy chủ có GPU rời** (RTX 3060/4060 12GB hoặc RTX 3080/4070 trở lên) | `qwen3.6:35b-a3b` *(MoE 35B)* | 12GB – 16GB VRAM | 1.5 – 3 giây / văn bản |
-| **Máy trạm phổ thông** (Core i7 / Ryzen 7, RAM 16GB–32GB, không GPU) | `qwen3.5:4b` | 8GB – 16GB RAM | 4 – 8 giây / văn bản |
+| **Máy trạm phổ thông** (Core i7 / Ryzen 7, RAM 16GB–32GB, không GPU) | `qwen3.5:4b` hoặc `qwen2.5:3b` (mặc định) | 8GB – 16GB RAM | 4 – 8 giây / văn bản |
 
 ---
 

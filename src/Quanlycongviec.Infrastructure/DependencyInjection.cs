@@ -3,8 +3,10 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Quanlycongviec.Application.Common.Interfaces;
+using Quanlycongviec.Application.Common.Options;
 using Quanlycongviec.Infrastructure.Persistence;
 using Quanlycongviec.Infrastructure.Services;
 
@@ -59,12 +61,23 @@ namespace Quanlycongviec.Infrastructure
                         "hiểu rõ và đồng ý, đặt AiProvider:Api:DataSovereigntyAcknowledged = true trong cấu hình.");
                 }
 
-                services.AddHttpClient<IDocumentAiService, Quanlycongviec.Infrastructure.AI.ApiCompatibleDocumentAiService>();
+                services.AddHttpClient<IDocumentAiService, Quanlycongviec.Infrastructure.AI.ApiCompatibleDocumentAiService>()
+                    .ConfigureHttpClient((sp, client) =>
+                    {
+                        // Timeout ngắn để tránh treo request khi AI server chết/không phản hồi
+                        var options = sp.GetRequiredService<IOptions<AiProviderOptions>>().Value;
+                        client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+                    });
             }
             else
             {
                 // Mặc định: Ollama nội bộ — dữ liệu không rời máy chủ
-                services.AddHttpClient<IDocumentAiService, Quanlycongviec.Infrastructure.AI.OllamaDocumentAiService>();
+                services.AddHttpClient<IDocumentAiService, Quanlycongviec.Infrastructure.AI.OllamaDocumentAiService>()
+                    .ConfigureHttpClient((sp, client) =>
+                    {
+                        var options = sp.GetRequiredService<IOptions<AiProviderOptions>>().Value;
+                        client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+                    });
             }
 
             // OCR Service (PdfPig + OpenXml + Tesseract placeholder)

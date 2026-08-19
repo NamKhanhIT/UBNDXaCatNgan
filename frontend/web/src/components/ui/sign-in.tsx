@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
 import { authenticateUser } from '../../services/auth.service';
@@ -102,7 +102,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({
     </span>
   ),
   description = "Hệ thống số hóa quản trị công việc, đôn đốc chỉ đạo & đánh giá năng lực cán bộ xã Cát Ngạn",
-  heroImageSrc = "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=1600&q=80",
+  heroImageSrc = "/images/hero-signin.png",
   testimonials = [],
   onSignIn,
   onQuickRoleSelect,

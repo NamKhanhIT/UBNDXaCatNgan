@@ -6,6 +6,9 @@ Thư mục này lưu trữ toàn bộ tài liệu kỹ thuật, kiến trúc, đ
 
 ## 📁 Cấu Trúc Tài Liệu
 
+### 0. Hướng Dẫn Triển Khai (Bắt Buộc Đọc Trước Khi Vận Hành)
+- **[docs/DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)**: Hướng dẫn triển khai **toàn hệ thống với chi phí 0 đồng** — PWA trên điện thoại + máy tính, Web Push VAPID, AI ZeroGPU, Cloudflare Tunnel, backup, checklist bàn giao.
+
 ### 1. [docs/specs/](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/docs/specs) — Đặc Tả Kỹ Thuật Tính Năng (Design Specs)
 Chứa các bản đặc tả chi tiết được thiết kế trước khi triển khai các tính năng lớn:
 - `2026-08-08-dynamic-demo-mode-design.md`: Chế độ Demo động phục vụ trải nghiệm người dùng.
@@ -13,6 +16,8 @@ Chứa các bản đặc tả chi tiết được thiết kế trước khi tri�
 - `2026-08-10-rating-revision-design.md`: Lịch sử điều chỉnh và kiểm duyệt đánh giá công việc.
 - `2026-08-10-outgoing-document-enhancements-design.md`: Quản lý và xử lý quy trình Văn bản đi.
 - `2026-08-10-google-calendar-events-design.md`: Quản lý lịch công tác & sự kiện phong cách Google Calendar.
+- `2026-08-15-ai-document-analysis-pipeline-design.md`: Đặc tả pipeline phân tích văn bản AI.
+- `2026-08-15-ai-hosting-and-operations-guide.md`: Hướng dẫn vận hành AI (Ollama/ZeroGPU).
 
 ### 2. [docs/architecture/](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/docs/architecture) — Kiến Trúc & Quyết Định Kỹ Thuật
 - `DECISIONS.md`: Quyết định kiến trúc (ADRs) về UI Utilitarian, Inbox Triage, Thuật toán Đánh giá Kép (Dual Evaluation 40/60).

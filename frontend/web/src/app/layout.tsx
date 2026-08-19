@@ -9,6 +9,15 @@ export const metadata: Metadata = {
   title: 'UBND Xã Cát Ngạn - Quản Lý Công Việc & Đánh Giá Năng Lực',
   description: 'Hệ thống số hóa quản trị công việc, đôn đốc chỉ đạo và đánh giá công suất nhân sự UBND Xã Cát Ngạn',
   manifest: '/manifest.json',
+  icons: {
+    icon: [
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/icon-maskable-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
+  },
 };
 
 export default function RootLayout({
@@ -19,7 +28,7 @@ export default function RootLayout({
   return (
     <html lang="vi" suppressHydrationWarning>
       <head>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossOrigin="anonymous" referrerPolicy="no-referrer" />
+        <link rel="stylesheet" href="/vendor/font-awesome/css/all.min.css" />
         <script
           dangerouslySetInnerHTML={{
             __html: `
