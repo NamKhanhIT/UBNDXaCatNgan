@@ -9,23 +9,49 @@
 .env
 .env.*
 .env.local
+.env.development
+.env.production
+.env.test
 .env.development.local
 .env.test.local
 .env.production.local
-appsettings.Development.json
-appsettings.Development.*.json
-appsettings.Secrets.json
-appsettings.*.user.json
-appsettings.Production.json
+
+appsettings*.json
 launchSettings.json
+
+secrets.json
+secrets/
+credentials/
+credentials.json
+config/secrets/
+
 *.pem
-*.pfx
 *.key
+*.pfx
+*.p12
 *.crt
 *.secret
 *.token
-secrets/
 private/
+
+# ------------------------------------------
+# 1.1. Local AI Assistant & Security Files (Chỉ lưu trên máy cá nhân)
+# ------------------------------------------
+AGENTS.md
+agents.md
+opencode.json
+opencode.*.json
+opencode.jsonc
+.opencode/
+appsettings.example.json
+appsettings*.example.json
+*.example.json
+.env.example
+.env.example.*
+*.example
+test_chroma_sec/
+wiki/
+wiki/**
 
 # ------------------------------------------
 # 2. AI / ML / Model Weights & Training Data Security
@@ -77,11 +103,27 @@ scripts/**
 
 # Jupyter Notebook Checkpoints
 .ipynb_checkpoints/
-# Internal Guides & Deployment Docs (Bảo mật tài liệu vận hành)
+# Internal Guides & Deployment Docs (Bảo mật tài liệu vận hành & hướng dẫn)
 docs/DEPLOYMENT_GUIDE.md
 docs/huong_dan_*.md
+docs/HUONG_DAN_*.md
 docs/*_guide.md
 docs/*_GUIDE.md
+docs/*guide*.md
+docs/*Guide*.md
+docs/*GUIDE*.md
+docs/*huong_dan*.md
+docs/*HUONG_DAN*.md
+docs/specs/*-guide.md
+docs/specs/*-guide*.md
+docs/specs/*-operations-guide.md
+**/DEPLOYMENT_GUIDE.md
+**/HUONG_DAN_*.md
+**/huong_dan_*.md
+**/*_guide.md
+**/*_GUIDE.md
+**/*huong_dan*.md
+**/*HUONG_DAN*.md
 
 # ------------------------------------------
 # 3. Backup Archives & Large Files

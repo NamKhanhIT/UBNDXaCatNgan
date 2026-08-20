@@ -142,8 +142,16 @@ export async function updateTaskStatusApi(
   });
 }
 
-export async function getUsersApi() {
-  return await apiFetch<UserDto[]>('/api/v1/Users', { method: 'GET' });
+export interface PaginatedUsersResult {
+  items: UserDto[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export async function getUsersApi(page: number = 1, pageSize: number = 100) {
+  return await apiFetch<PaginatedUsersResult | UserDto[]>(`/api/v1/Users?page=${page}&pageSize=${pageSize}`, { method: 'GET' });
 }
 
 export async function transferTaskApi(taskId: string, targetUserId: string, reason: string) {

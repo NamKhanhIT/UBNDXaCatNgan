@@ -13,6 +13,7 @@ namespace Quanlycongviec.Application
             services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(assembly));
             services.AddValidatorsFromAssembly(assembly);
             services.AddAutoMapper(assembly);
+            services.AddSingleton<Quanlycongviec.Application.Common.Interfaces.ITotpService, Quanlycongviec.Application.Common.Services.TotpService>();
 
             return services;
         }

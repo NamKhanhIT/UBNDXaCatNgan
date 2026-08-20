@@ -40,6 +40,7 @@ namespace Quanlycongviec.Infrastructure
             services.AddScoped<IZaloNotificationService, ZaloNotificationService>();
             services.AddScoped<ISystemScoreCalculator, SystemScoreCalculator>();
             services.AddScoped<IWebPushNotificationService, WebPushNotificationService>();
+            services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
             // ── AI Provider Registration (Prompt F) ──
             services.Configure<Quanlycongviec.Application.Common.Options.AiProviderOptions>(
@@ -156,6 +157,16 @@ namespace Quanlycongviec.Infrastructure
                         else if (context.Request.Cookies.TryGetValue("access_token", out var cookieToken))
                         {
                             context.Token = cookieToken;
+                        }
+                        return Task.CompletedTask;
+                    },
+                    OnTokenValidated = context =>
+                    {
+                        // Chống Privilege Escalation: Token tạm (Purpose=mfa) chỉ được phép gửi tới /Auth/mfa/verify-login
+                        var purpose = context.Principal?.FindFirst("Purpose")?.Value;
+                        if (string.Equals(purpose, "mfa", StringComparison.OrdinalIgnoreCase))
+                        {
+                            context.Fail("MfaToken chỉ dùng cho bước xác thực OTP tại /Auth/mfa/verify-login, không được dùng làm AccessToken.");
                         }
                         return Task.CompletedTask;
                     }

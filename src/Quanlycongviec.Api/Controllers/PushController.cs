@@ -16,6 +16,7 @@ namespace Quanlycongviec.Api.Controllers
 {
     [ApiController]
     [Route("api/v1/[controller]")]
+    [Authorize]
     public class PushController : ControllerBase
     {
         private readonly IMediator _mediator;

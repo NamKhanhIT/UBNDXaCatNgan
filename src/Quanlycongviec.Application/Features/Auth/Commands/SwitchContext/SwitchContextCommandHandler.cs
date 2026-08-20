@@ -14,13 +14,16 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.SwitchContext
     {
         private readonly IApplicationDbContext _context;
         private readonly IJwtTokenService _jwtTokenService;
+        private readonly IRefreshTokenService _refreshTokenService;
 
         public SwitchContextCommandHandler(
             IApplicationDbContext context,
-            IJwtTokenService jwtTokenService)
+            IJwtTokenService jwtTokenService,
+            IRefreshTokenService refreshTokenService)
         {
             _context = context;
             _jwtTokenService = jwtTokenService;
+            _refreshTokenService = refreshTokenService;
         }
 
         public async Task<AuthResponseDto> Handle(SwitchContextCommand request, CancellationToken cancellationToken)
@@ -61,6 +64,7 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.SwitchContext
             var targetUserRole = user.UserRoles.FirstOrDefault(ur => ur.Role.Code == request.TargetRoleCode);
             int rankLevel = targetUserRole?.Role.RankLevel ?? 5;
             var token = _jwtTokenService.GenerateToken(user, request.TargetRoleCode, roles, rankLevel);
+            var refreshToken = await _refreshTokenService.CreateAsync(user.Id, cancellationToken);
 
             return new AuthResponseDto
             {
@@ -76,7 +80,9 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.SwitchContext
                     DepartmentName = ur.Department?.Name,
                     IsPrimary = ur.IsPrimary
                 }).ToList(),
-                Token = token
+                Token = token,
+                RefreshToken = refreshToken,
+                MfaEnabled = user.MfaEnabled
             };
         }
     }

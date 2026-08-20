@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
 import { useGSAP } from '@gsap/react';
-import { authenticateUser } from '../services/auth.service';
+import { authenticateUser, verifyMfaLogin } from '../services/auth.service';
 import { getApiBaseUrl, needsBearerAuth } from '../services/api.config';
 
 gsap.registerPlugin(useGSAP);
@@ -42,6 +42,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [selectedRole, setSelectedRole] = useState<RoleCode>('ChuTichUBND');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // ── Xác thực 2 yếu tố (MFA/OTP) ──
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaToken, setMfaToken] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
+  const [mfaError, setMfaError] = useState('');
 
   // API URL config for remote/mobile access
   const [isRemote, setIsRemote] = useState(false);
@@ -252,8 +259,22 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
     try {
       const authRes = await authenticateUser(username, password);
-      if (!authRes.success || !authRes.user) {
+      if (!authRes.success) {
         setErrorMessage(authRes.error || 'Đăng nhập không thành công.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Tài khoản đã bật MFA → chuyển sang bước nhập mã OTP
+      if (authRes.requiresMfa) {
+        setMfaToken(authRes.mfaToken || '');
+        setMfaRequired(true);
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (!authRes.user) {
+        setErrorMessage('Không nhận được thông tin tài khoản.');
         setIsSubmitting(false);
         return;
       }
@@ -291,6 +312,56 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     }
   };
 
+  const handleMfaVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = otpCode.trim();
+    if (code.length < 6) {
+      setMfaError('Vui lòng nhập đủ 6 chữ số từ ứng dụng Authenticator.');
+      return;
+    }
+
+    setMfaError('');
+    setIsVerifyingMfa(true);
+
+    try {
+      const authRes = await verifyMfaLogin(mfaToken, code);
+      if (!authRes.success || !authRes.user) {
+        setMfaError(authRes.error || 'Mã OTP không hợp lệ.');
+        setIsVerifyingMfa(false);
+        return;
+      }
+
+      const activeRoleCode = (authRes.user.activeRole as RoleCode) || selectedRole;
+
+      if (containerRef.current && cardRef.current) {
+        gsap.to(cardRef.current, {
+          scale: 1.05,
+          opacity: 0,
+          y: -30,
+          filter: 'blur(16px)',
+          duration: 0.7,
+          ease: 'power3.inOut',
+          onComplete: () => {
+            onLoginSuccess(activeRoleCode);
+          },
+        });
+      } else {
+        onLoginSuccess(activeRoleCode);
+      }
+    } catch (err: any) {
+      setMfaError(err.message || 'Lỗi hệ thống khi xác thực mã OTP.');
+      setIsVerifyingMfa(false);
+    }
+  };
+
+  const handleBackToLogin = () => {
+    setMfaRequired(false);
+    setMfaToken('');
+    setOtpCode('');
+    setMfaError('');
+    setErrorMessage('');
+  };
+
   const handleQuickLogin = async (role: RoleCode) => {
     setSelectedRole(role);
     setIsSubmitting(true);
@@ -302,6 +373,14 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     const authRes = await authenticateUser(loginEmail, loginPass);
     if (!authRes.success) {
       setErrorMessage(authRes.error || 'Không thể đăng nhập bằng tài khoản thử nghiệm.');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Tài khoản đã bật MFA → chuyển sang bước nhập mã OTP
+    if (authRes.requiresMfa) {
+      setMfaToken(authRes.mfaToken || '');
+      setMfaRequired(true);
       setIsSubmitting(false);
       return;
     }
@@ -574,6 +653,151 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           </div>
         )}
 
+        {/* MFA OTP Step — hiện sau khi nhập đúng mật khẩu (tài khoản đã bật 2 lớp) */}
+        {mfaRequired ? (
+          <form ref={formRef} onSubmit={handleMfaVerify}>
+            <div
+              style={{
+                textAlign: 'center',
+                marginBottom: '20px',
+              }}
+            >
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: '16px',
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  border: '1px solid rgba(52, 211, 153, 0.35)',
+                  fontSize: '26px',
+                  marginBottom: '10px',
+                }}
+              >
+                🔐
+              </div>
+              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#f1f5f9' }}>
+                Xác thực 2 yếu tố
+              </div>
+              <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '4px', lineHeight: 1.5 }}>
+                Nhập 6 chữ số từ ứng dụng Authenticator
+                <br />
+                (Google Authenticator / Ente Auth / Microsoft Authenticator)
+              </div>
+            </div>
+
+            {mfaError && (
+              <div
+                style={{
+                  background: 'rgba(220, 38, 38, 0.18)',
+                  border: '1px solid rgba(248, 113, 113, 0.4)',
+                  borderRadius: '12px',
+                  padding: '10px 14px',
+                  fontSize: '0.8rem',
+                  color: '#fca5a5',
+                  marginBottom: '18px',
+                  textAlign: 'center',
+                }}
+              >
+                ⚠️ {mfaError}
+              </div>
+            )}
+
+            <div style={{ marginBottom: '22px' }}>
+              <label
+                htmlFor="login-otp"
+                style={{
+                  display: 'block',
+                  fontSize: '0.78rem',
+                  fontWeight: 600,
+                  color: '#cbd5e1',
+                  marginBottom: '6px',
+                }}
+              >
+                Mã OTP 6 chữ số
+              </label>
+              <input
+                id="login-otp"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={otpCode}
+                onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="••••••"
+                disabled={isVerifyingMfa}
+                autoFocus
+                style={{
+                  width: '100%',
+                  padding: '14px 16px',
+                  borderRadius: '12px',
+                  background: 'rgba(30, 41, 59, 0.7)',
+                  border: '1px solid rgba(52, 211, 153, 0.35)',
+                  color: '#ffffff',
+                  fontSize: '1.4rem',
+                  letterSpacing: '0.6em',
+                  textAlign: 'center',
+                  fontWeight: 700,
+                  outline: 'none',
+                  transition: 'all 0.2s ease',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isVerifyingMfa}
+              className="gsap-anim-btn"
+              style={{
+                width: '100%',
+                padding: '14px',
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                border: '1px solid rgba(52, 211, 153, 0.4)',
+                color: '#ffffff',
+                fontSize: '0.92rem',
+                fontWeight: 700,
+                cursor: isVerifyingMfa ? 'not-allowed' : 'pointer',
+                boxShadow: '0 10px 25px -5px rgba(5, 150, 105, 0.4)',
+                transition: 'transform 0.15s ease, background 0.2s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+              }}
+            >
+              {isVerifyingMfa ? (
+                <>⏳ Đang xác thực mã OTP...</>
+              ) : (
+                <>✅ Xác Nhận & Đăng Nhập</>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleBackToLogin}
+              disabled={isVerifyingMfa}
+              style={{
+                width: '100%',
+                padding: '10px',
+                borderRadius: '12px',
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                marginTop: '8px',
+              }}
+            >
+              ← Quay lại nhập tài khoản
+            </button>
+          </form>
+        ) : (
+          <>
         {/* Login Form */}
         <form ref={formRef} onSubmit={handleLoginSubmit}>
           <div className="gsap-anim-input" style={{ marginBottom: '16px' }}>
@@ -729,6 +953,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             </button>
           ))}
         </div>
+
+        </>
+        )}
 
         {/* Footer info */}
         <div

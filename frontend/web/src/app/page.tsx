@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SignInPage, Testimonial } from '../components/ui/sign-in';
@@ -80,6 +80,7 @@ import { AiReviewModal } from '../components/AiReviewModal';
 import { AiAssignmentModal } from '../components/AiAssignmentModal';
 import { AiChecklistModal } from '../components/AiChecklistModal';
 import { getFileViewUrl, uploadAndAnalyzeApi } from '../services/files.service';
+import { mfaSetup, mfaEnable, mfaDisable } from '../services/auth.service';
 
 /* ═══════════════════════════════════════════════════════════════
    FONTAWESOME 6 HELPER COMPONENT
@@ -1401,6 +1402,16 @@ export default function DashboardPage() {
 
   // ── Web Push & Daily Digest State ──
   const [showPushSettingsModal, setShowPushSettingsModal] = useState<boolean>(false);
+
+  // ── Xác thực 2 yếu tố (MFA/OTP) ──
+  const [showMfaSettingsModal, setShowMfaSettingsModal] = useState<boolean>(false);
+  const [mfaEnabled, setMfaEnabled] = useState<boolean>(false);
+  const [mfaStatusMessage, setMfaStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [mfaSetupSecret, setMfaSetupSecret] = useState<string>('');
+  const [mfaSetupUri, setMfaSetupUri] = useState<string>('');
+  const [mfaOtpInput, setMfaOtpInput] = useState<string>('');
+  const [mfaDisableOtpInput, setMfaDisableOtpInput] = useState<string>('');
+  const [isMfaLoading, setIsMfaLoading] = useState<boolean>(false);
   const [isPushSupported, setIsPushSupported] = useState<boolean>(false);
   const [isPushSubscribed, setIsPushSubscribed] = useState<boolean>(false);
   const [isPushLoading, setIsPushLoading] = useState<boolean>(false);
@@ -1452,6 +1463,71 @@ export default function DashboardPage() {
     setPushStatusMessage(null);
     setDeviceLabelInput(getAutoDeviceLabel());
     fetchMyPushSubscriptions();
+  };
+
+  // ── MFA: mở modal cài đặt xác thực 2 yếu tố ──
+  const handleOpenMfaSettings = () => {
+    setShowMfaSettingsModal(true);
+    setMfaStatusMessage(null);
+    setMfaOtpInput('');
+    setMfaDisableOtpInput('');
+    setMfaSetupSecret('');
+    setMfaSetupUri('');
+  };
+
+  const handleMfaSetup = async () => {
+    setIsMfaLoading(true);
+    setMfaStatusMessage(null);
+    try {
+      const data = await mfaSetup();
+      setMfaSetupSecret(data.secret);
+      setMfaSetupUri(data.provisioningUri);
+      setMfaStatusMessage({ type: 'info', text: 'Đã tạo mã bí mật. Hãy thêm vào ứng dụng Authenticator rồi nhập mã OTP để kích hoạt.' });
+    } catch (e: any) {
+      setMfaStatusMessage({ type: 'error', text: e.message || 'Không thể tạo mã xác thực.' });
+    } finally {
+      setIsMfaLoading(false);
+    }
+  };
+
+  const handleMfaEnable = async () => {
+    if (!mfaSetupSecret || mfaOtpInput.trim().length < 6) {
+      setMfaStatusMessage({ type: 'error', text: 'Vui lòng nhập đủ 6 chữ số mã OTP.' });
+      return;
+    }
+    setIsMfaLoading(true);
+    setMfaStatusMessage(null);
+    try {
+      await mfaEnable(mfaSetupSecret, mfaOtpInput.trim());
+      setMfaEnabled(true);
+      setMfaSetupSecret('');
+      setMfaSetupUri('');
+      setMfaOtpInput('');
+      setMfaStatusMessage({ type: 'success', text: 'Đã bật xác thực 2 yếu tố thành công! Lần đăng nhập sau sẽ yêu cầu mã OTP.' });
+    } catch (e: any) {
+      setMfaStatusMessage({ type: 'error', text: e.message || 'Không thể bật xác thực 2 yếu tố.' });
+    } finally {
+      setIsMfaLoading(false);
+    }
+  };
+
+  const handleMfaDisable = async () => {
+    if (mfaDisableOtpInput.trim().length < 6) {
+      setMfaStatusMessage({ type: 'error', text: 'Vui lòng nhập mã OTP hiện tại để xác nhận.' });
+      return;
+    }
+    setIsMfaLoading(true);
+    setMfaStatusMessage(null);
+    try {
+      await mfaDisable(mfaDisableOtpInput.trim());
+      setMfaEnabled(false);
+      setMfaDisableOtpInput('');
+      setMfaStatusMessage({ type: 'success', text: 'Đã tắt xác thực 2 yếu tố.' });
+    } catch (e: any) {
+      setMfaStatusMessage({ type: 'error', text: e.message || 'Không thể tắt xác thực 2 yếu tố.' });
+    } finally {
+      setIsMfaLoading(false);
+    }
   };
 
   const handleSubscribePush = async () => {
@@ -1593,7 +1669,10 @@ export default function DashboardPage() {
       // 5. Fetch Real Users from PostgreSQL
       getUsersApi().then(res => {
         if (res.success && res.data) {
-          setDbUsers(res.data);
+          const userList = Array.isArray(res.data)
+            ? res.data
+            : (Array.isArray((res.data as any).items) ? (res.data as any).items : []);
+          setDbUsers(userList);
         }
       });
 
@@ -1911,16 +1990,18 @@ export default function DashboardPage() {
       <SignInPage
         heroImageSrc="/images/hero-signin.png"
         testimonials={sampleTestimonials}
-        onSignIn={(e, role) => {
+        onSignIn={(e, role, user) => {
           const targetRole = role || 'BiThuDU';
           setActiveRole(targetRole);
           setIsLoggedIn(true);
+          setMfaEnabled(!!(user as any)?.mfaEnabled);
           const roleLabel = ROLE_CONFIG[targetRole]?.label || 'Cán bộ';
           addToast('Đăng nhập thành công', `Chào mừng ${roleLabel} đến với Hệ thống Điều hành & Số hóa UBND Xã Cát Ngạn`, 'success');
         }}
         onQuickRoleSelect={(role) => {
           setActiveRole(role);
           setIsLoggedIn(true);
+          setMfaEnabled(false);
           const roleLabel = ROLE_CONFIG[role]?.label || 'Cán bộ';
           addToast('Đăng nhập thành công', `Chào mừng ${roleLabel} đến với Hệ thống Điều hành & Số hóa UBND Xã Cát Ngạn`, 'success');
         }}
@@ -2797,6 +2878,33 @@ export default function DashboardPage() {
                 borderRadius: '50%',
                 background: isPushSubscribed ? '#22c55e' : '#94a3b8',
                 boxShadow: isPushSubscribed ? '0 0 6px #22c55e' : 'none'
+              }} />
+            </button>
+
+            {/* MFA Settings Quick Access Button */}
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              style={{
+                padding: '6px 12px',
+                background: mfaEnabled ? '#f0fdf4' : '#fff',
+                borderColor: mfaEnabled ? '#bbf7d0' : '#e2e8f0',
+                color: mfaEnabled ? '#166534' : '#475569',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6
+              }}
+              onClick={handleOpenMfaSettings}
+              title={mfaEnabled ? 'Xác thực 2 yếu tố: Đã bật cho tài khoản của bạn' : 'Bật xác thực 2 yếu tố (MFA) để bảo vệ tài khoản'}
+            >
+              <Icon name="shield-halved" size={13} style={{ color: mfaEnabled ? '#16a34a' : '#64748b' }} />
+              <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>Bảo mật 2 lớp</span>
+              <span style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: mfaEnabled ? '#22c55e' : '#94a3b8',
+                boxShadow: mfaEnabled ? '0 0 6px #22c55e' : 'none'
               }} />
             </button>
 
@@ -6587,12 +6695,13 @@ export default function DashboardPage() {
                   value={transferToStaffId}
                   onChange={e => {
                     setTransferToStaffId(e.target.value);
-                    const matchedUser = dbUsers.find(u => u.id === e.target.value);
+                    const userList = Array.isArray(dbUsers) ? dbUsers : [];
+                    const matchedUser = userList.find(u => u.id === e.target.value);
                     if (matchedUser) setTransferToStaff(matchedUser.fullName);
                   }}
                 >
                   <option value="">-- Chọn người nhận việc --</option>
-                  {(dbUsers.length > 0 ? dbUsers : [
+                  {((Array.isArray(dbUsers) && dbUsers.length > 0) ? dbUsers : [
                     { id: 'a0000000-0000-0000-0000-000000000001', fullName: 'Nguyễn Đình Hùng', departmentName: 'Văn phòng HĐND & UBND', roleName: 'Chủ tịch UBND xã' },
                     { id: 'a0000000-0000-0000-0000-000000000002', fullName: 'Phan Văn Hà', departmentName: 'Khối Đảng - HĐND - UBMTTQ', roleName: 'Bí thư Đảng ủy' },
                     { id: 'a0000000-0000-0000-0000-000000000003', fullName: 'Nguyễn Văn Hoàng', departmentName: 'Văn phòng HĐND & UBND', roleName: 'Phó Chủ tịch UBND' },
@@ -6627,8 +6736,13 @@ export default function DashboardPage() {
                       style={{ marginLeft: 8 }}
                       onClick={() => {
                         setTransferToStaff(suggestion.name);
-                        const userMatch = dbUsers.find(u => u.fullName === suggestion.name);
-                        if (userMatch) setTransferToStaffId(userMatch.id);
+                        const userList = Array.isArray(dbUsers) ? dbUsers : [];
+                        const userMatch = userList.find(u => u.fullName === suggestion.name);
+                        if (userMatch) {
+                          setTransferToStaffId(userMatch.id);
+                        } else if ((suggestion as any).id) {
+                          setTransferToStaffId((suggestion as any).id);
+                        }
                       }}
                     >
                       Chọn nhanh
@@ -6677,7 +6791,8 @@ export default function DashboardPage() {
                     'Phạm Văn Đức': 'a0000000-0000-0000-0000-000000000008',
                   };
 
-                  const targetUserObj = dbUsers.find(u => u.id === transferToStaffId || u.fullName === transferToStaff);
+                  const userList = Array.isArray(dbUsers) ? dbUsers : [];
+                  const targetUserObj = userList.find(u => u.id === transferToStaffId || u.fullName === transferToStaff);
                   const targetUserGuid = targetUserObj?.id || transferToStaffId || userNameGuidMap[transferToStaff] || 'a0000000-0000-0000-0000-000000000006';
                   const targetName = targetUserObj?.fullName || transferToStaff || 'Cán bộ xã';
 
@@ -8059,6 +8174,249 @@ export default function DashboardPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
+         MFA SETTINGS MODAL — Xác thực 2 yếu tố (TOTP/OTP)
+         ═══════════════════════════════════════════════════════════════ */}
+      {showMfaSettingsModal && (
+        <div className="modal-backdrop" style={{ zIndex: 9999 }}>
+          <div className="modal-card" style={{ maxWidth: 640, width: '92vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-header" style={{ background: 'linear-gradient(135deg, #065f46, #059669)', color: '#ffffff', borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255, 255, 255, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="shield-halved" size={18} style={{ color: '#ffffff' }} />
+                </div>
+                <div>
+                  <h3 className="modal-title" style={{ color: '#ffffff', margin: 0, fontSize: '1.05rem', fontWeight: 800 }}>
+                    Cài Đặt Xác Thực 2 Yếu Tố (MFA)
+                  </h3>
+                  <div style={{ fontSize: '0.78rem', color: '#a7f3d0', marginTop: 2 }}>
+                    Bảo vệ tài khoản bằng mã OTP 6 chữ số từ ứng dụng Authenticator
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setShowMfaSettingsModal(false)}
+                style={{ color: '#ffffff', padding: 6 }}
+                aria-label="Đóng cài đặt xác thực 2 yếu tố"
+              >
+                <Icon name="xmark" size={16} />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ overflowY: 'auto', padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {mfaStatusMessage && (
+                <div style={{
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  fontSize: '0.84rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  background: mfaStatusMessage.type === 'success' ? '#f0fdf4' : mfaStatusMessage.type === 'error' ? '#fef2f2' : '#eff6ff',
+                  border: `1px solid ${mfaStatusMessage.type === 'success' ? '#bbf7d0' : mfaStatusMessage.type === 'error' ? '#fecaca' : '#bfdbfe'}`,
+                  color: mfaStatusMessage.type === 'success' ? '#166534' : mfaStatusMessage.type === 'error' ? '#991b1b' : '#1e40af'
+                }}>
+                  <Icon
+                    name={mfaStatusMessage.type === 'success' ? 'circle-check' : mfaStatusMessage.type === 'error' ? 'circle-xmark' : 'circle-info'}
+                    size={16}
+                  />
+                  <span>{mfaStatusMessage.text}</span>
+                </div>
+              )}
+
+              {/* Status banner */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 16px',
+                borderRadius: 10,
+                background: mfaEnabled ? '#f0fdf4' : '#f8fafc',
+                border: `1px solid ${mfaEnabled ? '#bbf7d0' : '#e2e8f0'}`
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Icon name={mfaEnabled ? 'shield-check' : 'shield-halved'} size={20} style={{ color: mfaEnabled ? '#16a34a' : '#64748b' }} />
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#0f172a' }}>
+                      Trạng thái tài khoản
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: mfaEnabled ? '#15803d' : '#64748b', fontWeight: 600 }}>
+                      {mfaEnabled ? '● Đã bật xác thực 2 yếu tố' : '○ Chưa bật xác thực 2 yếu tố'}
+                    </div>
+                  </div>
+                </div>
+                <span className="badge" style={{
+                  background: mfaEnabled ? '#dcfce7' : '#f1f5f9',
+                  color: mfaEnabled ? '#15803d' : '#64748b',
+                  border: `1px solid ${mfaEnabled ? '#86efac' : '#cbd5e1'}`,
+                  fontWeight: 700,
+                  fontSize: '0.75rem',
+                  padding: '4px 10px',
+                  borderRadius: 20
+                }}>
+                  {mfaEnabled ? 'AN TOÀN' : 'CẦN BẢO VỆ'}
+                </span>
+              </div>
+
+              {!mfaEnabled ? (
+                /* ── BƯỚC BẬT MFA ── */
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 10,
+                  padding: '16px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                }}>
+                  <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a', marginBottom: 4 }}>
+                    Bật Xác Thực 2 Yếu Tố
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5, marginBottom: 14 }}>
+                    Mỗi lần đăng nhập sẽ cần thêm mã OTP 6 chữ số do ứng dụng Authenticator tạo ra, chống lộ mật khẩu và truy cập trái phép.
+                  </div>
+
+                  {!mfaSetupSecret ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleMfaSetup}
+                      disabled={isMfaLoading}
+                      style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px' }}
+                    >
+                      <Icon name="qrcode" size={14} />
+                      <span>{isMfaLoading ? 'Đang tạo mã...' : '1️⃣ Tạo Mã Bí Mật (QR/Key)'}</span>
+                    </button>
+                  ) : (
+                    <>
+                      <div style={{
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 8,
+                        padding: '12px 14px',
+                        marginBottom: 10
+                      }}>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700, color: '#475569', marginBottom: 4 }}>
+                          THÊM THỦ CÔNG VÀO ỨNG DỤNG AUTHENTICATOR (Google Authenticator / Ente Auth / Microsoft Authenticator):
+                        </div>
+                        <div style={{ fontSize: '0.78rem', color: '#334155', marginBottom: 6 }}>
+                          Mở ứng dụng → "Thêm tài khoản" → "Nhập key thủ công" → nhập mã sau:
+                        </div>
+                        <div style={{
+                          fontFamily: 'monospace',
+                          fontSize: '0.85rem',
+                          color: '#065f46',
+                          background: '#ecfdf5',
+                          border: '1px dashed #34d399',
+                          borderRadius: 6,
+                          padding: '8px 10px',
+                          wordBreak: 'break-all',
+                          userSelect: 'all'
+                        }}>
+                          {mfaSetupSecret}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#334155', marginBottom: 6, fontWeight: 600 }}>
+                        Hoặc dùng URI đầy đủ (quét bằng app hỗ trợ):
+                      </div>
+                      <div style={{
+                        fontFamily: 'monospace',
+                        fontSize: '0.72rem',
+                        color: '#64748b',
+                        background: '#f1f5f9',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 6,
+                        padding: '8px 10px',
+                        wordBreak: 'break-all',
+                        marginBottom: 14
+                      }}>
+                        {mfaSetupUri}
+                      </div>
+
+                      <div style={{ marginBottom: 10 }}>
+                        <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, color: '#475569', marginBottom: 5 }}>
+                          2️⃣ Nhập mã OTP 6 chữ số hiển thị trong ứng dụng để xác nhận:
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={mfaOtpInput}
+                          onChange={(e) => setMfaOtpInput(e.target.value.replace(/\D/g, ''))}
+                          placeholder="••••••"
+                          className="form-input"
+                          style={{ fontSize: '1rem', textAlign: 'center', letterSpacing: '0.5em', fontWeight: 700 }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={handleMfaEnable}
+                        disabled={isMfaLoading}
+                        style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 18px' }}
+                      >
+                        <Icon name="shield-check" size={14} />
+                        <span>{isMfaLoading ? 'Đang kích hoạt...' : '3️⃣ Kích Hoạt Xác Thực 2 Yếu Tố'}</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                /* ── BƯỚC TẮT MFA ── */
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 10,
+                  padding: '16px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                }}>
+                  <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a', marginBottom: 4 }}>
+                    Tắt Xác Thực 2 Yếu Tố
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', lineHeight: 1.5, marginBottom: 14 }}>
+                    Nhập mã OTP hiện tại từ ứng dụng Authenticator để xác nhận bạn là chủ tài khoản. Sau khi tắt, tài khoản chỉ còn bảo vệ bằng mật khẩu.
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={mfaDisableOtpInput}
+                      onChange={(e) => setMfaDisableOtpInput(e.target.value.replace(/\D/g, ''))}
+                      placeholder="Mã OTP hiện tại"
+                      className="form-input"
+                      style={{ fontSize: '1rem', textAlign: 'center', letterSpacing: '0.5em', fontWeight: 700 }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-danger"
+                    onClick={handleMfaDisable}
+                    disabled={isMfaLoading}
+                    style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                  >
+                    <Icon name="shield-slash" size={14} />
+                    <span>{isMfaLoading ? 'Đang xử lý...' : 'Tắt Xác Thực 2 Yếu Tố'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-footer" style={{ padding: '12px 20px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end', background: '#f8fafc' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setShowMfaSettingsModal(false)}
+                style={{ fontWeight: 600 }}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
          FLOATING TOAST NOTIFICATION SYSTEM
          ═══════════════════════════════════════════════════════════════ */}
       <div className="toast-container" aria-live="polite" aria-atomic="true">
@@ -8172,7 +8530,7 @@ export default function DashboardPage() {
         documentId={aiAssignDocId}
         analysisData={aiAssignAnalysisData}
         departments={Object.values(DEPARTMENTS).map(d => ({ id: d.code, name: d.name }))}
-        allUsers={dbUsers.length > 0 ? dbUsers.map(u => ({ id: u.id, name: u.fullName, role: u.roleName || u.activeRoleCode, departmentId: (u as any).departmentId || '', departmentName: (u as any).departmentName || '' })) : activeStaffList.map(s => ({ id: s.id, name: s.name, role: s.role, departmentId: s.departmentCode, departmentName: s.departmentName }))}
+        allUsers={(Array.isArray(dbUsers) && dbUsers.length > 0) ? dbUsers.map(u => ({ id: u.id, name: u.fullName, role: u.roleName || u.activeRoleCode, departmentId: (u as any).departmentId || '', departmentName: (u as any).departmentName || '' })) : activeStaffList.map(s => ({ id: s.id, name: s.name, role: s.role, departmentId: s.departmentCode, departmentName: s.departmentName }))}
         onTaskCreated={(taskItemId, subTasks) => {
           setShowAiAssignmentModal(false);
           setAiChecklistTaskId(taskItemId);

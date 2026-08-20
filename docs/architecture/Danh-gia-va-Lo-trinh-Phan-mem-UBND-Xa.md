@@ -107,15 +107,15 @@ Dựa trên báo cáo "Phân cấp phân quyền UBND Cấp xã" bạn gửi, đ
 
 Đúng với yêu cầu "an toàn + bảo mật toàn bộ thông tin" của bạn:
 
-- [ ] Bật xác thực JWT thật + `[Authorize]` trên mọi endpoint (mục 3, Giai đoạn 0).
-- [ ] Xoá JWT secret hard-code, chuyển sang secret manager/biến môi trường.
-- [ ] Bắt buộc HTTPS + HSTS ở môi trường production.
-- [ ] Access token thời hạn ngắn (15–30 phút) + refresh token, thay vì hạn 7 ngày như hiện tại.
-- [ ] Rate limiting cho endpoint đăng nhập, chống brute-force mật khẩu cán bộ.
-- [ ] `AuditLog` nên là bảng append-only ở tầng database (không cấp quyền UPDATE/DELETE cho application user).
+- [x] Bật xác thực JWT thật + `[Authorize]` trên mọi endpoint (mục 3, Giai đoạn 0) — hoàn thành; bổ sung `[Authorize]` còn thiếu trên `RatingHistoryController` & `PushController`; kiểm soát quyền theo policy `LeaderOnly`/`ManagerPlus`.
+- [x] Xoá JWT secret hard-code, chuyển sang secret manager/biến môi trường — secret đọc từ `Jwt:Secret` trong config.
+- [x] Bắt buộc HTTPS + HSTS ở môi trường production — `UseHsts()` + redirect HTTPS.
+- [x] Access token thời hạn ngắn (30 phút) + refresh token 7 ngày (xoay vòng, lưu SHA-256 hash), thay vì hạn 7 ngày như trước.
+- [x] Rate limiting cho endpoint đăng nhập (10 lần/5 phút/IP) + global 120 req/phút, chống brute-force mật khẩu cán bộ.
+- [x] `AuditLog` append-only ở tầng database — đã thi hành trong `ApplicationDbContext.SaveChangesAsync` (chặn UPDATE/DELETE).
 - [ ] Với dữ liệu nhạy cảm (đất đai, tài chính, hồ sơ công dân): cân nhắc mã hoá field-level, không chỉ mã hoá at-rest toàn ổ đĩa.
-- [ ] Tách biệt thật sự `appsettings.Development.json` khỏi cấu hình production (hiện file production đang thiếu hẳn connection string — cần đảm bảo secret production không commit vào git).
-- [ ] Xác thực đa yếu tố (MFA/OTP) tối thiểu cho tài khoản cấp lãnh đạo/quản trị, như báo cáo `TasksSoftware.docx` khuyến nghị.
+- [ ] Tách biệt thật sự `appsettings.Development.json` khỏi cấu hình production (hiện file production đang thiếu hẳn connection string — cần đảm bảo secret production không commit vào git). — bổ sung `AGENTS.md` cấm commit/đọc file secret; `.gitignore` chặn `appsettings*.json`/`.env*`.
+- [x] Xác thực đa yếu tố (MFA/OTP) cho tài khoản — TOTP RFC 6238 (Google Authenticator tương thích), bật/tắt trong cài đặt tài khoản, đăng nhập 2 bước tại cổng đăng nhập.
 
 ---
 

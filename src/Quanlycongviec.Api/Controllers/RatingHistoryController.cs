@@ -16,6 +16,7 @@ namespace Quanlycongviec.Api.Controllers
 {
     [ApiController]
     [Route("api/v1")]
+    [Authorize]
     public class RatingHistoryController : ControllerBase
     {
         private readonly IMediator _mediator;
@@ -85,6 +86,7 @@ namespace Quanlycongviec.Api.Controllers
         /// Lấy danh sách các đề xuất sửa điểm đang chờ Lãnh đạo cấp trên phê duyệt
         /// </summary>
         [HttpGet("RatingHistory/pending")]
+        [Authorize(Policy = "LeaderOnly")]
         public async Task<ActionResult<List<RatingHistoryDto>>> GetPendingRatingRevisions()
         {
             var result = await _mediator.Send(new GetPendingRatingRevisionsQuery());
@@ -95,6 +97,7 @@ namespace Quanlycongviec.Api.Controllers
         /// Lãnh đạo cấp trên phê duyệt đề xuất sửa điểm (Thực sự áp dụng điểm mới)
         /// </summary>
         [HttpPost("RatingHistory/{id}/approve")]
+        [Authorize(Policy = "LeaderOnly")]
         public async Task<ActionResult<bool>> ApproveRatingRevision(Guid id)
         {
             try
@@ -117,6 +120,7 @@ namespace Quanlycongviec.Api.Controllers
         /// Lãnh đạo cấp trên từ chối đề xuất sửa điểm (Điểm số giữ nguyên)
         /// </summary>
         [HttpPost("RatingHistory/{id}/reject")]
+        [Authorize(Policy = "LeaderOnly")]
         public async Task<ActionResult<bool>> RejectRatingRevision(Guid id, [FromBody] RejectRatingRevisionDto dto)
         {
             try

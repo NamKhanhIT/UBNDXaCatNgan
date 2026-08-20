@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi.Models;
@@ -9,6 +10,7 @@ using Quanlycongviec.Infrastructure.Hubs;
 using Quanlycongviec.Infrastructure.Persistence;
 using Quanlycongviec.Application.Common.Options;
 using Quanlycongviec.Api.Middleware;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,6 +25,43 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
+
+// ── Rate Limiting (chống brute-force đăng nhập & spam) ──
+var rateLimitOptions = builder.Configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>() ?? new RateLimitOptions();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            "{\"success\":false,\"message\":\"Quá nhiều yêu cầu. Vui lòng thử lại sau.\"}", cancellationToken);
+    };
+
+    // Giới hạn đăng nhập/đăng ký theo IP — chống brute-force mật khẩu cán bộ
+    options.AddPolicy("LoginLimiter", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = rateLimitOptions.LoginPermitLimit,
+                Window = TimeSpan.FromMinutes(rateLimitOptions.LoginWindowMinutes),
+                QueueLimit = 0
+            }));
+
+    // Giới hạn chung theo IP cho toàn API — chống DoS/abuse
+    options.AddPolicy("GlobalLimiter", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = rateLimitOptions.GlobalPermitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
@@ -95,7 +134,13 @@ if (app.Environment.IsDevelopment())
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "UBND Xã Cát Ngạn API v1");
     });
 }
+else
+{
+    // Bắt buộc HTTPS + HSTS ở production — chặn truy cập qua HTTP kênh rõ
+    app.UseHsts();
+}
 
+app.UseRateLimiter();
 app.UseCors("WebClient");
 app.UseMiddleware<DemoModeMiddleware>();
 app.UseHttpsRedirection();
