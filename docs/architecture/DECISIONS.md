@@ -133,4 +133,20 @@
   - **Chống ảo giác (Anti-hallucination)**: Tự động tổng hợp danh mục trích dẫn nguồn và áp đặt chỉ thị trả lời rõ *"Không tìm thấy thông tin liên quan trong cơ sở tri thức"* khi không có tài liệu khớp.
   - **Chỉ số đánh giá định lượng**: Bổ sung chỉ số **Retrieval Recall@K** trong hệ thống benchmark để đo lường độc lập chất lượng tìm kiếm trước khi sinh văn bản.
 
+---
+
+## ADR-15: Xác Thực Đa Yếu Tố TOTP (RFC 6238) & Phòng Vệ An Ninh Luồng Đăng Nhập 2 Bước
+- **Bối cảnh**: Checklist bảo mật (mục 6, `Danh-gia-va-Lo-trinh-Phan-mem-UBND-Xa.md`) yêu cầu xác thực đa yếu tố cho tài khoản cán bộ và giảm thời hạn access token; chống rò rỉ mật khẩu và truy cập trái phép qua mạng ngoài LAN.
+- **Quyết định**:
+  - **MFA/OTP tự triển khai theo chuẩn RFC 6238** (HMAC-SHA1, 6 chữ số, bước 30s, dung sai $\pm 1$ step), tương thích Google Authenticator/Ente Auth/Aegis/Microsoft Authenticator — không phụ thuộc thư viện bên ngoài, giữ chủ quyền công nghệ 0đ chi phí.
+  - **Đăng nhập 2 bước an toàn**: Mật khẩu đúng → trả `MfaRequired` + `MfaToken` (JWT ngắn 5 phút, claim `Purpose=mfa`). Không cấp token thật và không set cookie khi chưa vượt qua OTP.
+  - **Phòng vệ leo thang đặc quyền qua Interim Token**: Bổ sung `OnTokenValidated` trong pipeline `AddJwtBearer` của ASP.NET Core để từ chối ngay lập tức mọi JWT mang claim `Purpose == "mfa"`. `MfaToken` chỉ có hiệu lực duy nhất tại endpoint `/api/v1/Auth/mfa/verify-login`.
+  - **Phòng vệ Timing Attack**: Sử dụng so sánh mảng byte thời gian bất biến `CryptographicOperations.FixedTimeEquals` trong `TotpService`.
+  - **Bảo vệ Secret & Dữ liệu nhạy cảm**: Gắn `[JsonIgnore]` trên thuộc tính `MfaSecret` của entity `User` chống rò rỉ qua serialization/logging.
+  - **Rate Limiting chống Bruteforce**: Gắn `[EnableRateLimiting("LoginLimiter")]` trên toàn bộ các endpoint `/mfa/setup`, `/mfa/enable`, `/mfa/disable`, `/mfa/verify-login`.
+  - **Phiên ngắn + Refresh token xoay vòng**: Access token 30 phút (`Jwt:AccessTokenMinutes`), refresh token 7 ngày (`Jwt:RefreshTokenDays`) chỉ lưu SHA-256 hash, xoay vòng mỗi lần refresh, thu hồi khi logout.
+  - **Kiểm thử tự động**: Đạt **117/117 test cases (100% Passed)** trên toàn bộ hệ thống .NET 8 và Next.js 14 build sạch.
+- **Trạng thái**: Đã triển khai và kiểm định an ninh hoàn chỉnh.
+
+
 

@@ -1,8 +1,8 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { authenticateUser } from '../../services/auth.service';
-import type { RoleCode } from '../../services/auth.service';
+import { authenticateUser, verifyMfaLogin } from '../../services/auth.service';
+import type { AuthUser, RoleCode } from '../../services/auth.service';
 
 // Re-export for backward compatibility
 export type { RoleCode };
@@ -57,7 +57,7 @@ export interface SignInPageProps {
   description?: React.ReactNode;
   heroImageSrc?: string;
   testimonials?: Testimonial[];
-  onSignIn?: (event: React.FormEvent<HTMLFormElement>, role?: RoleCode) => void;
+  onSignIn?: (event: React.FormEvent<HTMLFormElement>, role?: RoleCode, user?: AuthUser) => void;
   onQuickRoleSelect?: (role: RoleCode) => void;
   onGoogleSignIn?: () => void;
   onResetPassword?: () => void;
@@ -116,6 +116,12 @@ export const SignInPage: React.FC<SignInPageProps> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  // ── Xác thực 2 yếu tố (MFA/OTP) ──
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaToken, setMfaToken] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
+
   const handleRoleSelect = (role: QuickRoleOption) => {
     setSelectedRole(role.code);
     setEmail(role.email);
@@ -144,8 +150,23 @@ export const SignInPage: React.FC<SignInPageProps> = ({
     try {
       const result = await authenticateUser(email, password);
 
-      if (!result.success || !result.user) {
+      if (!result.success) {
         setErrorMessage(result.error || 'Đã xảy ra lỗi khi đăng nhập.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Tài khoản đã bật MFA → chuyển sang bước nhập mã OTP
+      if (result.requiresMfa) {
+        setMfaToken(result.mfaToken || '');
+        setMfaRequired(true);
+        setIsSubmitting(false);
+        setSuccessMessage('Mật khẩu chính xác. Vui lòng nhập mã OTP từ ứng dụng Authenticator để hoàn tất đăng nhập.');
+        return;
+      }
+
+      if (!result.user) {
+        setErrorMessage('Không nhận được thông tin tài khoản.');
         setIsSubmitting(false);
         return;
       }
@@ -158,13 +179,57 @@ export const SignInPage: React.FC<SignInPageProps> = ({
 
       setTimeout(() => {
         if (onSignIn) {
-          onSignIn(e, roleCode);
+          onSignIn(e, roleCode, user);
         }
       }, 500);
     } catch (err: any) {
       setErrorMessage(err.message || 'Lỗi hệ thống khi đăng nhập.');
       setIsSubmitting(false);
     }
+  };
+
+  // ── Hoàn tất bước xác thực OTP ──
+  const handleMfaSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const code = otpCode.trim();
+    if (code.length < 6) {
+      setErrorMessage('Vui lòng nhập đủ 6 chữ số từ ứng dụng Authenticator.');
+      return;
+    }
+
+    setErrorMessage('');
+    setIsVerifyingMfa(true);
+
+    try {
+      const result = await verifyMfaLogin(mfaToken, code);
+      if (!result.success || !result.user) {
+        setErrorMessage(result.error || 'Mã OTP không hợp lệ.');
+        setIsVerifyingMfa(false);
+        return;
+      }
+
+      const user = result.user;
+      const roleCode = (user.activeRole as RoleCode) || 'ChuTichUBND';
+      setSelectedRole(roleCode);
+      setSuccessMessage(`Xác thực thành công! Chào mừng đồng chí ${user.fullName}. Đang chuyển hướng...`);
+
+      setTimeout(() => {
+        if (onSignIn) {
+          onSignIn(e, roleCode, user);
+        }
+      }, 500);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Lỗi hệ thống khi xác thực mã OTP.');
+      setIsVerifyingMfa(false);
+    }
+  };
+
+  const handleBackToLogin = () => {
+    setMfaRequired(false);
+    setMfaToken('');
+    setOtpCode('');
+    setErrorMessage('');
+    setSuccessMessage('');
   };
 
   return (
@@ -237,7 +302,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({
             </div>
 
             {/* Login Form */}
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            <form className="space-y-4" onSubmit={mfaRequired ? handleMfaSubmit : handleSubmit}>
               <div className="animate-element animate-delay-400 space-y-1.5">
                 <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
                   <Icon name="building" size={14} style={{ color: '#94a3b8' }} /> Tên đăng nhập / Email công vụ
@@ -299,6 +364,53 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                 </a>
               </div>
 
+              {/* OTP Step — hiện sau khi nhập đúng mật khẩu (tài khoản đã bật 2 lớp) */}
+              {mfaRequired ? (
+                <div className="animate-element animate-delay-700 space-y-1.5 pt-1">
+                  <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                    <Icon name="shield-halved" size={14} style={{ color: '#059669' }} /> Mã OTP 6 chữ số từ ứng dụng Authenticator
+                  </label>
+                  <GlassInputWrapper>
+                    <input
+                      name="otp"
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={otpCode}
+                      onChange={(e) => { setOtpCode(e.target.value.replace(/\D/g, '')); setErrorMessage(''); }}
+                      placeholder="••••••"
+                      required
+                      autoFocus
+                      disabled={isVerifyingMfa}
+                      className={`w-full bg-transparent text-sm p-3.5 rounded-2xl focus:outline-none text-center tracking-[0.5em] font-bold text-slate-900 dark:text-white placeholder:text-slate-400 ${isVerifyingMfa ? 'opacity-60' : ''}`}
+                    />
+                  </GlassInputWrapper>
+                  <button
+                    type="submit"
+                    disabled={isVerifyingMfa}
+                    className="w-full rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] py-3.5 font-bold text-white shadow-lg shadow-emerald-600/30 transition-all duration-200 flex items-center justify-center gap-2 text-sm mt-2"
+                  >
+                    {isVerifyingMfa ? (
+                      <>
+                        <Icon name="spinner" size={16} className="fa-spin" /> Đang xác thực mã OTP...
+                      </>
+                    ) : (
+                      <>
+                        <Icon name="shield-halved" size={16} /> Xác Nhận & Đăng Nhập
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isVerifyingMfa}
+                    onClick={handleBackToLogin}
+                    className="w-full text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors pt-1"
+                  >
+                    ← Quay lại nhập tài khoản
+                  </button>
+                </div>
+              ) : (
               <button
                 type="submit"
                 disabled={isSubmitting}
@@ -314,6 +426,7 @@ export const SignInPage: React.FC<SignInPageProps> = ({
                   </>
                 )}
               </button>
+              )}
             </form>
 
             {/* Password hint for demo */}

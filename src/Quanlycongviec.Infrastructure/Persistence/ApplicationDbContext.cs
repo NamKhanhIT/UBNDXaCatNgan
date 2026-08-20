@@ -37,6 +37,7 @@ namespace Quanlycongviec.Infrastructure.Persistence
         public DbSet<EventReminderOffset> EventReminderOffsets => Set<EventReminderOffset>();
         public DbSet<TaskReviewAnnotation> TaskReviewAnnotations => Set<TaskReviewAnnotation>();
         public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
+        public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -322,6 +323,24 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasOne(p => p.User)
                     .WithMany(u => u.PushSubscriptions)
                     .HasForeignKey(p => p.UserId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // ── RefreshToken: Chỉ lưu hash, unique theo TokenHash ──
+            modelBuilder.Entity<RefreshToken>(entity =>
+            {
+                entity.Property(t => t.TokenHash)
+                    .IsRequired()
+                    .HasMaxLength(64);
+
+                entity.HasIndex(t => t.TokenHash)
+                    .IsUnique();
+
+                entity.HasIndex(t => new { t.UserId, t.RevokedUtc });
+
+                entity.HasOne(t => t.User)
+                    .WithMany(u => u.RefreshTokens)
+                    .HasForeignKey(t => t.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
         }

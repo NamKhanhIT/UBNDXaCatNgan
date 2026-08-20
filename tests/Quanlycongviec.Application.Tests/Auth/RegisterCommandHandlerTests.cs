@@ -16,6 +16,7 @@ namespace Quanlycongviec.Application.Tests.Auth
         private readonly ApplicationDbContext _context;
         private readonly Mock<IPasswordHasher> _passwordHasherMock;
         private readonly Mock<IJwtTokenService> _jwtTokenServiceMock;
+        private readonly Mock<IRefreshTokenService> _refreshTokenServiceMock;
 
         public RegisterCommandHandlerTests()
         {
@@ -26,17 +27,20 @@ namespace Quanlycongviec.Application.Tests.Auth
             _context = new ApplicationDbContext(options);
             _passwordHasherMock = new Mock<IPasswordHasher>();
             _jwtTokenServiceMock = new Mock<IJwtTokenService>();
+            _refreshTokenServiceMock = new Mock<IRefreshTokenService>();
 
             _passwordHasherMock.Setup(x => x.HashPassword(It.IsAny<string>())).Returns("hashed_pass");
             _jwtTokenServiceMock.Setup(x => x.GenerateToken(It.IsAny<Domain.Entities.User>(), It.IsAny<string>(), It.IsAny<System.Collections.Generic.IEnumerable<string>>(), It.IsAny<int>()))
                 .Returns("jwt_token_sample");
+            _refreshTokenServiceMock.Setup(x => x.CreateAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync("refresh_token_sample");
         }
 
         [Fact]
         public async Task Handle_ShouldRegisterUserSuccessfully()
         {
             // Arrange
-            var handler = new RegisterCommandHandler(_context, _passwordHasherMock.Object, _jwtTokenServiceMock.Object);
+            var handler = new RegisterCommandHandler(_context, _passwordHasherMock.Object, _jwtTokenServiceMock.Object, _refreshTokenServiceMock.Object);
             var command = new RegisterCommand("canbo1", "Nguyen Van A", "canbo1@catngan.gov.vn", "password123", "BiThu");
 
             // Act
@@ -47,6 +51,7 @@ namespace Quanlycongviec.Application.Tests.Auth
             result.Username.Should().Be("canbo1");
             result.ActiveRole.Should().Be("BiThu");
             result.Token.Should().Be("jwt_token_sample");
+            result.RefreshToken.Should().Be("refresh_token_sample");
 
             var userInDb = await _context.Users.FirstOrDefaultAsync(u => u.Username == "canbo1");
             userInDb.Should().NotBeNull();

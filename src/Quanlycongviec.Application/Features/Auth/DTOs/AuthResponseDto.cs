@@ -20,5 +20,15 @@ namespace Quanlycongviec.Application.Features.Auth.DTOs
         public string ActiveRole { get; set; } = string.Empty;
         public List<UserRoleDto> AvailableRoles { get; set; } = new List<UserRoleDto>();
         public string Token { get; set; } = string.Empty;
+        public string RefreshToken { get; set; } = string.Empty;
+
+        /// <summary>Yêu cầu xác thực 2 yếu tố (người dùng đã bật MFA) — cần gọi /Auth/mfa/verify-login</summary>
+        public bool MfaRequired { get; set; }
+
+        /// <summary>Token dùng 1 lần (5 phút) cho bước xác thực OTP sau mật khẩu</summary>
+        public string MfaToken { get; set; } = string.Empty;
+
+        /// <summary>Trạng thái MFA của tài khoản (đã bật xác thực 2 yếu tố hay chưa)</summary>
+        public bool MfaEnabled { get; set; }
     }
 }

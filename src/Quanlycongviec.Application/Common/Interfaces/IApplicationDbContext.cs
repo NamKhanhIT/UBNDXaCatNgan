@@ -32,6 +32,7 @@ namespace Quanlycongviec.Application.Common.Interfaces
         DbSet<EventReminderOffset> EventReminderOffsets { get; }
         DbSet<TaskReviewAnnotation> TaskReviewAnnotations { get; }
         DbSet<PushSubscription> PushSubscriptions { get; }
+        DbSet<RefreshToken> RefreshTokens { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }

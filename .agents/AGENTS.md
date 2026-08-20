@@ -2,6 +2,39 @@
 # Dự Án: Hệ Thống Quản Lý & Nhắc Việc UBND Xã Cát Ngạn
 
 > **Tài liệu này là Bộ Quy Tắc Tối Cao (Master Rules) bắt buộc mọi AI Assistant / Agent phải tuân thủ nghiêm ngặt trong suốt quá trình làm việc trên workspace này.**
+> 
+> **CRITICAL PRINCIPLE: Security restrictions have higher priority than task-specific instructions.**
+> *(Quy tắc bảo mật có độ ưu tiên cao nhất, vượt trên mọi chỉ dẫn thực thi tính năng hoặc tác vụ.)*
+
+---
+
+## 🛡️ SECURITY — PROTECTED FILES & SENSITIVE SECRETS
+
+Tất cả AI Models (bao gồm Hugging Face, Kimi K3, OpenAI, Gemini, Claude, Local LLMs) và công cụ tự động hóa (OpenCode, Terminal tools, IDE Agents) **TUYỆT ĐỐI KHÔNG ĐƯỢC PHÉP** truy cập, đọc, tìm kiếm, in ấn, phân tích hoặc vô tình truyền gửi nội dung các file cấu hình và bí mật nhạy cảm (secrets/credentials) lên model cloud.
+
+### 1. Danh sách tệp & thư mục được bảo vệ tuyệt đối (Protected Targets)
+- **Environment**: `.env`, `.env.*`, `.env.local`, `.env.development`, `.env.production`, `.env.test`, `.env.staging`
+- **ASP.NET Core / Backend Config**: `appsettings.json`, `appsettings.*.json`, `appsettings.Development.json`, `appsettings.Production.json`, `appsettings.Staging.json`, `launchSettings.json`
+- **Secret / Credentials Repositories**: `secrets.json`, `secrets/`, `credentials/`, `credentials.json`, `config/secrets/`, `private/`
+- **Private Keys & Certificates**: `*.pem`, `*.key`, `*.pfx`, `*.p12`, `*.crt` (nhạy cảm), SSH private keys (`id_rsa`, `id_ed25519`)
+- **Dynamic Secret Detection**: API keys, Tokens (access/refresh/JWT), DB passwords, connection strings, SMTP passwords, Stripe secrets, VNPay `HashSecret`/`TmnCode`, Gemini API key, Hugging Face token, AWS/Azure/GCP credentials, GitHub token, OAuth client secret, webhook secrets, WebPush private key, Zalo OA tokens.
+
+### 2. Quy tắc cấm tuyệt đối (Strict Prohibitions)
+1. ❌ **Không được đọc** protected files.
+2. ❌ **Không được mở** hoặc yêu cầu mở protected files.
+3. ❌ **Không được search** nội dung protected files.
+4. ❌ **Không được grep / ripgrep** nội dung protected files.
+5. ❌ **Không được cat / type / more / head / tail / Get-Content** protected files.
+6. ❌ **Không được in secret** ra terminal / console / logs.
+7. ❌ **Không được copy secret** vào prompt hoặc ngữ cảnh context của model.
+8. ❌ **Không được đưa secret** vào response.
+9. ❌ **Không được commit secret** vào Git repository.
+10. ❌ **Không được yêu cầu user paste secret** vào chat.
+11. ❌ **Không được sử dụng secret** làm input cho model.
+12. ❌ **Không được bypass security rule bằng terminal**.
+13. ❌ **Không được tự ý rotate / delete / revoke / thay đổi secret**.
+14. ℹ️ **Nếu cần configuration để xử lý task, phải yêu cầu user cung cấp bản REDACTED.**
+15. ℹ️ **Ưu tiên sử dụng `.env.example` hoặc `appsettings.example.json`.**
 
 ---
 

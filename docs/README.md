@@ -22,9 +22,10 @@ Chứa các bản đặc tả chi tiết được thiết kế trước khi tri�
 - `2026-08-19-hybrid-rag-and-multimodal-upgrade-design.md`: Nâng cấp Hybrid RAG 2 lớp (BM25 + ChromaDB/bge-m3), Multimodal Vision Qwen3.8-27B-FP8, Tab 5 Quản lý tri thức RAG và bộ đánh giá 6 chỉ số.
 - `2026-08-19-ai-security-hardening-and-anti-injection-spec.md`: Hệ thống phòng vệ AI 6 tầng, chống Prompt Injection/Jailbreak đa vector, lọc rác/ẩn danh PII và bộ kiểm định an ninh 550+ test cases.
 - `2026-08-19-executive-dashboard-ui-redesign-spec.md`: Tái thiết kế giao diện Dashboard Quản trị Tri thức AI phong cách định chế công vụ (Sidebar dọc 240px, FontAwesome 6, Palette Navy #1B2A4A & Đỏ con dấu #A6293C, Inter/IBM Plex Typography).
+- `2026-08-20-two-factor-authentication-mfa-totp-spec.md`: Xác thực 2 yếu tố (MFA/TOTP RFC 6238), luồng đăng nhập 2 bước, phòng vệ Timing Attack, Rate Limiting và cách ly Interim Token.
 
 ### 2. [docs/architecture/](file:///e:/Jobs/UBNDXaCatNgan/UBNDXaCN/docs/architecture) — Kiến Trúc & Quyết Định Kỹ Thuật
-- `DECISIONS.md`: Quyết định kiến trúc (ADRs từ ADR-01 đến ADR-14 về UI Utilitarian, Inbox Triage, Đánh giá Kép, Hybrid RAG 2 lớp, Multimodal LLM).
+- `DECISIONS.md`: Quyết định kiến trúc (ADRs từ ADR-01 đến ADR-15 về UI Utilitarian, Inbox Triage, Đánh giá Kép, Hybrid RAG 2 lớp, Multimodal LLM, Xác thực 2 yếu tố MFA/TOTP).
 - `Phân cấp phân quyền UBND Cấp xã.md`: Mô hình phân quyền 3 cấp, cơ cấu tổ chức theo Luật 72/2025/QH15.
 - `Danh-gia-va-Lo-trinh-Phan-mem-UBND-Xa.md`: Báo cáo đánh giá hiện trạng và lộ trình phát triển hệ thống qua 4 giai đoạn.
 - `TasksSoftware.docx`: Báo cáo nghiên cứu cơ sở lý luận và yêu cầu phần mềm.

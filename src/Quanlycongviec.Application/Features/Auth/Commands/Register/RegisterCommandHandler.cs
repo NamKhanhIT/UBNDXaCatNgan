@@ -16,15 +16,18 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Register
         private readonly IApplicationDbContext _context;
         private readonly IPasswordHasher _passwordHasher;
         private readonly IJwtTokenService _jwtTokenService;
+        private readonly IRefreshTokenService _refreshTokenService;
 
         public RegisterCommandHandler(
             IApplicationDbContext context,
             IPasswordHasher passwordHasher,
-            IJwtTokenService jwtTokenService)
+            IJwtTokenService jwtTokenService,
+            IRefreshTokenService refreshTokenService)
         {
             _context = context;
             _passwordHasher = passwordHasher;
             _jwtTokenService = jwtTokenService;
+            _refreshTokenService = refreshTokenService;
         }
 
         public async Task<AuthResponseDto> Handle(RegisterCommand request, CancellationToken cancellationToken)
@@ -77,6 +80,7 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Register
             await _context.SaveChangesAsync(cancellationToken);
 
             var token = _jwtTokenService.GenerateToken(user, role.Code, new[] { role.Code }, role.RankLevel);
+            var refreshToken = await _refreshTokenService.CreateAsync(user.Id, cancellationToken);
 
             return new AuthResponseDto
             {
@@ -89,7 +93,9 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Register
                 {
                     new UserRoleDto { RoleCode = role.Code, RoleName = role.Name, IsPrimary = true }
                 },
-                Token = token
+                Token = token,
+                RefreshToken = refreshToken,
+                MfaEnabled = false
             };
         }
     }
