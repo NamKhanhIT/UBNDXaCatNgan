@@ -39,6 +39,13 @@ private/
 # ------------------------------------------
 AGENTS.md
 agents.md
+.agents/
+.agents/**
+docs/
+docs/**
+scripts/
+scripts/**
+CONTRIBUTING.md
 opencode.json
 opencode.*.json
 opencode.jsonc
