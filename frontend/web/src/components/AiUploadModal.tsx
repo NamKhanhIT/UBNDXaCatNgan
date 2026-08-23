@@ -126,10 +126,10 @@ export const AiUploadModal: React.FC<AiUploadModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">
-                Tải Lên & Phân Tích AI
+                Tiếp Nhận & Nhận Dạng Văn Bản
               </h2>
               <p className="text-xs text-slate-500">
-                {documentNumberSymbol ? `Văn bản: ${documentNumberSymbol}` : 'Trích xuất OCR và phân loại văn bản tự động'}
+                {documentNumberSymbol ? `Văn bản: ${documentNumberSymbol}` : 'Nhận dạng nội dung và trích xuất thông tin điều hành tự động'}
               </p>
             </div>
           </div>
@@ -181,11 +181,11 @@ export const AiUploadModal: React.FC<AiUploadModalProps> = ({
 
                 <div>
                   <p className="text-sm font-semibold text-slate-800">
-                    Kéo thả văn bản scan / PDF vào đây hoặc{' '}
-                    <span className="text-indigo-600 underline">duyệt từ máy</span>
+                    Kéo thả văn bản scan hoặc tài liệu vào đây hoặc{' '}
+                    <span className="text-indigo-600 underline">chọn từ máy tính</span>
                   </p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Hỗ trợ: PDF, DOCX, JPG, PNG scan có dấu mộc (Tối đa 20MB)
+                    Định dạng: PDF, DOCX, JPG, PNG có dấu mộc (Tối đa 20MB)
                   </p>
                 </div>
               </div>
@@ -226,15 +226,15 @@ export const AiUploadModal: React.FC<AiUploadModalProps> = ({
               <div className="text-center space-y-1">
                 <h3 className="text-sm font-bold text-slate-800">
                   {step === 'uploading'
-                    ? 'Đang tải file lên máy chủ nội bộ...'
+                    ? 'Đang tải tệp tin lên hệ thống nội bộ...'
                     : step === 'analyzing'
-                    ? 'Đang OCR & Phân tích văn bản với Qwen AI...'
-                    : 'Phân tích hoàn tất!'}
+                    ? 'Đang nhận dạng và trích xuất nội dung văn bản...'
+                    : 'Trích xuất hoàn tất!'}
                 </h3>
                 <p className="text-xs text-slate-500 max-w-sm">
                   {step === 'uploading'
-                    ? 'Lưu trữ tài liệu bảo mật trên server xã Cát Ngạn'
-                    : 'Trích xuất tiêu đề, hạn chót, phòng ban & tóm tắt cốt lõi'}
+                    ? 'Lưu trữ bảo mật trên hệ thống máy chủ nội bộ'
+                    : 'Tổng hợp trích yếu, thời hạn, đơn vị thực hiện và nhiệm vụ trọng tâm'}
                 </p>
               </div>
             </div>
@@ -258,8 +258,8 @@ export const AiUploadModal: React.FC<AiUploadModalProps> = ({
               onClick={handleStartAnalysis}
               className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 rounded-xl shadow-md shadow-blue-500/20 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Sparkles className="w-4 h-4 text-amber-300" />
-              Bắt Đầu Phân Tích AI
+              <Sparkles className="w-4 h-4" />
+              Bắt đầu nhận dạng văn bản
             </button>
           </div>
         )}

@@ -8,11 +8,11 @@ namespace Quanlycongviec.Application.Common.Options
     {
         public const string SectionName = "RateLimit";
 
-        /// <summary>Giới hạn số lần đăng nhập/đăng ký thất bại trong cửa sổ thời gian (mỗi IP)</summary>
-        public int LoginPermitLimit { get; set; } = 10;
+        /// <summary>Giới hạn số lần đăng nhập/đăng ký trong cửa sổ thời gian (mỗi IP)</summary>
+        public int LoginPermitLimit { get; set; } = 30;
 
         /// <summary>Cửa sổ thời gian cho giới hạn đăng nhập (phút)</summary>
-        public int LoginWindowMinutes { get; set; } = 5;
+        public int LoginWindowMinutes { get; set; } = 1;
 
         /// <summary>Giới hạn yêu cầu chung mỗi phút (mỗi IP) cho toàn API</summary>
         public int GlobalPermitLimit { get; set; } = 120;

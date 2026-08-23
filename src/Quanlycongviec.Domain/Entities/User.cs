@@ -23,6 +23,12 @@ namespace Quanlycongviec.Domain.Entities
         [System.Text.Json.Serialization.JsonIgnore]
         public string? MfaSecret { get; set; }                 // Secret Base32 TOTP (chỉ lưu DB bảo vệ)
 
+        // ── Khôi phục mật khẩu (Forgot Password OTP) ──
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? PasswordResetOtp { get; set; }          // Mã OTP đặt lại mật khẩu
+
+        public DateTime? PasswordResetOtpExpiry { get; set; }  // Thời hạn OTP khôi phục mật khẩu
+
         // ── Chuyên môn & kinh nghiệm (Prompt F: AI gợi ý giao việc) ──
         public string? Expertise { get; set; }           // Danh sách chuyên môn dạng tag: "Đất đai, Quy hoạch, TTHC"
         public int YearsOfExperience { get; set; } = 0;  // Số năm kinh nghiệm (mặc định 0 — cần nhập tay sau triển khai)

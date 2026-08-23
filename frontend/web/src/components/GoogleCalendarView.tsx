@@ -10,6 +10,7 @@ import {
   getCalendarEventsApi,
 } from '../services/calendar-event.service';
 import { UserDto } from '../services/task.service';
+import { useSignalREvent } from '../hooks/use-signalr';
 
 interface TaskCalendarItem {
   id: string;
@@ -77,6 +78,36 @@ export function GoogleCalendarView({
   // Server Events State
   const [eventsList, setEventsList] = useState<CalendarEventDto[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+
+  // Lắng nghe sự kiện lịch công tác SignalR Realtime
+  useSignalREvent('CalendarEventCreated', (data: any) => {
+    if (data?.title) {
+      addToast('Lịch công tác mới', `Sự kiện mới: ${data.title}`, 'info');
+    }
+    if (data?.id) {
+      setEventsList(prev => {
+        if (prev.some(e => e.id === data.id)) return prev;
+        const newEvent: CalendarEventDto = {
+          id: data.id,
+          title: data.title || 'Sự kiện mới',
+          description: data.description || '',
+          eventType: data.eventType || 'Meeting',
+          eventTypeName: 'Cuộc họp',
+          startDateTime: data.startDateTime || new Date().toISOString(),
+          endDateTime: data.endDateTime || new Date().toISOString(),
+          isAllDay: !!data.isAllDay,
+          location: data.location || '',
+          organizerId: data.organizerId || '',
+          organizerName: 'UBND Xã',
+          departmentId: data.departmentId,
+          colorTag: data.colorTag || '#3B82F6',
+          participants: [],
+          reminderOffsetsMinutes: [30],
+        };
+        return [newEvent, ...prev];
+      });
+    }
+  });
 
   // Modals & Drawers
   const [showCreateMenu, setShowCreateMenu] = useState(false);
@@ -1209,7 +1240,7 @@ export function GoogleCalendarView({
                             </span>
                           </div>
                           <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span><i className="fa-solid fa-location-dot" /> <strong>{item.location || 'UBND Xã Cát Ngạn'}</strong></span>
+                            <span><i className="fa-solid fa-location-dot" /> <strong>{item.location || 'Hội trường UBND Cấp Xã'}</strong></span>
                             <span>• <i className="fa-solid fa-user-shield" /> Chủ trì: {item.organizerName || 'Ban tổ chức'}</span>
                           </div>
                         </div>
@@ -1285,7 +1316,7 @@ export function GoogleCalendarView({
                             </span>
                           </div>
                           <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span><i className="fa-solid fa-location-dot" /> <strong>{item.location || 'UBND Xã Cát Ngạn'}</strong></span>
+                            <span><i className="fa-solid fa-location-dot" /> <strong>{item.location || 'Hội trường UBND Cấp Xã'}</strong></span>
                             <span>• <i className="fa-solid fa-user-shield" /> Chủ trì: {item.organizerName || 'Ban tổ chức'}</span>
                           </div>
                         </div>
@@ -1781,7 +1812,7 @@ export function GoogleCalendarView({
                           </span>
                         </div>
                         <div style={{ fontSize: '0.78rem', color: '#475569', display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span><i className="fa-solid fa-location-dot" /> {item.location || 'UBND Xã Cát Ngạn'}</span>
+                          <span><i className="fa-solid fa-location-dot" /> {item.location || 'Hội trường UBND Cấp Xã'}</span>
                           <span>• <i className="fa-solid fa-user-shield" /> Chủ trì: {item.organizerName || 'Ban tổ chức'}</span>
                         </div>
                       </div>
@@ -2321,7 +2352,7 @@ export function GoogleCalendarView({
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <i className="fa-solid fa-location-dot" style={{ color: '#64748b' }} />
-                <span><strong>Địa điểm:</strong> {selectedEvent.location || 'UBND Xã Cát Ngạn'}</span>
+                <span><strong>Địa điểm:</strong> {selectedEvent.location || 'Hội trường UBND Cấp Xã'}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <i className="fa-solid fa-user-shield" style={{ color: '#64748b' }} />

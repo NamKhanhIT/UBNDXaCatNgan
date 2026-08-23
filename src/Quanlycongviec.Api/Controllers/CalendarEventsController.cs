@@ -19,10 +19,14 @@ namespace Quanlycongviec.Api.Controllers
     public class CalendarEventsController : ControllerBase
     {
         private readonly IMediator _mediator;
+        private readonly Quanlycongviec.Application.Common.Interfaces.IRealtimePublisherService _realtimePublisher;
 
-        public CalendarEventsController(IMediator mediator)
+        public CalendarEventsController(
+            IMediator mediator,
+            Quanlycongviec.Application.Common.Interfaces.IRealtimePublisherService realtimePublisher)
         {
             _mediator = mediator;
+            _realtimePublisher = realtimePublisher;
         }
 
         private Guid GetCurrentUserId()
@@ -62,6 +66,19 @@ namespace Quanlycongviec.Api.Controllers
             }
 
             var id = await _mediator.Send(command);
+
+            // Phát sự kiện CalendarEventCreated
+            await _realtimePublisher.BroadcastAsync("CalendarEventCreated", new
+            {
+                id,
+                title = command.Title,
+                startDateTime = command.StartDateTime,
+                endDateTime = command.EndDateTime,
+                eventType = command.EventType.ToString(),
+                departmentId = command.DepartmentId,
+                organizerId = command.OrganizerId
+            });
+
             return CreatedAtAction(nameof(GetCalendarEvents), new { id }, id);
         }
 

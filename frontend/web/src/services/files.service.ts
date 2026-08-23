@@ -55,9 +55,18 @@ export async function uploadFileApi(
       body: formData,
     });
 
-    const json = await res.json();
-    if (!res.ok || !json.success) {
-      return { success: false, error: json.error || 'Upload file thất bại.' };
+    const text = await res.text();
+    let json: any = null;
+    if (text && text.trim()) {
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = { message: text };
+      }
+    }
+
+    if (!res.ok || !json?.success) {
+      return { success: false, error: json?.error || json?.message || `Lỗi tải lên tệp (Mã HTTP ${res.status})` };
     }
     return { success: true, data: json.data };
   } catch (err: any) {
@@ -93,9 +102,18 @@ export async function uploadAndAnalyzeApi(
       body: formData,
     });
 
-    const json = await res.json();
-    if (!res.ok) {
-      return { success: false, error: json.error || 'Upload và phân tích thất bại.' };
+    const text = await res.text();
+    let json: any = null;
+    if (text && text.trim()) {
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = { message: text };
+      }
+    }
+
+    if (!res.ok || !json?.success) {
+      return { success: false, error: json?.error || json?.message || `Lỗi phân tích văn bản (Mã HTTP ${res.status})` };
     }
     return json;
   } catch (err: any) {

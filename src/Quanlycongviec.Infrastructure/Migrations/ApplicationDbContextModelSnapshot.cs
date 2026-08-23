@@ -1374,6 +1374,12 @@ namespace Quanlycongviec.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("PasswordResetOtp")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PasswordResetOtpExpiry")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<Guid?>("PrimaryDepartmentId")
                         .HasColumnType("uuid");
 

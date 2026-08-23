@@ -133,15 +133,15 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-bold text-slate-900">
-                  Gợi Ý Giao Việc Thông Minh
+                  Đề Xuất Phân Công Nhiệm Vụ
                 </h2>
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                   <Sparkles className="w-3 h-3 text-indigo-600" />
-                  AI Matching
+                  Tham mưu phân công
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                Đề xuất cán bộ dựa trên mức tải việc thực tế, phòng ban và chuyên môn.
+                Gợi ý cán bộ phù hợp dựa trên khối lượng công việc, phòng ban và lĩnh vực chuyên môn.
               </p>
             </div>
           </div>
@@ -159,7 +159,7 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
             <div className="py-16 flex flex-col items-center justify-center space-y-3">
               <div className="w-10 h-10 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin" />
               <p className="text-sm font-medium text-slate-600">
-                AI đang phân tích năng lực & tải việc của các cán bộ...
+                Đang rà soát phân bổ khối lượng công việc của cán bộ...
               </p>
             </div>
           ) : errorMsg && !suggestion ? (
@@ -177,7 +177,7 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
             </div>
           ) : suggestion ? (
             <>
-              {/* Top AI Match Recommendation */}
+              {/* Top Match Recommendation */}
               <div className="p-4.5 rounded-2xl bg-gradient-to-br from-indigo-50/90 via-blue-50/50 to-white border-2 border-indigo-200 shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 right-0 transform translate-x-3 -translate-y-3 w-24 h-24 bg-indigo-500/10 rounded-full blur-xl pointer-events-none" />
 
@@ -193,7 +193,7 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
                     )}
                   </div>
                   <span className="text-xs font-semibold text-indigo-700">
-                    Độ tin cậy: {Math.round(suggestion.confidence * 100)}%
+                    Độ tương thích: {Math.round(suggestion.confidence * 100)}%
                   </span>
                 </div>
 
@@ -217,10 +217,10 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
                       {suggestion.suggestedUserName}
                     </label>
 
-                    {/* AI Reason */}
+                    {/* Reason */}
                     <div className="mt-2 p-3 bg-white/80 backdrop-blur-xs rounded-xl border border-indigo-100/80 text-xs text-slate-700 leading-relaxed">
                       <strong className="text-indigo-900 font-semibold block mb-1">
-                        💡 Lý do đề xuất từ AI:
+                        💡 Căn cứ đề xuất:
                       </strong>
                       {suggestion.reason}
                     </div>
@@ -233,7 +233,7 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
                 <div className="space-y-2.5">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
                     <Users className="w-3.5 h-3.5 text-slate-400" />
-                    Ứng Viên Thay Thế Đề Xuất
+                    Cán Bộ Dự Phòng
                   </h4>
 
                   <div className="grid grid-cols-1 gap-2.5">
@@ -283,7 +283,7 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
                     <Briefcase className="w-3.5 h-3.5 text-slate-500" />
-                    Hoặc chọn cán bộ khác thủ công
+                    Hoặc chỉ định cán bộ khác
                   </span>
                   <button
                     type="button"
@@ -298,38 +298,47 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Cán bộ thực hiện
+                        Chọn đơn vị, phòng ban
                       </label>
-                      <select
-                        value={selectedUserId}
-                        onChange={(e) => setSelectedUserId(e.target.value)}
-                        className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium text-slate-800"
-                      >
-                        <option value="">-- Chọn cán bộ --</option>
-                        {allUsers.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name} ({u.role || u.departmentName || 'Cán bộ'})
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          value={selectedDeptId}
+                          onChange={(e) => {
+                            setSelectedDeptId(e.target.value);
+                            setSelectedUserId('');
+                          }}
+                          className="w-full text-xs p-2.5 bg-white border border-slate-300 rounded-lg appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="">-- Tất cả phòng ban --</option>
+                          {departments.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.name}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
+                      </div>
                     </div>
 
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Phòng ban phụ trách
+                        Cán bộ tiếp nhận
                       </label>
-                      <select
-                        value={selectedDeptId}
-                        onChange={(e) => setSelectedDeptId(e.target.value)}
-                        className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium text-slate-800"
-                      >
-                        <option value="">-- Chọn phòng ban --</option>
-                        {departments.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.name}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          value={selectedUserId}
+                          onChange={(e) => setSelectedUserId(e.target.value)}
+                          className="w-full text-xs p-2.5 bg-white border border-slate-300 rounded-lg appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        >
+                          <option value="">-- Chọn cán bộ tiếp nhận --</option>
+                          {(selectedDeptId ? allUsers.filter(u => u.departmentId === selectedDeptId) : allUsers).map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name} {u.role ? `— ${u.role}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -386,12 +395,12 @@ export const AiAssignmentModal: React.FC<AiAssignmentModalProps> = ({
             {isSubmitting ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Đang tạo nhiệm vụ & sinh checklist...
+                Đang tạo nhiệm vụ và chuyển giao...
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4 text-amber-300" />
-                Tạo Nhiệm Vụ & Sinh Tiến Độ AI
+                Phê Chuẩn & Giao Việc
                 <ArrowRight className="w-3.5 h-3.5" />
               </>
             )}

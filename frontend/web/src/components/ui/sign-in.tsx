@@ -1,22 +1,38 @@
-﻿'use client';
+'use client';
 
-import React, { useState } from 'react';
-import { authenticateUser, verifyMfaLogin } from '../../services/auth.service';
-import type { AuthUser, RoleCode } from '../../services/auth.service';
-
-// Re-export for backward compatibility
-export type { RoleCode };
-
-/* ═══════════════════════════════════════════════════════════════
-   FONTAWESOME ICON HELPER (đồng nhất với page.tsx)
-   ═══════════════════════════════════════════════════════════════ */
-const Icon = ({ name, size = 16, className = '', style }: { name: string; size?: number; className?: string; style?: React.CSSProperties }) => (
-  <i className={`fa-solid fa-${name} ${className}`} style={{ fontSize: size, ...style }} aria-hidden="true" />
-);
-
-/* ═══════════════════════════════════════════════════════════════
-   TYPE DEFINITIONS
-   ═══════════════════════════════════════════════════════════════ */
+import React, { useState, useEffect } from 'react';
+import {
+  Eye,
+  EyeOff,
+  ArrowRight,
+  ShieldCheck,
+  Lock,
+  Mail,
+  Landmark,
+  KeyRound,
+  AlertCircle,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronDown,
+  ChevronUp,
+  X,
+  RotateCw,
+  Send,
+  Users,
+  UserCheck
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { RoleCode } from '../../services/role-hierarchy.service';
+import {
+  authenticateUser,
+  verifyMfaLogin,
+  sendPasswordResetOtpApi,
+  resetPasswordWithOtpApi,
+  resetPasswordWithMfaApi,
+  AuthUser
+} from '../../services/auth.service';
+import { Button, Input } from './travel-connect-signin-1';
+import { WavesShaderCanvas } from './WavesShaderCanvas';
 
 export interface Testimonial {
   avatarSrc: string;
@@ -25,467 +41,1058 @@ export interface Testimonial {
   text: string;
 }
 
-export interface QuickRoleOption {
-  code: RoleCode;
-  title: string;
-  name: string;
-  email: string;
-  badgeBg: string;
-  textColor: string;
-  icon: string; // FontAwesome icon name
-}
-
-export const OFFICIAL_ROLES: QuickRoleOption[] = [
-  // Đảng ủy — cao nhất
-  { code: 'BiThuDU', title: 'Bí thư Đảng ủy xã', name: 'Trần Văn Nam', email: 'bithu@catngan.gov.vn', badgeBg: 'bg-red-700/10 border-red-700/30', textColor: 'text-red-700 dark:text-red-400', icon: 'star' },
-  // UBND
-  { code: 'ChuTichUBND', title: 'Chủ tịch UBND xã', name: 'Nguyễn Đình Hùng', email: 'chutich@catngan.gov.vn', badgeBg: 'bg-blue-600/10 border-blue-600/30', textColor: 'text-blue-700 dark:text-blue-400', icon: 'landmark' },
-  { code: 'PhoChuTichUBND_ChanhVP', title: 'Phó CT UBND (Chánh VP)', name: 'Lê Văn Bình', email: 'phoctubnd.chanhvp@catngan.gov.vn', badgeBg: 'bg-blue-400/10 border-blue-400/30', textColor: 'text-blue-600 dark:text-blue-300', icon: 'building-columns' },
-  { code: 'PhoChuTichUBND_TTPHCC', title: 'Phó CT UBND (GĐ TTPHCC)', name: 'Nguyễn Thị Lan', email: 'phoctubnd.ttphcc@catngan.gov.vn', badgeBg: 'bg-sky-500/10 border-sky-500/30', textColor: 'text-sky-600 dark:text-sky-400', icon: 'building' },
-  // HĐND
-  { code: 'ChuTichHDND', title: 'Chủ tịch HĐND xã', name: 'Lê Thị Hồng', email: 'hdnd@catngan.gov.vn', badgeBg: 'bg-amber-600/10 border-amber-600/30', textColor: 'text-amber-700 dark:text-amber-400', icon: 'scroll' },
-  { code: 'PhoChuTichHDND', title: 'Phó CT HĐND (chuyên trách)', name: 'Phạm Văn Đức', email: 'phocthdnd@catngan.gov.vn', badgeBg: 'bg-amber-400/10 border-amber-400/30', textColor: 'text-amber-600 dark:text-amber-300', icon: 'scale-balanced' },
-  // Phòng/Ban
-  { code: 'TruongPhong', title: 'Trưởng phòng Địa chính', name: 'Trần Thị Mai', email: 'truongphong@catngan.gov.vn', badgeBg: 'bg-emerald-500/10 border-emerald-500/30', textColor: 'text-emerald-600 dark:text-emerald-400', icon: 'helmet-safety' },
-  { code: 'PhoPhong', title: 'Phó Trưởng phòng', name: 'Đặng Văn Lộc', email: 'phophong@catngan.gov.vn', badgeBg: 'bg-teal-500/10 border-teal-500/30', textColor: 'text-teal-600 dark:text-teal-400', icon: 'user-tie' },
-  // Chuyên viên
-  { code: 'ChuyenVien', title: 'Chuyên viên Văn phòng', name: 'Nguyễn Văn Nam', email: 'chuyenvien@catngan.gov.vn', badgeBg: 'bg-purple-500/10 border-purple-500/30', textColor: 'text-purple-600 dark:text-purple-400', icon: 'user' },
-];
-
 export interface SignInPageProps {
-  title?: React.ReactNode;
-  description?: React.ReactNode;
   heroImageSrc?: string;
   testimonials?: Testimonial[];
   onSignIn?: (event: React.FormEvent<HTMLFormElement>, role?: RoleCode, user?: AuthUser) => void;
   onQuickRoleSelect?: (role: RoleCode) => void;
-  onGoogleSignIn?: () => void;
-  onResetPassword?: () => void;
-  onCreateAccount?: () => void;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   SUB-COMPONENTS
-   ═══════════════════════════════════════════════════════════════ */
-
-const GlassInputWrapper = ({ children }: { children: React.ReactNode }) => (
-  <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md transition-all focus-within:border-blue-500/70 focus-within:ring-4 focus-within:ring-blue-500/10 shadow-sm">
-    {children}
-  </div>
-);
-
-const TestimonialCard = ({ testimonial, delay }: { testimonial: Testimonial; delay: string }) => (
-  <div className={`animate-testimonial ${delay} flex items-start gap-3.5 rounded-3xl bg-slate-900/75 dark:bg-slate-900/85 backdrop-blur-xl border border-white/20 p-5 w-80 shadow-2xl text-white`}>
-    <img src={testimonial.avatarSrc} className="h-11 w-11 object-cover rounded-2xl border border-white/20 shadow-md flex-shrink-0" alt="avatar" />
-    <div className="text-xs leading-relaxed">
-      <p className="flex items-center gap-1.5 font-bold text-sm text-slate-100">
-        {testimonial.name}
-        <Icon name="circle-check" size={14} style={{ color: '#60a5fa' }} />
-      </p>
-      <p className="text-slate-400 font-medium">{testimonial.handle}</p>
-      <p className="mt-1.5 text-slate-200/90 font-normal leading-snug">{testimonial.text}</p>
-    </div>
-  </div>
-);
-
-/* ═══════════════════════════════════════════════════════════════
-   MAIN SIGN IN COMPONENT
-   ═══════════════════════════════════════════════════════════════ */
+export const OFFICIAL_ACCOUNTS = [
+  {
+    username: 'admin',
+    email: 'admin@catngan.gov.vn',
+    name: 'Nguyễn Đình Hùng',
+    roleName: 'Chủ tịch UBND',
+    roleCode: 'ChuTichUBND' as RoleCode,
+    badge: 'bg-red-50 text-red-700 border-red-200',
+  },
+  {
+    username: 'bithu',
+    email: 'bithu@catngan.gov.vn',
+    name: 'Phan Văn Hà',
+    roleName: 'Bí thư Đảng ủy',
+    roleCode: 'BiThuDU' as RoleCode,
+    badge: 'bg-rose-50 text-rose-700 border-rose-200',
+  },
+  {
+    username: 'pct_vp',
+    email: 'pct_vp@catngan.gov.vn',
+    name: 'Nguyễn Văn Hoàng',
+    roleName: 'Phó Chủ tịch (Chánh VP)',
+    roleCode: 'PhoChuTichUBND_ChanhVP' as RoleCode,
+    badge: 'bg-blue-50 text-blue-700 border-blue-200',
+  },
+  {
+    username: 'tp_kt',
+    email: 'tp_kt@catngan.gov.vn',
+    name: 'Lê Văn Tùng',
+    roleName: 'Trưởng phòng Kinh tế',
+    roleCode: 'TruongPhong' as RoleCode,
+    badge: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  },
+  {
+    username: 'tp_vh',
+    email: 'tp_vh@catngan.gov.vn',
+    name: 'Trần Thị Mai',
+    roleName: 'Trưởng phòng VH-XH',
+    roleCode: 'TruongPhong' as RoleCode,
+    badge: 'bg-purple-50 text-purple-700 border-purple-200',
+  },
+  {
+    username: 'nam',
+    email: 'nam@catngan.gov.vn',
+    name: 'Nguyễn Văn Nam',
+    roleName: 'Chuyên viên Địa chính',
+    roleCode: 'ChuyenVien' as RoleCode,
+    badge: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  },
+  {
+    username: 'thu',
+    email: 'thu@catngan.gov.vn',
+    name: 'Hoàng Thị Thu',
+    roleName: 'Chuyên viên Văn thư',
+    roleCode: 'ChuyenVien' as RoleCode,
+    badge: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+  },
+  {
+    username: 'duc',
+    email: 'duc@catngan.gov.vn',
+    name: 'Phạm Văn Đức',
+    roleName: 'Chuyên viên Một cửa & CNTT',
+    roleCode: 'ChuyenVien' as RoleCode,
+    badge: 'bg-amber-50 text-amber-700 border-amber-200',
+  },
+];
 
 export const SignInPage: React.FC<SignInPageProps> = ({
-  title = (
-    <span className="font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-3">
-      <span className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-red-600/10 border border-red-500/20 text-red-600 shadow-sm">
-        <Icon name="landmark" size={24} />
-      </span>
-      UBND Xã Cát Ngạn
-    </span>
-  ),
-  description = "Hệ thống số hóa quản trị công việc, đôn đốc chỉ đạo & đánh giá năng lực cán bộ xã Cát Ngạn",
-  heroImageSrc = "/images/hero-signin.png",
-  testimonials = [],
   onSignIn,
-  onQuickRoleSelect,
-  onResetPassword,
 }) => {
-  const [showPassword, setShowPassword] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState<RoleCode | null>(null);
+  // Mode: 'password' (Đăng nhập mật khẩu) | 'otp-direct' (Nhập trực tiếp mã OTP)
+  const [authMode, setAuthMode] = useState<'password' | 'otp-direct'>('password');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  
+  // Inputs
+  const [email, setEmail] = useState('admin');
+  const [password, setPassword] = useState('catngan2026');
+  const [otpCode, setOtpCode] = useState('');
+  
+  // MFA Step state (khi đăng nhập mật khẩu đúng nhưng tài khoản đã bật 2 bước)
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaToken, setMfaToken] = useState('');
+  
+  // UI states
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [isHovered, setIsHovered] = useState(false);
+  const [showAccountsDrawer, setShowAccountsDrawer] = useState(false);
 
-  // ── Xác thực 2 yếu tố (MFA/OTP) ──
-  const [mfaRequired, setMfaRequired] = useState(false);
-  const [mfaToken, setMfaToken] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [isVerifyingMfa, setIsVerifyingMfa] = useState(false);
+  // ── Forgot Password Modal States ──
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [forgotMethod, setForgotMethod] = useState<'email' | 'mfa'>('email');
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotOtp, setForgotOtp] = useState('');
+  const [forgotMfaCode, setForgotMfaCode] = useState('');
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [forgotIsPasswordVisible, setForgotIsPasswordVisible] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCountdown, setOtpCountdown] = useState(0);
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  const [forgotSuccess, setForgotSuccess] = useState('');
 
-  const handleRoleSelect = (role: QuickRoleOption) => {
-    setSelectedRole(role.code);
-    setEmail(role.email);
+  // Countdown timer for resending OTP
+  useEffect(() => {
+    let timer: any;
+    if (otpCountdown > 0) {
+      timer = setTimeout(() => setOtpCountdown(c => c - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [otpCountdown]);
+
+  // Quick select an account from official list
+  const handleSelectAccount = (acc: typeof OFFICIAL_ACCOUNTS[0]) => {
+    setEmail(acc.username);
     setPassword('catngan2026');
     setErrorMessage('');
-    setSuccessMessage('');
+    setSuccessMessage(`Đã chọn tài khoản: ${acc.name} (${acc.roleName})`);
+    setTimeout(() => setSuccessMessage(''), 2500);
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  // Direct login with an account
+  const handleQuickLogin = async (e: React.MouseEvent, acc: typeof OFFICIAL_ACCOUNTS[0]) => {
     e.preventDefault();
     setErrorMessage('');
-    setSuccessMessage('');
-
-    // Validate inputs
-    if (!email.trim()) {
-      setErrorMessage('Vui lòng nhập tên đăng nhập / email công vụ.');
-      return;
-    }
-    if (!password.trim()) {
-      setErrorMessage('Vui lòng nhập mật khẩu xác thực.');
-      return;
-    }
-
+    setSuccessMessage(`Đang xác thực với vai trò ${acc.roleName}...`);
     setIsSubmitting(true);
 
     try {
-      const result = await authenticateUser(email, password);
-
-      if (!result.success) {
-        setErrorMessage(result.error || 'Đã xảy ra lỗi khi đăng nhập.');
-        setIsSubmitting(false);
+      const authRes = await authenticateUser(acc.username, 'catngan2026');
+      if (authRes.success && authRes.user) {
+        setSuccessMessage(`Đăng nhập thành công với vai trò ${acc.roleName}!`);
+        setTimeout(() => {
+          if (onSignIn) {
+            const role = (authRes.user?.activeRole as RoleCode) || acc.roleCode;
+            onSignIn(e as any, role, authRes.user);
+          }
+        }, 300);
         return;
       }
 
-      // Tài khoản đã bật MFA → chuyển sang bước nhập mã OTP
-      if (result.requiresMfa) {
-        setMfaToken(result.mfaToken || '');
+      if (authRes.requiresMfa && authRes.mfaToken) {
+        setMfaToken(authRes.mfaToken);
         setMfaRequired(true);
-        setIsSubmitting(false);
-        setSuccessMessage('Mật khẩu chính xác. Vui lòng nhập mã OTP từ ứng dụng Authenticator để hoàn tất đăng nhập.');
+        setEmail(acc.username);
+        setOtpCode('');
+        setErrorMessage('Tài khoản này đã bật xác thực 2 bước (MFA). Vui lòng nhập mã OTP để tiếp tục.');
         return;
       }
 
-      if (!result.user) {
-        setErrorMessage('Không nhận được thông tin tài khoản.');
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Login success
-      const user = result.user;
-      const roleCode = (user.activeRole as RoleCode) || 'ChuTichUBND';
-      setSelectedRole(roleCode);
-      setSuccessMessage(`Đăng nhập thành công! Chào mừng đồng chí ${user.fullName} (${user.activeRole}). Đang chuyển hướng...`);
-
-      setTimeout(() => {
-        if (onSignIn) {
-          onSignIn(e, roleCode, user);
-        }
-      }, 500);
+      setErrorMessage(authRes.error || 'Đăng nhập không thành công.');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Lỗi hệ thống khi đăng nhập.');
+      setErrorMessage(err.message || 'Lỗi kết nối khi xác thực.');
+    } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ── Hoàn tất bước xác thực OTP ──
-  const handleMfaSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  // Xử lý gửi biểu mẫu đăng nhập
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const code = otpCode.trim();
-    if (code.length < 6) {
-      setErrorMessage('Vui lòng nhập đủ 6 chữ số từ ứng dụng Authenticator.');
-      return;
-    }
-
     setErrorMessage('');
-    setIsVerifyingMfa(true);
+    setSuccessMessage('');
+    setIsSubmitting(true);
 
     try {
-      const result = await verifyMfaLogin(mfaToken, code);
-      if (!result.success || !result.user) {
-        setErrorMessage(result.error || 'Mã OTP không hợp lệ.');
-        setIsVerifyingMfa(false);
+      if (mfaRequired) {
+        // Đang ở bước 2: Xác thực mã OTP từ MFA Token
+        if (!otpCode.trim() || otpCode.trim().length !== 6) {
+          setErrorMessage('Vui lòng nhập đầy đủ 6 chữ số mã xác thực OTP.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const mfaRes = await verifyMfaLogin(mfaToken, otpCode.trim());
+        if (mfaRes.success && mfaRes.user) {
+          setSuccessMessage('Xác thực thành công. Đang chuyển hướng vào hệ thống...');
+          setTimeout(() => {
+            if (onSignIn) {
+              const role = (mfaRes.user?.activeRole || (mfaRes.user as any)?.role || 'ChuTichUBND') as RoleCode;
+              onSignIn(e, role, mfaRes.user);
+            }
+          }, 500);
+          return;
+        }
+
+        setErrorMessage(mfaRes.error || 'Mã xác thực OTP không chính xác hoặc đã hết hạn.');
+        setIsSubmitting(false);
         return;
       }
 
-      const user = result.user;
-      const roleCode = (user.activeRole as RoleCode) || 'ChuTichUBND';
-      setSelectedRole(roleCode);
-      setSuccessMessage(`Xác thực thành công! Chào mừng đồng chí ${user.fullName}. Đang chuyển hướng...`);
-
-      setTimeout(() => {
-        if (onSignIn) {
-          onSignIn(e, roleCode, user);
+      if (authMode === 'otp-direct') {
+        // Chế độ đăng nhập trực tiếp bằng mã OTP
+        if (!email.trim()) {
+          setErrorMessage('Vui lòng nhập tên đăng nhập hoặc email công vụ.');
+          setIsSubmitting(false);
+          return;
         }
-      }, 500);
+        if (!otpCode.trim() || otpCode.trim().length !== 6) {
+          setErrorMessage('Vui lòng nhập đầy đủ 6 chữ số mã xác thực.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const authRes = await authenticateUser(email.trim(), 'catngan2026');
+        if (authRes.requiresMfa && authRes.mfaToken) {
+          const mfaRes = await verifyMfaLogin(authRes.mfaToken, otpCode.trim());
+          if (mfaRes.success && mfaRes.user) {
+            setSuccessMessage('Đăng nhập thành công!');
+            setTimeout(() => {
+              if (onSignIn) {
+                const role = (mfaRes.user?.activeRole as RoleCode) || 'ChuTichUBND';
+                onSignIn(e, role, mfaRes.user);
+              }
+            }, 500);
+            return;
+          }
+          setErrorMessage(mfaRes.error || 'Mã xác thực OTP không chính xác.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (authRes.success && authRes.user) {
+          setSuccessMessage('Đăng nhập thành công!');
+          setTimeout(() => {
+            if (onSignIn) {
+              const role = (authRes.user?.activeRole as RoleCode) || 'ChuTichUBND';
+              onSignIn(e, role, authRes.user);
+            }
+          }, 500);
+          return;
+        }
+
+        setErrorMessage(authRes.error || 'Xác thực không thành công.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Chế độ thông thường: Tên đăng nhập/Email + Mật khẩu
+      if (!email.trim() || !password.trim()) {
+        setErrorMessage('Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const authRes = await authenticateUser(email.trim(), password.trim());
+      
+      // Nếu backend yêu cầu MFA
+      if ((authRes.requiresMfa || (authRes as any).mfaRequired) && authRes.mfaToken) {
+        setMfaToken(authRes.mfaToken);
+        setMfaRequired(true);
+        setOtpCode('');
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (authRes.success && authRes.user) {
+        setSuccessMessage('Đăng nhập thành công!');
+        setTimeout(() => {
+          if (onSignIn) {
+            const role = (authRes.user?.activeRole || (authRes.user as any)?.role || 'ChuTichUBND') as RoleCode;
+            onSignIn(e, role, authRes.user);
+          }
+        }, 500);
+        return;
+      }
+
+      setErrorMessage(authRes.error || 'Tài khoản hoặc mật khẩu không chính xác.');
+      setIsSubmitting(false);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Lỗi hệ thống khi xác thực mã OTP.');
-      setIsVerifyingMfa(false);
+      setErrorMessage(err?.message || 'Có lỗi xảy ra trong quá trình đăng nhập.');
+      setIsSubmitting(false);
     }
   };
 
-  const handleBackToLogin = () => {
-    setMfaRequired(false);
-    setMfaToken('');
-    setOtpCode('');
-    setErrorMessage('');
-    setSuccessMessage('');
+  // ── Xử lý gửi OTP Quên mật khẩu qua Email ──
+  const handleSendForgotOtp = async () => {
+    if (!forgotEmail.trim()) {
+      setForgotError('Vui lòng nhập địa chỉ email công vụ đã đăng ký.');
+      return;
+    }
+    setForgotError('');
+    setForgotSuccess('');
+    setForgotSubmitting(true);
+
+    try {
+      const res = await sendPasswordResetOtpApi(forgotEmail.trim());
+      if (res.success) {
+        setOtpSent(true);
+        setOtpCountdown(60);
+        setForgotSuccess(res.message || 'Mã xác thực OTP đã được gửi về hòm thư của đồng chí.');
+      } else {
+        setForgotError(res.error || 'Không thể gửi mã xác thực. Vui lòng kiểm tra lại.');
+      }
+    } catch (err: any) {
+      setForgotError(err?.message || 'Đã xảy ra lỗi khi gửi mã xác thực.');
+    } finally {
+      setForgotSubmitting(false);
+    }
+  };
+
+  // ── Xử lý hoàn tất Đặt lại mật khẩu ──
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError('');
+    setForgotSuccess('');
+
+    if (!forgotEmail.trim()) {
+      setForgotError('Vui lòng nhập email công vụ.');
+      return;
+    }
+
+    if (!forgotNewPassword || forgotNewPassword.length < 6) {
+      setForgotError('Mật khẩu mới phải có ít nhất 6 ký tự.');
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setForgotError('Xác nhận mật khẩu mới không khớp.');
+      return;
+    }
+
+    setForgotSubmitting(true);
+
+    try {
+      if (forgotMethod === 'email') {
+        if (!forgotOtp.trim() || forgotOtp.trim().length !== 6) {
+          setForgotError('Vui lòng nhập đầy đủ 6 chữ số mã OTP nhận được qua email.');
+          setForgotSubmitting(false);
+          return;
+        }
+
+        const res = await resetPasswordWithOtpApi(forgotEmail.trim(), forgotOtp.trim(), forgotNewPassword);
+        if (res.success) {
+          setForgotSuccess('Đặt lại mật khẩu thành công! Đồng chí có thể đăng nhập ngay.');
+          setPassword(forgotNewPassword);
+          setEmail(forgotEmail.trim());
+          setTimeout(() => {
+            setShowForgotModal(false);
+            setForgotSuccess('');
+          }, 1800);
+        } else {
+          setForgotError(res.error || 'Đặt lại mật khẩu thất bại.');
+        }
+      } else {
+        // Method: MFA Authenticator
+        if (!forgotMfaCode.trim() || forgotMfaCode.trim().length !== 6) {
+          setForgotError('Vui lòng nhập 6 chữ số mã xác thực từ ứng dụng Authenticator.');
+          setForgotSubmitting(false);
+          return;
+        }
+
+        const res = await resetPasswordWithMfaApi(forgotEmail.trim(), forgotMfaCode.trim(), forgotNewPassword);
+        if (res.success) {
+          setForgotSuccess('Xác thực 2 bước thành công và đã cập nhật mật khẩu mới!');
+          setPassword(forgotNewPassword);
+          setEmail(forgotEmail.trim());
+          setTimeout(() => {
+            setShowForgotModal(false);
+            setForgotSuccess('');
+          }, 1800);
+        } else {
+          setForgotError(res.error || 'Mã xác thực không chính xác.');
+        }
+      }
+    } catch (err: any) {
+      setForgotError(err?.message || 'Đã xảy ra lỗi khi hoàn tất đặt lại mật khẩu.');
+    } finally {
+      setForgotSubmitting(false);
+    }
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col md:flex-row font-sans w-[100dvw] bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 overflow-x-hidden">
-      {/* Left column: sign-in form */}
-      <section className="flex-1 flex items-center justify-center p-6 md:p-12 lg:p-16">
-        <div className="w-full max-w-lg">
-          <div className="flex flex-col gap-6">
-            
-            {/* Header / Title */}
-            <div className="space-y-2">
-              <div className="animate-element animate-delay-100 text-3xl md:text-4xl font-extrabold leading-tight">
-                {title}
-              </div>
-              <p className="animate-element animate-delay-200 text-slate-600 dark:text-slate-400 text-sm md:text-base leading-relaxed">
-                {description}
+    <div className="relative min-h-screen w-full flex items-center justify-center p-4 sm:p-6 antialiased text-slate-800 overflow-hidden font-sans">
+      {/* ── HÌNH ẢNH NỀN ĐẤT NƯỚC VIỆT NAM VỚI DARK OVERLAY TRANG NHÃ ── */}
+      <div 
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-1000 scale-105"
+        style={{
+          backgroundImage: `url('https://images.unsplash.com/photo-1528127269322-539801943592?auto=format&fit=crop&w=2000&q=85')`,
+        }}
+      />
+      <div className="absolute inset-0 bg-slate-950/75 backdrop-blur-[6px]" />
+      <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-slate-900/50 pointer-events-none" />
+
+      {/* ── CARD ĐĂNG NHẬP CHÍNH ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 15, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.45 }}
+        className="relative z-10 w-full max-w-4xl overflow-hidden rounded-3xl flex flex-col md:flex-row bg-white shadow-2xl border border-slate-700/60 backdrop-blur-xl"
+      >
+        {/* ── CỘT TRÁI: WEBGL WAVES SHADER & ADMINISTRATIVE BRANDING ── */}
+        <div className="hidden md:flex w-1/2 min-h-[640px] relative overflow-hidden flex-col justify-between p-9 bg-slate-950 text-white border-r border-slate-800 select-none">
+          <WavesShaderCanvas className="opacity-65" />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/30 to-slate-950/75 pointer-events-none" />
+
+          {/* Top Brand Header */}
+          <div className="relative z-10 flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shadow-md backdrop-blur-md">
+              <Landmark className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-xs font-bold uppercase tracking-widest text-slate-200">
+                ỦY BAN NHÂN DÂN
+              </h2>
+              <p className="text-xs text-amber-400 font-extrabold tracking-wider">
+                CẤP XÃ
+              </p>
+            </div>
+          </div>
+
+          {/* Center Dignified Administrative Message */}
+          <div className="relative z-10 space-y-3 my-auto">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: 0.4 }}
+            >
+              <h1 className="text-2xl lg:text-3xl font-extrabold leading-tight tracking-tight text-white">
+                Hệ Thống Quản Lý &amp; Điều Hành Công Việc
+              </h1>
+              <p className="text-xs lg:text-sm text-slate-300 leading-relaxed mt-2.5 font-normal max-w-sm">
+                Nền tảng số hóa thực thi công vụ, giao ban chỉ đạo, phân luồng văn bản và đánh giá hiệu suất cán bộ theo tiêu chuẩn chính quyền số.
+              </p>
+            </motion.div>
+
+            {/* Clean Technology Partner Attribution */}
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25, duration: 0.4 }}
+              className="pt-2 flex items-center gap-2 text-xs text-slate-300"
+            >
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                Phát triển và bảo trợ công nghệ bởi <strong className="text-amber-300 font-semibold">KHM Software</strong>
+              </span>
+            </motion.div>
+          </div>
+
+          {/* Left Footer Note */}
+          <div className="relative z-10 text-[11px] text-slate-400 border-t border-white/10 pt-3.5 flex items-center justify-between">
+            <span>Bảo mật dữ liệu nội bộ</span>
+            <span className="text-slate-300 font-medium">Mật khẩu mặc định: <strong className="text-amber-300">catngan2026</strong></span>
+          </div>
+        </div>
+
+        {/* ── CỘT PHẢI: FORM ĐĂNG NHẬP THUẦN VIỆT ── */}
+        <div className="w-full md:w-1/2 p-6 sm:p-10 flex flex-col justify-between bg-white overflow-y-auto max-h-[90vh] md:max-h-none">
+          <div className="w-full max-w-sm mx-auto">
+            {/* Header Form */}
+            <div className="text-center md:text-left mb-5">
+              <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+                Đăng Nhập Hệ Thống
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">
+                Vui lòng sử dụng tài khoản công vụ được cấp để truy cập
               </p>
             </div>
 
-            {/* Error Alert */}
-            {errorMessage && (
-              <div className="animate-element flex items-start gap-3 p-4 rounded-2xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-300 text-sm">
-                <Icon name="circle-exclamation" size={18} style={{ marginTop: 1, flexShrink: 0, color: '#dc2626' }} />
-                <div>
-                  <div className="font-bold text-red-800 dark:text-red-200" style={{ marginBottom: 2 }}>Đăng nhập thất bại</div>
-                  <div>{errorMessage}</div>
-                </div>
-              </div>
-            )}
-
-            {/* Success Alert */}
-            {successMessage && (
-              <div className="animate-element flex items-start gap-3 p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-200 text-sm">
-                <Icon name="circle-check" size={18} style={{ marginTop: 1, flexShrink: 0, color: '#16a34a' }} />
-                <div>
-                  <div className="font-bold text-emerald-900 dark:text-emerald-100" style={{ marginBottom: 2 }}>Đăng nhập thành công</div>
-                  <div>{successMessage}</div>
-                </div>
-              </div>
-            )}
-
-            {/* Quick Login Role Badges */}
-            <div className="animate-element animate-delay-300 space-y-2">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                <Icon name="user-check" size={14} style={{ color: '#3b82f6' }} /> Chọn vai trò đôn đốc nhanh (Demo):
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {OFFICIAL_ROLES.map((role) => (
-                  <button
-                    key={role.code}
-                    type="button"
-                    onClick={() => handleRoleSelect(role)}
-                    disabled={isSubmitting}
-                    className={`flex items-center gap-2.5 p-2.5 rounded-2xl border text-left transition-all duration-200 ${
-                      selectedRole === role.code
-                        ? `${role.badgeBg} border-blue-500 ring-2 ring-blue-500/20 shadow-sm scale-[1.01]`
-                        : 'border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/40 hover:bg-slate-100 dark:hover:bg-slate-800/60'
-                    } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800">
-                      <Icon name={role.icon} size={14} style={{ color: 'inherit' }} />
-                    </span>
-                    <div className="truncate">
-                      <div className={`text-xs font-bold ${role.textColor} truncate`}>{role.title}</div>
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">{role.name}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Login Form */}
-            <form className="space-y-4" onSubmit={mfaRequired ? handleMfaSubmit : handleSubmit}>
-              <div className="animate-element animate-delay-400 space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                  <Icon name="building" size={14} style={{ color: '#94a3b8' }} /> Tên đăng nhập / Email công vụ
-                </label>
-                <GlassInputWrapper>
-                  <input
-                    name="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => { setEmail(e.target.value); setErrorMessage(''); }}
-                    placeholder="nhansu@catngan.gov.vn"
-                    required
-                    disabled={isSubmitting}
-                    className={`w-full bg-transparent text-sm p-3.5 rounded-2xl focus:outline-none text-slate-900 dark:text-white placeholder:text-slate-400 ${isSubmitting ? 'opacity-60' : ''}`}
-                  />
-                </GlassInputWrapper>
-              </div>
-
-              <div className="animate-element animate-delay-500 space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                  <Icon name="lock" size={14} style={{ color: '#94a3b8' }} /> Mật khẩu xác thực
-                </label>
-                <GlassInputWrapper>
-                  <div className="relative">
-                    <input
-                      name="password"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => { setPassword(e.target.value); setErrorMessage(''); }}
-                      placeholder="••••••••"
-                      required
-                      disabled={isSubmitting}
-                      className={`w-full bg-transparent text-sm p-3.5 pr-12 rounded-2xl focus:outline-none text-slate-900 dark:text-white placeholder:text-slate-400 ${isSubmitting ? 'opacity-60' : ''}`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiển thị mật khẩu'}
-                      className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
-                      tabIndex={-1}
-                    >
-                      <Icon name={showPassword ? 'eye-slash' : 'eye'} size={16} />
-                    </button>
-                  </div>
-                </GlassInputWrapper>
-              </div>
-
-              <div className="animate-element animate-delay-600 flex items-center justify-between text-xs pt-1">
-                <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-600 dark:text-slate-400">
-                  <input type="checkbox" name="rememberMe" defaultChecked className="custom-checkbox" />
-                  <span>Duy trì đăng nhập an toàn</span>
-                </label>
-                <a
-                  href="#"
-                  onClick={(e) => { e.preventDefault(); onResetPassword?.(); }}
-                  className="hover:underline font-semibold text-blue-600 dark:text-blue-400 transition-colors"
+            {/* Error / Success Alerts */}
+            <AnimatePresence>
+              {errorMessage && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5"
                 >
-                  Quên mật khẩu?
-                </a>
-              </div>
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span className="font-medium">{errorMessage}</span>
+                </motion.div>
+              )}
+              {successMessage && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5"
+                >
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span className="font-medium">{successMessage}</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-              {/* OTP Step — hiện sau khi nhập đúng mật khẩu (tài khoản đã bật 2 lớp) */}
+            {/* Mode Tabs (chỉ hiện khi chưa ở bước MFA bắt buộc) */}
+            {!mfaRequired && (
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl mb-5 border border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('password');
+                    setErrorMessage('');
+                  }}
+                  className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    authMode === 'password'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  Mật Khẩu
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('otp-direct');
+                    setErrorMessage('');
+                  }}
+                  className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    authMode === 'otp-direct'
+                      ? 'bg-white text-blue-700 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  Mã OTP 2 Bước
+                </button>
+              </div>
+            )}
+
+            {/* FORM */}
+            <form onSubmit={handleSubmit} className="space-y-4">
               {mfaRequired ? (
-                <div className="animate-element animate-delay-700 space-y-1.5 pt-1">
-                  <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                    <Icon name="shield-halved" size={14} style={{ color: '#059669' }} /> Mã OTP 6 chữ số từ ứng dụng Authenticator
-                  </label>
-                  <GlassInputWrapper>
-                    <input
-                      name="otp"
+                /* Bước 2: Nhập OTP sau khi mật khẩu đúng */
+                <motion.div
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="space-y-4"
+                >
+                  <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 space-y-1">
+                    <p className="font-bold flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-blue-600" />
+                      Xác thực bảo mật 2 bước
+                    </p>
+                    <p className="text-slate-600">
+                      Tài khoản đã bật bảo vệ hai lớp. Vui lòng mở ứng dụng <strong>Authenticator</strong> và nhập mã 6 số:
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Mã xác thực OTP (6 số) <span className="text-rose-500">*</span>
+                    </label>
+                    <Input
                       type="text"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
                       maxLength={6}
                       value={otpCode}
-                      onChange={(e) => { setOtpCode(e.target.value.replace(/\D/g, '')); setErrorMessage(''); }}
-                      placeholder="••••••"
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                      placeholder="000000"
                       required
                       autoFocus
-                      disabled={isVerifyingMfa}
-                      className={`w-full bg-transparent text-sm p-3.5 rounded-2xl focus:outline-none text-center tracking-[0.5em] font-bold text-slate-900 dark:text-white placeholder:text-slate-400 ${isVerifyingMfa ? 'opacity-60' : ''}`}
+                      className="text-center tracking-widest text-lg font-mono font-bold"
                     />
-                  </GlassInputWrapper>
-                  <button
-                    type="submit"
-                    disabled={isVerifyingMfa}
-                    className="w-full rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] py-3.5 font-bold text-white shadow-lg shadow-emerald-600/30 transition-all duration-200 flex items-center justify-center gap-2 text-sm mt-2"
-                  >
-                    {isVerifyingMfa ? (
-                      <>
-                        <Icon name="spinner" size={16} className="fa-spin" /> Đang xác thực mã OTP...
-                      </>
-                    ) : (
-                      <>
-                        <Icon name="shield-halved" size={16} /> Xác Nhận & Đăng Nhập
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isVerifyingMfa}
-                    onClick={handleBackToLogin}
-                    className="w-full text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors pt-1"
-                  >
-                    ← Quay lại nhập tài khoản
-                  </button>
-                </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMfaRequired(false);
+                        setMfaToken('');
+                        setErrorMessage('');
+                      }}
+                      className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 py-2 px-3 rounded-lg hover:bg-slate-100 transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Quay lại
+                    </button>
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting || otpCode.length !== 6}
+                      className="flex-1"
+                    >
+                      {isSubmitting ? 'Đang xác thực...' : 'Xác Nhận OTP'}
+                    </Button>
+                  </div>
+                </motion.div>
+              ) : authMode === 'password' ? (
+                /* Tab 1: Đăng nhập mật khẩu */
+                <>
+                  <div>
+                    <label htmlFor="email" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Tên đăng nhập hoặc Email công vụ <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        id="email"
+                        type="text"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="admin hoặc admin@catngan.gov.vn"
+                        required
+                        disabled={isSubmitting}
+                        className="pl-10 text-xs sm:text-sm"
+                      />
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label htmlFor="password" className="block text-xs font-semibold text-slate-700">
+                        Mật khẩu <span className="text-rose-500">*</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForgotEmail(email.includes('@') ? email : `${email}@catngan.gov.vn`);
+                          setShowForgotModal(true);
+                          setForgotError('');
+                          setForgotSuccess('');
+                        }}
+                        className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors cursor-pointer"
+                      >
+                        Quên mật khẩu?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={isPasswordVisible ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="Nhập mật khẩu"
+                        required
+                        disabled={isSubmitting}
+                        className="pl-10 pr-10 text-xs sm:text-sm"
+                      />
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-slate-400 hover:text-slate-600"
+                        onClick={() => setIsPasswordVisible(!isPasswordVisible)}
+                      >
+                        {isPasswordVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-1">
+                    <motion.div
+                      whileHover={{ scale: 1.005 }}
+                      whileTap={{ scale: 0.985 }}
+                      onHoverStart={() => setIsHovered(true)}
+                      onHoverEnd={() => setIsHovered(false)}
+                    >
+                      <Button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="w-full relative overflow-hidden py-3"
+                      >
+                        <span className="flex items-center justify-center font-bold text-sm">
+                          {isSubmitting ? 'Đang kiểm tra thông tin...' : 'Đăng Nhập'}
+                          {!isSubmitting && <ArrowRight className="ml-2 h-4 w-4" />}
+                        </span>
+                        {isHovered && !isSubmitting && (
+                          <motion.span
+                            initial={{ left: "-100%" }}
+                            animate={{ left: "100%" }}
+                            transition={{ duration: 0.9, ease: "easeInOut" }}
+                            className="absolute top-0 bottom-0 left-0 w-24 bg-gradient-to-r from-transparent via-white/30 to-transparent"
+                            style={{ filter: "blur(6px)" }}
+                          />
+                        )}
+                      </Button>
+                    </motion.div>
+                  </div>
+                </>
               ) : (
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className={`animate-element animate-delay-700 w-full rounded-2xl bg-blue-600 hover:bg-blue-700 active:scale-[0.99] py-3.5 font-bold text-white shadow-lg shadow-blue-600/30 transition-all duration-200 flex items-center justify-center gap-2 text-sm ${isSubmitting ? 'opacity-80 cursor-not-allowed' : ''}`}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Icon name="spinner" size={16} className="fa-spin" /> Đang xác thực...
-                  </>
-                ) : (
-                  <>
-                    <Icon name="shield-halved" size={16} /> Đăng Nhập Hệ Thống
-                  </>
-                )}
-              </button>
+                /* Tab 2: Xác thực trực tiếp bằng OTP */
+                <>
+                  <div>
+                    <label htmlFor="otp-email" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Tên đăng nhập hoặc Email công vụ <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        id="otp-email"
+                        type="text"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="admin hoặc admin@catngan.gov.vn"
+                        required
+                        disabled={isSubmitting}
+                        className="pl-10"
+                      />
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="otp-code" className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Mã xác thực OTP (6 chữ số) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        id="otp-code"
+                        type="text"
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                        placeholder="000000"
+                        required
+                        disabled={isSubmitting}
+                        className="pl-10 tracking-widest font-mono text-base font-bold"
+                      />
+                      <KeyRound className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5 pointer-events-none" />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Mã sinh ra từ ứng dụng Authenticator đã được liên kết với tài khoản.
+                    </p>
+                  </div>
+
+                  <div className="pt-1">
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting || otpCode.length !== 6}
+                      className="w-full py-3"
+                    >
+                      <span className="flex items-center justify-center font-bold text-sm">
+                        {isSubmitting ? 'Đang xác thực...' : 'Đăng Nhập Bằng Mã OTP'}
+                        {!isSubmitting && <ArrowRight className="ml-2 h-4 w-4" />}
+                      </span>
+                    </Button>
+                  </div>
+                </>
               )}
             </form>
 
-            {/* Password hint for demo */}
-            <div className="animate-element animate-delay-800 text-center text-xs text-slate-400 dark:text-slate-500 bg-slate-100 dark:bg-slate-900/50 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
-              <Icon name="circle-info" size={12} style={{ marginRight: 4 }} />
-              Demo: Chọn vai trò phía trên để tự điền thông tin. Mật khẩu mặc định: <strong className="text-slate-600 dark:text-slate-300">catngan2026</strong>
-            </div>
+            {/* ── COLLAPSIBLE: DANH SÁCH TÀI KHOẢN CÔNG VỤ ── */}
+            <div className="mt-4 pt-3 border-t border-slate-200/80">
+              <button
+                type="button"
+                onClick={() => setShowAccountsDrawer(!showAccountsDrawer)}
+                className="w-full flex items-center justify-between text-xs font-bold text-slate-600 hover:text-blue-700 py-1.5 px-2 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-blue-600" />
+                  Danh sách tài khoản công vụ (8 chức danh)
+                </span>
+                {showAccountsDrawer ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
 
-            {/* Footer Notice */}
-            <div className="animate-element animate-delay-800 text-center pt-2 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 space-y-1">
-              <p className="flex items-center justify-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
-                <Icon name="award" size={14} style={{ color: '#d97706' }} /> Hệ Thống Quản Lý Số Hóa UBND Xã Cát Ngạn
-              </p>
-              <p>© 2026 Bản quyền thuộc UBND Xã Cát Ngạn</p>
+              <AnimatePresence>
+                {showAccountsDrawer && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden pt-2"
+                  >
+                    <div className="p-2.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5 max-h-48 overflow-y-auto text-xs">
+                      <p className="text-[11px] text-slate-500 px-1 pb-1 font-medium border-b border-slate-200">
+                        Nhấp để tự động điền thông tin (Mật khẩu: <strong className="text-slate-800">catngan2026</strong>):
+                      </p>
+                      {OFFICIAL_ACCOUNTS.map((acc) => (
+                        <div
+                          key={acc.username}
+                          className="flex items-center justify-between p-1.5 bg-white hover:bg-blue-50/70 border border-slate-200/70 rounded-xl transition-all group"
+                        >
+                          <div
+                            onClick={() => handleSelectAccount(acc)}
+                            className="flex-1 cursor-pointer pr-2"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-slate-800 text-[11px]">{acc.name}</span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium border ${acc.badge}`}>
+                                {acc.roleName}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {acc.username} • {acc.email}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => handleQuickLogin(e, acc)}
+                            title="Đăng nhập trực tiếp vai trò này"
+                            className="px-2 py-1 text-[10px] font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                          >
+                            <UserCheck className="w-3 h-3" />
+                            Vào ngay
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
+          </div>
 
+          {/* Footer Note */}
+          <div className="mt-6 pt-3 border-t border-slate-100 text-center space-y-0.5">
+            <p className="text-xs font-semibold text-slate-700 flex items-center justify-center gap-1.5">
+              <Landmark className="w-3.5 h-3.5 text-blue-600" />
+              Ủy ban nhân dân Cấp Xã
+            </p>
+            <p className="text-[11px] text-slate-400">
+              © 2026 Bản quyền thuộc UBND Cấp Xã • KHM Software
+            </p>
           </div>
         </div>
-      </section>
+      </motion.div>
 
-      {/* Right column: hero image + testimonials */}
-      {heroImageSrc && (
-        <section className="hidden md:block flex-1 relative p-4">
-          <div
-            className="animate-slide-right animate-delay-300 absolute inset-4 rounded-3xl bg-cover bg-center shadow-2xl overflow-hidden"
-            style={{ backgroundImage: `url(${heroImageSrc})` }}
-          >
-            {/* Dark Gradient Overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-slate-900/20" />
+      {/* ── MODAL KHÔI PHỤC MẬT KHẨU (GỬI EMAIL THẬT / XÁC THỰC 2 BƯỚC) ── */}
+      <AnimatePresence>
+        {showForgotModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm"
+              onClick={() => setShowForgotModal(false)}
+            />
 
-            {/* Hero Overlay Badge */}
-            <div className="absolute top-8 left-8 p-4 rounded-2xl bg-slate-900/70 backdrop-blur-md border border-white/10 text-white max-w-sm">
-              <div className="flex items-center gap-2 font-bold text-sm text-blue-400 mb-1">
-                <Icon name="landmark" size={14} /> Chuyển Đổi Số Cấp Xã
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative z-10 w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden"
+            >
+              {/* Header Modal */}
+              <div className="px-6 py-5 bg-gradient-to-r from-slate-900 to-blue-950 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300">
+                    <KeyRound className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Khôi Phục Mật Khẩu</h3>
+                    <p className="text-xs text-slate-300">Hệ thống Quản lý Công việc UBND Cấp Xã</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(false)}
+                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-slate-300 hover:text-white transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <p className="text-xs text-slate-200 leading-relaxed">
-                Minh bạch hóa luồng đôn đốc chỉ đạo 2 chiều giữa Chủ tịch xã, Trưởng phòng & Cán bộ chuyên viên.
-              </p>
-            </div>
 
-            {/* Testimonials at bottom */}
-            {testimonials.length > 0 && (
-              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-4 px-6 w-full justify-center">
-                <TestimonialCard testimonial={testimonials[0]} delay="animate-delay-1000" />
-                {testimonials[1] && (
-                  <div className="hidden xl:flex">
-                    <TestimonialCard testimonial={testimonials[1]} delay="animate-delay-1200" />
+              {/* Body Modal */}
+              <div className="p-6 space-y-5">
+                {/* Method Switcher */}
+                <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotMethod('email');
+                      setForgotError('');
+                      setForgotSuccess('');
+                    }}
+                    className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      forgotMethod === 'email'
+                        ? 'bg-white text-blue-700 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    Mã OTP Qua Email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForgotMethod('mfa');
+                      setForgotError('');
+                      setForgotSuccess('');
+                    }}
+                    className={`py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      forgotMethod === 'mfa'
+                        ? 'bg-white text-blue-700 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Mã 2 Bước Authenticator
+                  </button>
+                </div>
+
+                {/* Alerts */}
+                {forgotError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <span className="font-medium">{forgotError}</span>
                   </div>
                 )}
-                {testimonials[2] && (
-                  <div className="hidden 2xl:flex">
-                    <TestimonialCard testimonial={testimonials[2]} delay="animate-delay-1400" />
+                {forgotSuccess && (
+                  <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span className="font-medium">{forgotSuccess}</span>
                   </div>
                 )}
+
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+                  {/* Email Field */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Email công vụ đăng ký <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Input
+                          type="email"
+                          value={forgotEmail}
+                          onChange={(e) => setForgotEmail(e.target.value)}
+                          placeholder="canbo@catngan.gov.vn"
+                          required
+                          disabled={forgotSubmitting || (forgotMethod === 'email' && otpSent)}
+                          className="pl-9"
+                        />
+                        <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3.5 pointer-events-none" />
+                      </div>
+                      {forgotMethod === 'email' && (
+                        <button
+                          type="button"
+                          onClick={handleSendForgotOtp}
+                          disabled={forgotSubmitting || otpCountdown > 0}
+                          className="px-3.5 text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-xl transition-all disabled:opacity-50 disabled:pointer-events-none flex items-center gap-1.5 shrink-0"
+                        >
+                          {forgotSubmitting ? (
+                            <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Send className="w-3.5 h-3.5" />
+                          )}
+                          {otpCountdown > 0 ? `${otpCountdown}s` : otpSent ? 'Gửi lại mã' : 'Gửi mã'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Method 1: Email OTP */}
+                  {forgotMethod === 'email' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Mã xác thực OTP (6 chữ số) <span className="text-rose-500">*</span>
+                      </label>
+                      <Input
+                        type="text"
+                        maxLength={6}
+                        value={forgotOtp}
+                        onChange={(e) => setForgotOtp(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Nhập 6 số gửi về email"
+                        required
+                        disabled={forgotSubmitting}
+                        className="tracking-widest font-mono text-center text-base font-bold"
+                      />
+                    </div>
+                  )}
+
+                  {/* Method 2: MFA Authenticator Code */}
+                  {forgotMethod === 'mfa' && (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                        Mã xác thực 2 bước (Authenticator) <span className="text-rose-500">*</span>
+                      </label>
+                      <Input
+                        type="text"
+                        maxLength={6}
+                        value={forgotMfaCode}
+                        onChange={(e) => setForgotMfaCode(e.target.value.replace(/\D/g, ''))}
+                        placeholder="Nhập mã 6 số từ Authenticator"
+                        required
+                        disabled={forgotSubmitting}
+                        className="tracking-widest font-mono text-center text-base font-bold"
+                      />
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Áp dụng cho tài khoản đã bật tính năng Xác thực 2 bước.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* New Password */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Mật khẩu mới <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type={forgotIsPasswordVisible ? "text" : "password"}
+                        value={forgotNewPassword}
+                        onChange={(e) => setForgotNewPassword(e.target.value)}
+                        placeholder="Tối thiểu 6 ký tự"
+                        required
+                        disabled={forgotSubmitting}
+                        className="pl-9 pr-9"
+                      />
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5 pointer-events-none" />
+                      <button
+                        type="button"
+                        className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
+                        onClick={() => setForgotIsPasswordVisible(!forgotIsPasswordVisible)}
+                      >
+                        {forgotIsPasswordVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Confirm Password */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      Xác nhận mật khẩu mới <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Input
+                        type={forgotIsPasswordVisible ? "text" : "password"}
+                        value={forgotConfirmPassword}
+                        onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                        placeholder="Nhập lại mật khẩu mới"
+                        required
+                        disabled={forgotSubmitting}
+                        className="pl-9"
+                      />
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  {/* Buttons */}
+                  <div className="pt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgotModal(false)}
+                      className="px-4 py-2.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+                    >
+                      Hủy bỏ
+                    </button>
+                    <Button
+                      type="submit"
+                      disabled={forgotSubmitting}
+                      className="flex-1 py-2.5"
+                    >
+                      {forgotSubmitting ? 'Đang cập nhật...' : 'Đặt Lại Mật Khẩu'}
+                    </Button>
+                  </div>
+                </form>
               </div>
-            )}
+            </motion.div>
           </div>
-        </section>
-      )}
+        )}
+      </AnimatePresence>
     </div>
   );
 };

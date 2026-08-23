@@ -44,6 +44,26 @@ export async function getGRADReportApi() {
   return await apiFetch<GRADReportResultDto>('/api/v1/Reports/grad', { method: 'GET' });
 }
 
+export interface SubmitOfficialRatingPayload {
+  targetUserId: string;
+  targetUserName?: string;
+  departmentId?: string;
+  departmentName?: string;
+  ratingScore10: number;
+  evaluatorScore70?: number;
+  systemScore30?: number;
+  evaluationPeriod?: string;
+  evaluationNotes?: string;
+  competencyBreakdown?: Record<string, any>;
+}
+
+export async function submitOfficialRatingApi(payload: SubmitOfficialRatingPayload) {
+  return await apiFetch<{ success: boolean; message: string }>('/api/v1/Reports/grad/evaluate', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export type ReportStatus = 'submitted' | 'approved_level1' | 'approved_final' | 'rejected' | 'needs_revision';
 export type TaskProgressStatus = 'dang_thuc_hien' | 'hoan_thanh' | 'tre_han' | 'xin_gia_han';
 
