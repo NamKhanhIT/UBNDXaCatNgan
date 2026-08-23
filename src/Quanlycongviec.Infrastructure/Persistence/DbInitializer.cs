@@ -59,9 +59,13 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 // Tìm và nạp file SQL khởi tạo
                 var sqlPaths = new[]
                 {
+                    Path.Combine(AppContext.BaseDirectory, "scripts", "database", "seed_database.sql"),
                     Path.Combine(AppContext.BaseDirectory, "scripts", "seed_database.sql"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "scripts", "database", "seed_database.sql"),
                     Path.Combine(Directory.GetCurrentDirectory(), "scripts", "seed_database.sql"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "..", "scripts", "database", "seed_database.sql"),
                     Path.Combine(Directory.GetCurrentDirectory(), "..", "scripts", "seed_database.sql"),
+                    Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "scripts", "database", "seed_database.sql"),
                     Path.Combine(Directory.GetCurrentDirectory(), "..", "..", "scripts", "seed_database.sql")
                 };
 

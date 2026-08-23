@@ -23,6 +23,7 @@ export interface InboxDocumentDto {
   signerName?: string;
   attachmentUrl?: string;
   issuedDate?: string;
+  aiSummary?: string;
 }
 
 export interface PaginatedInboxResponse {

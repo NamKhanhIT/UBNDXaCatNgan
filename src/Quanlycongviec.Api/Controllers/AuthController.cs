@@ -214,6 +214,78 @@ namespace Quanlycongviec.Api.Controllers
         }
 
         /// <summary>
+        /// Yêu cầu gửi mã OTP đặt lại mật khẩu qua email công vụ
+        /// </summary>
+        [HttpPost("forgot-password/send-otp")]
+        [AllowAnonymous]
+        [EnableRateLimiting("LoginLimiter")]
+        public async Task<IActionResult> SendPasswordResetOtp([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.SendPasswordResetOtpCommand command)
+        {
+            try
+            {
+                var result = await _mediator.Send(command);
+                return Ok(new { success = result, message = "Mã xác thực khôi phục mật khẩu đã được gửi đến hòm thư của đồng chí." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xử lý yêu cầu gửi mã OTP khôi phục mật khẩu: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi trong quá trình gửi mã xác thực." });
+            }
+        }
+
+        /// <summary>
+        /// Đặt lại mật khẩu bằng mã OTP nhận qua Email
+        /// </summary>
+        [HttpPost("forgot-password/reset-with-otp")]
+        [AllowAnonymous]
+        [EnableRateLimiting("LoginLimiter")]
+        public async Task<IActionResult> ResetPasswordWithOtp([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.ResetPasswordWithOtpCommand command)
+        {
+            try
+            {
+                var result = await _mediator.Send(command);
+                return Ok(new { success = result, message = "Đặt lại mật khẩu thành công. Đồng chí có thể đăng nhập ngay bằng mật khẩu mới." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đặt lại mật khẩu bằng OTP: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi hoàn tất đặt lại mật khẩu." });
+            }
+        }
+
+        /// <summary>
+        /// Đặt lại mật khẩu tức thì bằng mã xác thực 2 bước Authenticator (MFA)
+        /// </summary>
+        [HttpPost("forgot-password/reset-with-mfa")]
+        [AllowAnonymous]
+        [EnableRateLimiting("LoginLimiter")]
+        public async Task<IActionResult> ResetPasswordWithMfa([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.ResetPasswordWithMfaCommand command)
+        {
+            try
+            {
+                var result = await _mediator.Send(command);
+                return Ok(new { success = result, message = "Xác thực bảo mật 2 bước thành công và đã cập nhật mật khẩu mới." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đặt lại mật khẩu bằng MFA: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi hoàn tất đặt lại mật khẩu." });
+            }
+        }
+
+        /// <summary>
         /// Kiểm tra trạng thái đăng nhập — trả về thông tin user từ JWT cookie / DB
         /// </summary>
         [HttpGet("me")]

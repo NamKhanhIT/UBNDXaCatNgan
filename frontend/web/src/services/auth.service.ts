@@ -79,13 +79,13 @@ export async function authenticateUser(usernameOrEmail: string, password: string
     };
   }
 
-  // Nếu là mobile/remote và backend trả token trong body → lưu vào localStorage
+  // Lưu token vào localStorage để hỗ trợ mọi luồng xác thực Bearer + Cookie
   const token = res.token || res.data.token;
   const refreshToken = (res as any).refreshToken;
-  if (needsBearerAuth() && token) {
+  if (token) {
     storeToken(token);
   }
-  if (needsBearerAuth() && refreshToken) {
+  if (refreshToken) {
     storeRefreshToken(refreshToken);
   }
 
@@ -113,10 +113,10 @@ export async function verifyMfaLogin(mfaToken: string, code: string): Promise<Au
 
   const token = res.token || res.data.token;
   const refreshToken = (res as any).refreshToken;
-  if (needsBearerAuth() && token) {
+  if (token) {
     storeToken(token);
   }
-  if (needsBearerAuth() && refreshToken) {
+  if (refreshToken) {
     storeRefreshToken(refreshToken);
   }
 
@@ -200,13 +200,13 @@ export async function switchContext(userId: string, targetRoleCode: string): Pro
     };
   }
 
-  // Cập nhật token mới khi switch context (nếu là remote/mobile)
+  // Cập nhật token mới khi switch context
   const token = res.token || res.data.token;
   const refreshToken = (res as any).refreshToken;
-  if (needsBearerAuth() && token) {
+  if (token) {
     storeToken(token);
   }
-  if (needsBearerAuth() && refreshToken) {
+  if (refreshToken) {
     storeRefreshToken(refreshToken);
   }
 
@@ -232,4 +232,65 @@ export async function logoutUser(): Promise<boolean> {
   }
 
   return res.success;
+}
+
+/**
+ * Yêu cầu gửi mã OTP khôi phục mật khẩu qua Email công vụ
+ */
+export async function sendPasswordResetOtpApi(email: string): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await apiFetch<{ message: string }>('/api/v1/Auth/forgot-password/send-otp', {
+    method: 'POST',
+    body: JSON.stringify({ email: email.trim() }),
+  });
+
+  if (!res.success) {
+    return { success: false, error: res.error || 'Không thể gửi mã xác thực khôi phục mật khẩu.' };
+  }
+  return { success: true, message: res.data?.message || 'Mã xác thực đã được gửi đến email của đồng chí.' };
+}
+
+/**
+ * Đặt lại mật khẩu bằng mã OTP nhận qua Email
+ */
+export async function resetPasswordWithOtpApi(
+  email: string,
+  otpCode: string,
+  newPassword: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await apiFetch<{ message: string }>('/api/v1/Auth/forgot-password/reset-with-otp', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: email.trim(),
+      otpCode: otpCode.trim(),
+      newPassword,
+    }),
+  });
+
+  if (!res.success) {
+    return { success: false, error: res.error || 'Đặt lại mật khẩu không thành công.' };
+  }
+  return { success: true, message: res.data?.message || 'Đặt lại mật khẩu thành công.' };
+}
+
+/**
+ * Đặt lại mật khẩu tức thì bằng mã 2 bước Authenticator (MFA)
+ */
+export async function resetPasswordWithMfaApi(
+  email: string,
+  mfaCode: string,
+  newPassword: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
+  const res = await apiFetch<{ message: string }>('/api/v1/Auth/forgot-password/reset-with-mfa', {
+    method: 'POST',
+    body: JSON.stringify({
+      email: email.trim(),
+      mfaCode: mfaCode.trim(),
+      newPassword,
+    }),
+  });
+
+  if (!res.success) {
+    return { success: false, error: res.error || 'Xác thực 2 bước không hợp lệ.' };
+  }
+  return { success: true, message: res.data?.message || 'Xác thực thành công và đã cập nhật mật khẩu mới.' };
 }

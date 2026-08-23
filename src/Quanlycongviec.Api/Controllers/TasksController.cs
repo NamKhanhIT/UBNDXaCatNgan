@@ -29,10 +29,14 @@ namespace Quanlycongviec.Api.Controllers
     public class TasksController : ControllerBase
     {
         private readonly ISender _mediator;
+        private readonly Quanlycongviec.Application.Common.Interfaces.IRealtimePublisherService _realtimePublisher;
 
-        public TasksController(ISender mediator)
+        public TasksController(
+            ISender mediator,
+            Quanlycongviec.Application.Common.Interfaces.IRealtimePublisherService realtimePublisher)
         {
             _mediator = mediator;
+            _realtimePublisher = realtimePublisher;
         }
 
         private Guid CurrentUserId
@@ -91,7 +95,42 @@ namespace Quanlycongviec.Api.Controllers
         [Authorize(Policy = "ManagerPlus")]
         public async Task<IActionResult> CreateTask([FromBody] CreateTaskCommand command)
         {
+            if (command.AssignerId == Guid.Empty)
+            {
+                command.AssignerId = CurrentUserId != Guid.Empty ? CurrentUserId : Guid.Parse("a0000000-0000-0000-0000-000000000001");
+            }
+            if (command.AssigneeId == Guid.Empty)
+            {
+                return BadRequest(new { success = false, message = "Vui lòng chọn cán bộ thực hiện nhiệm vụ." });
+            }
+
             var taskId = await _mediator.Send(command);
+
+            // Phát sự kiện SignalR TaskAssigned và ReceiveNotification tới các client realtime
+            await _realtimePublisher.BroadcastAsync("TaskAssigned", new
+            {
+                taskId,
+                title = command.Title,
+                assigneeId = command.AssigneeId,
+                assignerId = command.AssignerId,
+                dueDate = command.DueDate,
+                priority = command.Priority.ToString(),
+                type = command.Type.ToString()
+            });
+
+            await _realtimePublisher.BroadcastAsync("ReceiveNotification", new
+            {
+                id = $"notif-{taskId}",
+                userId = command.AssigneeId,
+                taskItemId = taskId,
+                type = "Assigned",
+                channel = "SignalR",
+                title = $"📌 Nhiệm vụ mới: {command.Title}",
+                message = $"Đồng chí được giao nhiệm vụ [{command.Title}].",
+                sentAt = DateTime.UtcNow,
+                isRead = false
+            });
+
             return Ok(new { success = true, data = taskId, message = "Khởi tạo công việc thành công." });
         }
 
@@ -114,6 +153,58 @@ namespace Quanlycongviec.Api.Controllers
 
             var success = await _mediator.Send(command);
             if (!success) return BadRequest(new { success = false, message = "Không thể cập nhật trạng thái nhiệm vụ." });
+
+            // Phát sự kiện TaskUpdated
+            await _realtimePublisher.BroadcastAsync("TaskUpdated", new
+            {
+                taskId = id,
+                status = request.Status,
+                ratingScore = request.RatingScore,
+                submissionNote = request.SubmissionNote,
+                updatedBy = CurrentUserId
+            });
+
+            // Nếu gia hạn hạn chót
+            if (request.NewExtendedDueDate.HasValue)
+            {
+                await _realtimePublisher.BroadcastAsync("TaskDeadlineChanged", new
+                {
+                    taskId = id,
+                    newDueDate = request.NewExtendedDueDate.Value
+                });
+            }
+
+            // Phát sự kiện trạng thái nghiệp vụ báo cáo
+            if (string.Equals(request.Status, "Cho_Duyet", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(request.Status, "PendingReview", StringComparison.OrdinalIgnoreCase))
+            {
+                await _realtimePublisher.BroadcastAsync("ReportSubmitted", new
+                {
+                    taskId = id,
+                    submissionNote = request.SubmissionNote,
+                    submittedBy = CurrentUserId
+                });
+            }
+            else if (string.Equals(request.Status, "Hoan_Thanh", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(request.Status, "Completed", StringComparison.OrdinalIgnoreCase))
+            {
+                await _realtimePublisher.BroadcastAsync("ReportApproved", new
+                {
+                    taskId = id,
+                    ratingScore = request.RatingScore ?? request.EvaluatorScore,
+                    approvedBy = CurrentUserId
+                });
+            }
+            else if (string.Equals(request.Status, "Tu_Choi", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(request.Status, "Rejected", StringComparison.OrdinalIgnoreCase))
+            {
+                await _realtimePublisher.BroadcastAsync("ReportRejected", new
+                {
+                    taskId = id,
+                    reason = request.RejectionReason,
+                    rejectedBy = CurrentUserId
+                });
+            }
 
             return Ok(new { success = true, message = "Đã cập nhật trạng thái nhiệm vụ thành công." });
         }

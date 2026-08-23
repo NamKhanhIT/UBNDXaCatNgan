@@ -41,6 +41,9 @@ namespace Quanlycongviec.Infrastructure
             services.AddScoped<ISystemScoreCalculator, SystemScoreCalculator>();
             services.AddScoped<IWebPushNotificationService, WebPushNotificationService>();
             services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+            services.AddScoped<IEmailService, SmtpEmailService>();
+
+            services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
 
             // ── AI Provider Registration (Prompt F) ──
             services.Configure<Quanlycongviec.Application.Common.Options.AiProviderOptions>(
@@ -99,6 +102,7 @@ namespace Quanlycongviec.Infrastructure
             // ── SignalR Real-Time ──
             services.AddSignalR();
             services.AddSingleton<Microsoft.AspNetCore.SignalR.IUserIdProvider, CustomUserIdProvider>();
+            services.AddScoped<Quanlycongviec.Application.Common.Interfaces.IRealtimePublisherService, Quanlycongviec.Infrastructure.Services.RealtimePublisherService>();
 
             // ── Background Reminder Service ──
             services.AddHostedService<TaskReminderBackgroundService>();

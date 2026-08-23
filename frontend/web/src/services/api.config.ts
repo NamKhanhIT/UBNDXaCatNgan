@@ -123,7 +123,14 @@ async function tryRefreshAccessToken(): Promise<boolean> {
       return false;
     }
 
-    const data = await response.json();
+    const text = await response.text();
+    let data: any = null;
+    if (text && text.trim()) {
+      try {
+        data = JSON.parse(text);
+      } catch {}
+    }
+
     if (data?.token) {
       storeToken(data.token);
     }
@@ -169,7 +176,7 @@ export async function apiFetch<T = any>(
     const response = await fetch(url, config);
 
     // Access token hết hạn → thử refresh 1 lần rồi gọi lại request ban đầu
-    if (response.status === 401 && needsBearerAuth() && !endpoint.includes('/Auth/login') && !endpoint.includes('/Auth/refresh')) {
+    if (response.status === 401 && !endpoint.includes('/Auth/login') && !endpoint.includes('/Auth/refresh')) {
       const refreshed = await tryRefreshAccessToken();
       if (refreshed) {
         const newToken = getStoredToken();
@@ -179,20 +186,55 @@ export async function apiFetch<T = any>(
             Authorization: `Bearer ${newToken}`,
           };
           const retryResponse = await fetch(url, config);
+          if (retryResponse.status === 204) {
+            return { success: true } as ApiResponse<T>;
+          }
+          const retryText = await retryResponse.text();
+          let retryData: any = null;
+          if (retryText && retryText.trim()) {
+            try {
+              retryData = JSON.parse(retryText);
+            } catch {
+              retryData = { message: retryText };
+            }
+          }
           if (retryResponse.ok) {
-            return retryResponse.json();
+            return retryData ?? ({ success: true } as ApiResponse<T>);
           }
         }
       }
     }
 
-    const data = await response.json();
+    // Xử lý an toàn trường hợp HTTP 204 No Content hoặc phản hồi rỗng
+    if (response.status === 204) {
+      return { success: true } as ApiResponse<T>;
+    }
+
+    const text = await response.text();
+    let data: any = null;
+    if (text && text.trim()) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { message: text };
+      }
+    }
 
     if (!response.ok) {
+      const defaultMsg = response.status === 401
+        ? 'Phiên làm việc đã hết hạn hoặc chưa đăng nhập hợp lệ.'
+        : response.status === 403
+        ? 'Tài khoản không có quyền thực hiện thao tác này.'
+        : `Lỗi máy chủ HTTP ${response.status} (${response.statusText || 'Lỗi không xác định'})`;
+
       return {
         success: false,
-        error: data.message || data.error || `Lỗi HTTP ${response.status}`,
+        error: data?.message || data?.error || defaultMsg,
       };
+    }
+
+    if (data === null || data === undefined) {
+      return { success: true } as ApiResponse<T>;
     }
 
     return data;

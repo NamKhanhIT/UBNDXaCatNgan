@@ -75,5 +75,22 @@ namespace Quanlycongviec.Api.Controllers
                 });
             }
         }
+
+        /// <summary>
+        /// Tắt MFA cho toàn bộ tài khoản mẫu (phục vụ môi trường Demo/Test).
+        /// </summary>
+        [HttpPost("reset-mfa")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ResetMfa()
+        {
+            var users = await _context.Users.ToListAsync();
+            foreach (var user in users)
+            {
+                user.MfaEnabled = false;
+                user.MfaSecret = null;
+            }
+            await _context.SaveChangesAsync();
+            return Ok(new { success = true, message = "Đã tắt xác thực 2 bước cho tất cả tài khoản cán bộ mẫu." });
+        }
     }
 }

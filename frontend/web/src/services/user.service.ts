@@ -15,6 +15,8 @@ export interface UserDto {
   maxHours: number;
   utilizationRate: number;
   isOverloaded: boolean;
+  yearsOfExperience?: number;
+  expertise?: string;
 }
 
 export interface PaginatedUsersResponse {

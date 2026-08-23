@@ -95,6 +95,8 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasIndex(o => o.Status);
                 entity.HasIndex(o => o.DocumentType);
                 entity.HasIndex(o => o.DraftedByUserId);
+                entity.HasIndex(o => new { o.DocumentNumber, o.IssuedDate, o.IsDeleted });
+                entity.HasIndex(o => new { o.SignedByUserId, o.IsDeleted });
             });
 
             // ── Enum → string conversions (tránh sai lệch khi enum bị chỉnh sửa) ──
@@ -111,9 +113,14 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.Property(t => t.Type)
                     .HasConversion<string>()
                     .HasMaxLength(20);
+
+                // ── Performance Composite Indexes ──
+                entity.HasIndex(t => new { t.DepartmentId, t.Status, t.IsDeleted });
+                entity.HasIndex(t => new { t.AssigneeId, t.Status, t.IsDeleted });
+                entity.HasIndex(t => new { t.Status, t.IsDeleted });
             });
 
-            // ── Notification: Enum → string conversions ──
+            // ── Notification: Enum → string conversions & Indexes ──
             modelBuilder.Entity<Notification>(entity =>
             {
                 entity.Property(n => n.Type)
@@ -123,6 +130,8 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.Property(n => n.Channel)
                     .HasConversion<string>()
                     .HasMaxLength(20);
+
+                entity.HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
             });
 
             // ── ReminderLog: Unique constraint chống gửi trùng cấp CSDL ──
@@ -145,6 +154,8 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasIndex(d => d.ReceivedDate);
                 entity.HasIndex(d => d.Channel);
                 entity.HasIndex(d => d.IsUrgent);
+                entity.HasIndex(d => new { d.DocumentNumber, d.ReceivedDate, d.IsDeleted });
+                entity.HasIndex(d => new { d.AiSuggestedDepartmentId, d.IsDeleted });
             });
 
             // ── ReadReceipt: Unique constraint (1 user chỉ đọc 1 entity 1 lần) ──
@@ -160,10 +171,12 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasIndex(t => new { t.AssigneeId, t.Status, t.DueDate });
             });
 
-            // ── User: Index phục vụ tìm kiếm theo tên ──
+            // ── User: Indexes phục vụ tìm kiếm và phân loại đơn vị ──
             modelBuilder.Entity<User>(entity =>
             {
                 entity.HasIndex(u => u.FullName);
+                entity.HasIndex(u => new { u.PrimaryDepartmentId, u.IsDeleted });
+                entity.HasIndex(u => new { u.ActiveRoleCode, u.IsDeleted });
             });
 
             // ── UserRole: Indexes phục vụ lọc theo phòng ban / vai trò ──
@@ -229,6 +242,7 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasIndex(e => new { e.StartDateTime, e.EndDateTime });
                 entity.HasIndex(e => e.OrganizerId);
                 entity.HasIndex(e => e.DepartmentId);
+                entity.HasIndex(e => new { e.DepartmentId, e.StartDateTime, e.EndDateTime });
 
                 entity.HasOne(e => e.Organizer)
                     .WithMany()
