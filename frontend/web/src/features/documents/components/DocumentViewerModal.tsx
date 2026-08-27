@@ -235,11 +235,11 @@ export function DocumentViewerModal({
 
                     {/* Nội dung trang 1 */}
                     <div style={{ textAlign: 'justify', textIndent: 24, marginBottom: 12 }}>
-                      Thực hiện nhiệm vụ chỉ đạo điều hành phát triển kinh tế xã hội và đảm bảo an ninh trật tự trên địa bàn xã Cát Ngạn năm 2026; Ủy ban nhân dân yêu cầu các ban ngành, đoàn thể và cán bộ công chức trực thuộc triển khai nghiêm túc các nội dung sau:
+                      Thực hiện nhiệm vụ chỉ đạo điều hành phát triển kinh tế xã hội và đảm bảo an ninh trật tự trên địa bàn xã năm 2026; Ủy ban nhân dân yêu cầu các ban ngành, đoàn thể và cán bộ công chức trực thuộc triển khai nghiêm túc các nội dung sau:
                     </div>
 
                     <div style={{ paddingLeft: 16, marginBottom: 12 }}>
-                      <p><strong>1. Đối tượng và phạm vi thi hành:</strong> Toàn thể cán bộ, công chức và nhân dân 12 thôn xóm trên địa bàn xã Cát Ngạn.</p>
+                      <p><strong>1. Đối tượng và phạm vi thi hành:</strong> Toàn thể cán bộ, công chức và nhân dân 12 thôn xóm trên địa bàn xã.</p>
                       <p><strong>2. Yêu cầu trọng tâm:</strong> Triển khai đồng bộ các giải pháp quản lý đất đai, tăng cường kiểm tra thực địa và xử lý dứt điểm các vướng mắc tồn đọng.</p>
                     </div>
 

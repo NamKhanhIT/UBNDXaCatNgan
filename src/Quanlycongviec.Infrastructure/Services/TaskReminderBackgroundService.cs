@@ -198,7 +198,7 @@ namespace Quanlycongviec.Infrastructure.Services
 
                 if (pendingCount > 0)
                 {
-                    string digestTitle = "Tóm Tắt Nhiệm Vụ Hôm Nay - UBND Xã Cát Ngạn";
+                    string digestTitle = "Tóm Tắt Nhiệm Vụ Hôm Nay - Hệ Thống Quản Lý Công Việc";
                     string digestMessage = overdueCount > 0
                         ? $"Chào buổi sáng! Bạn có {pendingCount} việc cần xử lý hôm nay, trong đó có {overdueCount} việc quá hạn. Bấm để xem chi tiết."
                         : $"Chào buổi sáng! Bạn có {pendingCount} việc cần xử lý hôm nay. Chúc bạn một ngày làm việc hiệu quả!";
@@ -537,7 +537,7 @@ namespace Quanlycongviec.Infrastructure.Services
                                 : $"{offset.MinutesBefore} phút";
 
                         string title = $"SẮP DIỄN RA SỰ KIỆN: {evt.Title}";
-                        string message = $"Sự kiện [{evt.Title}] sẽ diễn ra trong vòng {timeText} tới ({evt.StartDateTime:dd/MM/yyyy HH:mm}). Địa điểm: {evt.Location ?? "UBND Xã"}.";
+                        string message = $"Sự kiện [{evt.Title}] sẽ diễn ra trong vòng {timeText} tới ({evt.StartDateTime:dd/MM/yyyy HH:mm}). Địa điểm: {evt.Location ?? "Trụ sở đơn vị"}.";
 
                         foreach (var userId in recipients)
                         {

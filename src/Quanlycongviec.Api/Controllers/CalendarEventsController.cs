@@ -29,15 +29,8 @@ namespace Quanlycongviec.Api.Controllers
             _realtimePublisher = realtimePublisher;
         }
 
-        private Guid GetCurrentUserId()
-        {
-            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(userIdStr, out var userId))
-            {
-                return userId;
-            }
-            return Guid.Parse("11111111-1111-1111-1111-111111111111");
-        }
+        // BẢO MẬT (Audit X1 + L3): dùng extension dùng chung — bỏ fallback GUID admin cứng
+        private Guid GetCurrentUserId() => User.GetUserId();
 
         [HttpGet]
         public async Task<ActionResult<List<CalendarEventDto>>> GetCalendarEvents(

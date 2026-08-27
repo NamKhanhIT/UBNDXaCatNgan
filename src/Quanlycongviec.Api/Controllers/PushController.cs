@@ -26,20 +26,10 @@ namespace Quanlycongviec.Api.Controllers
             _mediator = mediator;
         }
 
-        private Guid GetCurrentUserId()
-        {
-            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (Guid.TryParse(userIdStr, out var userId))
-            {
-                return userId;
-            }
-            // Fallback user ID for demo / unauthenticated dev environment
-            return Guid.Parse("a0000000-0000-0000-0000-000000000001");
-        }
+                // BẢO MẬT (Audit X1): Lấy ID người dùng hiện tại qua CurrentUserExtensions
+        private Guid GetCurrentUserId() => User.GetUserId();
 
-        /// <summary>
-        /// Lấy VAPID Public Key để cấu hình PushManager phía trình duyệt
-        /// </summary>
+        // Lấy VAPID Public Key để cấu hình PushManager phía client
         [HttpGet("vapid-public-key")]
         [AllowAnonymous]
         public async Task<ActionResult<object>> GetVapidPublicKey()
@@ -48,9 +38,7 @@ namespace Quanlycongviec.Api.Controllers
             return Ok(new { success = true, data = new { publicKey }, publicKey });
         }
 
-        /// <summary>
-        /// Đăng ký nhận thông báo đẩy từ thiết bị của cán bộ
-        /// </summary>
+        // Đăng ký nhận thông báo đẩy từ thiết bị cán bộ
         [HttpPost("subscribe")]
         public async Task<ActionResult<object>> Subscribe([FromBody] SubscribePushRequest request)
         {
@@ -67,9 +55,7 @@ namespace Quanlycongviec.Api.Controllers
             return Ok(new { success = true, data = result });
         }
 
-        /// <summary>
-        /// Hủy đăng ký nhận thông báo đẩy trên thiết bị này
-        /// </summary>
+        // Hủy đăng ký nhận thông báo đẩy trên thiết bị
         [HttpDelete("subscribe")]
         public async Task<ActionResult<object>> Unsubscribe([FromQuery] string? endpoint, [FromQuery] Guid? subscriptionId)
         {
@@ -84,9 +70,7 @@ namespace Quanlycongviec.Api.Controllers
             return Ok(new { success = true, data = new { success } });
         }
 
-        /// <summary>
-        /// Lấy danh sách các thiết bị đã liên kết nhận thông báo của cán bộ hiện tại
-        /// </summary>
+        // Lấy danh sách thiết bị đã liên kết nhận thông báo của cán bộ hiện tại
         [HttpGet("subscriptions")]
         public async Task<ActionResult<object>> GetMySubscriptions()
         {
@@ -95,9 +79,7 @@ namespace Quanlycongviec.Api.Controllers
             return Ok(new { success = true, data = result });
         }
 
-        /// <summary>
-        /// Gửi thông báo thử nghiệm tới thiết bị
-        /// </summary>
+        // Gửi thông báo đẩy thử nghiệm tới thiết bị
         [HttpPost("test")]
         public async Task<ActionResult<object>> SendTest([FromBody] SendTestPushRequest? request)
         {

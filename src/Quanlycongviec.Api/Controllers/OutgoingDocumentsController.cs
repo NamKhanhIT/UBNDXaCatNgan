@@ -32,12 +32,8 @@ namespace Quanlycongviec.Api.Controllers
             _mediator = mediator;
         }
 
-        private Guid GetCurrentUserId()
-        {
-            var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value;
-            if (Guid.TryParse(claim, out var userId)) return userId;
-            return Guid.Empty;
-        }
+        // BẢO MẬT (Audit X1): dùng extension dùng chung CurrentUserExtensions.GetUserId
+        private Guid GetCurrentUserId() => User.GetUserId();
 
         private int GetUserRankLevel()
         {

@@ -43,7 +43,7 @@ namespace Quanlycongviec.Infrastructure.Services
                 : _options.PrivateKey;
 
             var subject = string.IsNullOrWhiteSpace(_options.Subject)
-                ? configuration["WebPush:Subject"] ?? "mailto:admin@catngan.gov.vn"
+                ? configuration["WebPush:Subject"] ?? "mailto:admin@ubnd.gov.vn"
                 : _options.Subject;
 
             _vapidDetails = new VapidDetails(subject, pubKey, privKey);
@@ -94,7 +94,9 @@ namespace Quanlycongviec.Infrastructure.Services
             {
                 try
                 {
-                    var pushSub = new WebPush.PushSubscription(sub.Endpoint, sub.P256dhKey, sub.AuthKey);
+                    var cleanP256dh = NormalizeBase64Url(sub.P256dhKey);
+                    var cleanAuth = NormalizeBase64Url(sub.AuthKey);
+                    var pushSub = new WebPush.PushSubscription(sub.Endpoint, cleanP256dh, cleanAuth);
                     await client.SendNotificationAsync(pushSub, payloadJson, _vapidDetails, cancellationToken);
                     sub.LastUsedAt = DateTime.UtcNow;
                     successCount++;
@@ -182,8 +184,8 @@ namespace Quanlycongviec.Infrastructure.Services
 
             var payloadObject = new
             {
-                title = "UBND Xã Cát Ngạn - Thông Báo Thử Nghiệm",
-                body = $"Thông báo đẩy Web Push hoạt động hoàn hảo trên thiết bị ({sub.DeviceLabel ?? "Thiết bị này"}) lúc {DateTime.Now:HH:mm:ss dd/MM/yyyy}!",
+                title = "Hệ Thống Quản Lý Công Việc - Thông Báo Thử Nghiệm",
+                body = $"Thông báo đẩy Web Push hoạt động hoàn hảo trên thiết bị ({sub.DeviceLabel ?? "Thiết bị này"}) lúc {DateTime.Now:HH:mm, dd-MM-yyyy}!",
                 icon = "/icons/icon-192x192.png",
                 badge = "/icons/badge-72x72.png",
                 data = new
@@ -197,7 +199,9 @@ namespace Quanlycongviec.Infrastructure.Services
 
             try
             {
-                var pushSub = new WebPush.PushSubscription(sub.Endpoint, sub.P256dhKey, sub.AuthKey);
+                var cleanP256dh = NormalizeBase64Url(sub.P256dhKey);
+                var cleanAuth = NormalizeBase64Url(sub.AuthKey);
+                var pushSub = new WebPush.PushSubscription(sub.Endpoint, cleanP256dh, cleanAuth);
                 await client.SendNotificationAsync(pushSub, payloadJson, _vapidDetails, cancellationToken);
                 sub.LastUsedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync(cancellationToken);
@@ -212,6 +216,15 @@ namespace Quanlycongviec.Infrastructure.Services
                 _logger.LogError(ex, "Lỗi gửi thông báo thử nghiệm tới endpoint {Endpoint}", endpoint);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Chuẩn hóa chuỗi Base64 / Base64URL thành định dạng không đệm (unpadded Base64URL) tương thích 100% với WebPush
+        /// </summary>
+        public static string NormalizeBase64Url(string? input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+            return input.Trim().TrimEnd('=').Replace('+', '-').Replace('/', '_').Replace(" ", "");
         }
     }
 }

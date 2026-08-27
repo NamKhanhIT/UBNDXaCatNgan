@@ -57,8 +57,8 @@ namespace Quanlycongviec.Application.Tests.Notifications
             // Arrange
             using var context = new ApplicationDbContext(_dbOptions);
 
-            var assigner = new User { Id = Guid.NewGuid(), Username = "chutich", Email = "chutich@catngan.gov.vn" };
-            var assignee = new User { Id = Guid.NewGuid(), Username = "canbo1", Email = "canbo1@catngan.gov.vn" };
+            var assigner = new User { Id = Guid.NewGuid(), Username = "chutich", Email = "chutich@ubnd.gov.vn" };
+            var assignee = new User { Id = Guid.NewGuid(), Username = "canbo1", Email = "canbo1@ubnd.gov.vn" };
             context.Users.AddRange(assigner, assignee);
 
             var overdueTask = new TaskItem
@@ -109,8 +109,8 @@ namespace Quanlycongviec.Application.Tests.Notifications
             using var context = new ApplicationDbContext(_dbOptions);
 
             var dept = new Department { Id = Guid.NewGuid(), Name = "Văn phòng HĐND & UBND", Code = "VAN_PHONG" };
-            var assigner = new User { Id = Guid.NewGuid(), Username = "chutich", Email = "chutich@catngan.gov.vn" };
-            var assignee = new User { Id = Guid.NewGuid(), Username = "canbo1", Email = "canbo1@catngan.gov.vn" };
+            var assigner = new User { Id = Guid.NewGuid(), Username = "chutich", Email = "chutich@ubnd.gov.vn" };
+            var assignee = new User { Id = Guid.NewGuid(), Username = "canbo1", Email = "canbo1@ubnd.gov.vn" };
             context.Departments.Add(dept);
             context.Users.AddRange(assigner, assignee);
 

@@ -168,7 +168,7 @@ namespace Quanlycongviec.Application.Tests.AI
             var taskItem = new TaskItem
             {
                 Id = Guid.NewGuid(),
-                Title = "Kiểm tra cấp phép xây dựng khu vực chợ Cát Ngạn",
+                Title = "Kiểm tra cấp phép xây dựng khu vực trung tâm xã",
                 AssignerId = assignerId,
                 AssigneeId = assigneeId,
                 Status = TaskStatusEnum.InProgress,

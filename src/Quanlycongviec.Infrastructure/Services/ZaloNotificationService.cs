@@ -21,21 +21,24 @@ namespace Quanlycongviec.Infrastructure.Services
         {
             var accessToken = _configuration["ZaloOA:AccessToken"];
             var configuredTemplateId = _configuration["ZaloOA:TemplateId"] ?? templateId;
+            string maskedPhone = !string.IsNullOrWhiteSpace(phoneNumber) && phoneNumber.Trim().Length >= 7
+                ? phoneNumber.Trim()[..3] + "****" + phoneNumber.Trim()[^3..]
+                : "***";
 
             if (string.IsNullOrWhiteSpace(accessToken))
             {
-                _logger.LogWarning("Chưa cấu hình Zalo OA (ZaloOA:AccessToken) — bỏ qua gửi ZNS tới số điện thoại [{PhoneNumber}].", phoneNumber);
+                _logger.LogWarning("Chưa cấu hình Zalo OA (ZaloOA:AccessToken) — bỏ qua gửi ZNS tới số điện thoại [{PhoneNumber}].", maskedPhone);
                 return Task.CompletedTask;
             }
 
             try
             {
                 // Giả lập / Chuẩn bị sẵn luồng gọi Zalo OpenAPI ZNS
-                _logger.LogInformation("Đã gửi Zalo ZNS thành công tới [{PhoneNumber}] qua Template [{TemplateId}].", phoneNumber, configuredTemplateId);
+                _logger.LogInformation("Đã gửi Zalo ZNS thành công tới [{PhoneNumber}] qua Template [{TemplateId}].", maskedPhone, configuredTemplateId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi gửi Zalo ZNS tới [{PhoneNumber}]. Bỏ qua lỗi để giữ nguyên thông báo InApp.", phoneNumber);
+                _logger.LogError(ex, "Lỗi khi gửi Zalo ZNS tới [{PhoneNumber}]. Bỏ qua lỗi để giữ nguyên thông báo InApp.", maskedPhone);
             }
 
             return Task.CompletedTask;

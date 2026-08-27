@@ -26,44 +26,155 @@ namespace Quanlycongviec.Infrastructure.Services
 
         public async Task<bool> SendPasswordResetOtpAsync(string toEmail, string fullName, string otpCode, CancellationToken cancellationToken = default)
         {
-            var subject = "Mã xác thực đặt lại mật khẩu - Hệ thống Quản lý Công việc UBND Cấp Xã";
-            var displayName = string.IsNullOrWhiteSpace(fullName) ? "Đồng chí" : fullName;
+            var subject = "[KHM Software] Mã xác thực khôi phục mật khẩu";
 
-            var htmlBody = $@"
-<!DOCTYPE html>
-<html lang=""vi"">
-<head>
-    <meta charset=""UTF-8"">
-    <title>{subject}</title>
-</head>
-<body style=""font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f1f5f9; margin: 0; padding: 24px; color: #1e293b;"">
-    <div style=""max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); border: 1px solid #e2e8f0;"">
-        <div style=""background: linear-gradient(135deg, #1e3a8a, #0f172a); padding: 28px 24px; text-align: center; color: #ffffff;"">
-            <h2 style=""margin: 0; font-size: 18px; text-transform: uppercase; letter-spacing: 1px; color: #e2e8f0;"">ỦY BAN NHÂN DÂN CẤP XÃ</h2>
-            <p style=""margin: 6px 0 0 0; font-size: 13px; color: #93c5fd; font-weight: 500;"">Hệ Thống Quản Lý & Điều Hành Công Việc</p>
-        </div>
-        <div style=""padding: 32px 24px;"">
-            <p style=""font-size: 15px; line-height: 1.6; margin: 0 0 16px 0;"">Kính gửi <strong>{displayName}</strong>,</p>
-            <p style=""font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 24px 0;"">
-                Hệ thống nhận được yêu cầu khôi phục mật khẩu truy cập tài khoản công vụ của đồng chí. Vui lòng sử dụng mã xác thực OTP dưới đây để hoàn tất việc đặt lại mật khẩu:
-            </p>
-            <div style=""background-color: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0;"">
-                <span style=""font-family: Consolas, 'Courier New', monospace; font-size: 32px; font-weight: 800; letter-spacing: 8px; color: #1d4ed8;"">{otpCode}</span>
-                <p style=""margin: 8px 0 0 0; font-size: 12px; color: #64748b;"">Mã xác thực có hiệu lực trong vòng <strong>10 phút</strong></p>
-            </div>
-            <p style=""font-size: 13px; line-height: 1.5; color: #64748b; margin: 0 0 16px 0;"">
-                Nếu đồng chí không thực hiện yêu cầu này, vui lòng bỏ qua email hoặc thông báo ngay cho Quản trị viên hệ thống để kiểm tra an toàn thông tin.
-            </p>
-        </div>
-        <div style=""background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 16px 24px; text-align: center; font-size: 12px; color: #94a3b8;"">
-            <p style=""margin: 0;"">© 2026 Bản quyền thuộc Ủy ban nhân dân Cấp Xã</p>
-            <p style=""margin: 4px 0 0 0;"">Phát triển và bảo trợ kỹ thuật bởi KHM Software</p>
-        </div>
-    </div>
-</body>
-</html>";
+            var htmlBody = BuildOfficialOtpEmail(
+                fullName,
+                "Hệ thống vừa tiếp nhận yêu cầu khôi phục mật khẩu truy cập tài khoản công vụ của Anh/Chị",
+                otpCode,
+                "Mã có hiệu lực trong vòng <strong>10 phút</strong>",
+                "Nếu Anh/Chị không thực hiện yêu cầu trên, đề nghị bỏ qua email này và phản hồi kịp thời cho Ban Quản trị Hệ thống để rà soát an toàn thông tin.");
 
-            return await SendEmailAsync(toEmail, subject, htmlBody, cancellationToken);
+            // Nếu cấu hình SMTP có Host hợp lệ thì gửi qua SmtpClient thật
+            if (!string.IsNullOrWhiteSpace(_options.Host) && !string.IsNullOrWhiteSpace(_options.Username))
+            {
+                var sent = await SendEmailAsync(toEmail, subject, htmlBody, cancellationToken);
+                if (sent) return true;
+            }
+
+            // Fallback môi trường cục bộ / Dev khi chưa cấu hình SMTP Host:
+            _logger.LogInformation(@"
+                ╔════════════════════════════════════════════════════════════════════════════════╗
+                ║                   [EMAIL OTP XÁC THỰC KHÔI PHỤC MẬT KHẨU]                      ║
+                ║ Người nhận: {ToEmail,-66}                                                      ║
+                ║ Cán bộ:     {FullName,-66}                                                     ║
+                ║ MÃ OTP:     >>>  {OtpCode}  <<<                                                ║
+                ║ (Thời hạn: 10 phút. Nhập mã này trên màn hình để đặt lại mật khẩu mới)         ║
+                ╚════════════════════════════════════════════════════════════════════════════════╝",
+                toEmail, fullName, otpCode);
+
+            return true;
+        }
+
+        public async Task<bool> SendMfaOtpAsync(string toEmail, string fullName, string otpCode, CancellationToken cancellationToken = default)
+        {
+            var subject = "[KHM Software] Mã xác thực đăng nhập hai yếu tố";
+
+            var htmlBody = BuildOfficialOtpEmail(
+                fullName,
+                "Hệ thống vừa tiếp nhận yêu cầu xác thực đăng nhập hai yếu tố của Anh/Chị",
+                otpCode,
+                "Mã có hiệu lực trong vòng <strong>05 phút</strong> và chỉ sử dụng một lần",
+                "Nếu không phải Anh/Chị đang thực hiện đăng nhập, tài khoản vẫn an toàn — đề nghị bỏ qua email này và phản hồi kịp thời cho Ban Quản trị Hệ thống để rà soát an toàn thông tin.");
+
+            // Nếu cấu hình SMTP có Host hợp lệ thì gửi qua SmtpClient thật
+            if (!string.IsNullOrWhiteSpace(_options.Host) && !string.IsNullOrWhiteSpace(_options.Username))
+            {
+                var sent = await SendEmailAsync(toEmail, subject, htmlBody, cancellationToken);
+                if (sent) return true;
+            }
+
+            // Fallback môi trường cục bộ / Dev khi chưa cấu hình SMTP Host
+            _logger.LogInformation(@"
+                ╔════════════════════════════════════════════════════════════════════════════════╗
+                ║                   [EMAIL OTP XÁC THỰC 2 YẾU TỐ (MFA / 2FA)]                    ║
+                ║ Người nhận: {ToEmail,-66}                                                      ║
+                ║ Cán bộ:     {FullName,-66}                                                     ║
+                ║ MÃ OTP:     >>>  {OtpCode}  <<<                                                ║
+                ║ (Thời hạn: 05 phút. Nhập mã này trên màn hình để xác thực đăng nhập)           ║
+                ╚════════════════════════════════════════════════════════════════════════════════╝",
+                toEmail, fullName, otpCode);
+
+            return true;
+        }
+
+        public async Task<bool> SendEmailChangeOtpAsync(string toEmail, string fullName, string otpCode, CancellationToken cancellationToken = default)
+        {
+            var subject = "[KHM Software] Mã xác thực cập nhật địa chỉ email công vụ";
+
+            var htmlBody = BuildOfficialOtpEmail(
+                fullName,
+                "Hệ thống vừa tiếp nhận yêu cầu cập nhật địa chỉ email công vụ của Anh/Chị",
+                otpCode,
+                "Mã có hiệu lực trong vòng <strong>05 phút</strong> và chỉ sử dụng một lần",
+                "Nếu Anh/Chị không thực hiện yêu cầu này, đề nghị bỏ qua email và thông báo cho Ban Quản trị Hệ thống để rà soát an toàn thông tin.");
+
+            if (!string.IsNullOrWhiteSpace(_options.Host) && !string.IsNullOrWhiteSpace(_options.Username))
+            {
+                var sent = await SendEmailAsync(toEmail, subject, htmlBody, cancellationToken);
+                if (sent) return true;
+            }
+
+            _logger.LogInformation(@"
+                ╔════════════════════════════════════════════════════════════════════════════════╗
+                ║                   [EMAIL OTP XÁC THỰC CẬP NHẬT EMAIL CÔNG VỤ]                  ║
+                ║ Người nhận: {ToEmail,-66}                                                      ║
+                ║ Cán bộ:     {FullName,-66}                                                     ║
+                ║ MÃ OTP:     >>>  {OtpCode}  <<<                                                ║
+                ║ (Thời hạn: 05 phút. Nhập mã này trên màn hình để xác nhận đổi email)           ║
+                ╚════════════════════════════════════════════════════════════════════════════════╝",
+                toEmail, fullName, otpCode);
+
+            return true;
+        }
+
+        private static string FormatVietnamTimestamp()
+        {
+            var vnNow = DateTime.UtcNow.AddHours(7);
+            return $"{vnNow.Hour} giờ {vnNow.Minute:D2} phút ngày {vnNow.Day} tháng {vnNow.Month} năm {vnNow.Year}";
+        }
+
+        private static string BuildOfficialOtpEmail(
+            string fullName,
+            string contextSentence,
+            string otpCode,
+            string validityHtml,
+            string notYouSentence)
+        {
+            var greetingName = string.IsNullOrWhiteSpace(fullName)
+                ? string.Empty
+                : $" <strong>{System.Net.WebUtility.HtmlEncode(fullName)}</strong>";
+            var timestamp = FormatVietnamTimestamp();
+
+            return $@"
+                <!DOCTYPE html>
+                <html lang=""vi"">
+                <head>
+                    <meta charset=""UTF-8"">
+                    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+                </head>
+                <body style=""font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #eef2f7; margin: 0; padding: 24px; color: #1e293b;"">
+                    <div style=""max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 4px; overflow: hidden; border: 1px solid #d3dce8;"">
+                        <div style=""background-color: #1e3a8a; padding: 26px 24px; text-align: center; color: #ffffff;"">
+                            <h2 style=""margin: 0; font-size: 17px; text-transform: uppercase; letter-spacing: 2px; color: #ffffff;"">HỆ THỐNG QUẢN LÝ CÔNG VIỆC</h2>
+                            <p style=""margin: 7px 0 0 0; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #c7d7f0;"">Phát triển bởi KHM Software</p>
+                        </div>
+                        <div style=""padding: 30px 28px;"">
+                            <p style=""font-size: 15px; line-height: 1.6; margin: 0 0 14px 0;"">Kính gửi Anh/Chị{greetingName},</p>
+                            <p style=""font-size: 14px; line-height: 1.7; color: #334155; margin: 0 0 22px 0;"">
+                                {contextSentence} lúc <strong>{timestamp}</strong>. Vui lòng sử dụng mã xác thực dưới đây để hoàn tất thao tác:
+                            </p>
+                            <div style=""background-color: #f8fafc; border: 2px solid #cbd5e1; border-radius: 6px; padding: 20px; text-align: center; margin: 0 0 22px 0;"">
+                                <span style=""display: block; font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: #64748b; margin-bottom: 8px;"">MÃ XÁC THỰC</span>
+                                <span style=""font-family: Consolas, 'Courier New', monospace; font-size: 32px; font-weight: 700; letter-spacing: 10px; color: #1e3a8a;"">{otpCode}</span>
+                                <p style=""margin: 10px 0 0 0; font-size: 12px; color: #64748b;"">{validityHtml}</p>
+                            </div>
+                            <div style=""background-color: #fff7ed; border-left: 4px solid #c2410c; padding: 13px 16px; margin: 0 0 20px 0;"">
+                                <p style=""font-size: 13px; line-height: 1.65; color: #7c2d12; margin: 0;"">
+                                    <strong>Lưu ý an toàn:</strong> Anh/Chị tuyệt đối không cung cấp mã này cho bất kỳ ai, kể cả người tự xưng là cán bộ kỹ thuật của hệ thống.
+                                </p>
+                            </div>
+                            <p style=""font-size: 13px; line-height: 1.7; color: #475569; margin: 0 0 24px 0;"">{notYouSentence}</p>
+                            <p style=""font-size: 14px; line-height: 1.6; margin: 0;"">Trân trọng,</p>
+                            <p style=""font-size: 14px; font-weight: 700; letter-spacing: 0.5px; margin: 4px 0 0 0;"">BAN QUẢN TRỊ HỆ THỐNG</p>
+                        </div>
+                        <div style=""background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 14px 24px; text-align: center; font-size: 12px; color: #94a3b8;"">
+                            <p style=""margin: 0;"">Hệ Thống Quản Lý Công Việc • KHM Software © 2026</p>
+                            <p style=""margin: 4px 0 0 0;"">Email được gửi tự động — vui lòng không trả lời trực tiếp email này.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>";
         }
 
         public async Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, CancellationToken cancellationToken = default)
@@ -105,15 +216,16 @@ namespace Quanlycongviec.Infrastructure.Services
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "[SmtpEmailService] Gửi email qua SMTP thất bại tới {ToEmail}: {Message}", toEmail, ex.Message);
-                    // Không ngắt luồng — ghi log an toàn và tiếp tục
+                    // BẢO MẬT (Audit L1): Báo thất bại khi gửi email lỗi thay vì trả true giả lập
+                    return false;
                 }
             }
-            else
-            {
-                _logger.LogInformation("[SmtpEmailService] [Dev/Test Mode] Chưa cấu hình SMTP Host. Đã ghi nhận gửi email '{Subject}' tới {ToEmail}", subject, toEmail);
-            }
 
-            return true;
+            // BẢO MẬT (Audit L1): Chưa cấu hình SMTP -> báo thất bại rõ ràng để caller xử lý
+            _logger.LogWarning(
+                "[SmtpEmailService] Chưa cấu hình SMTP Host — không thể gửi '{Subject}' tới {ToEmail}. Hãy cấu hình section Smtp (Brevo/Gmail) trong biến môi trường.",
+                subject, toEmail);
+            return false;
         }
     }
 }

@@ -36,7 +36,7 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             var evt = new CalendarEvent
             {
                 Id = Guid.NewGuid(),
-                Title = "Đại hội chi bộ xã Cát Ngạn",
+                Title = "Đại hội chi bộ cơ sở",
                 Description = "Đại hội tổng kết nhiệm kỳ 3 ngày",
                 EventType = EventTypeEnum.Conference,
                 StartDateTime = new DateTime(2026, 8, 10, 8, 0, 0, DateTimeKind.Utc),
@@ -62,7 +62,7 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
 
             // Assert
             Assert.Single(result);
-            Assert.Equal("Đại hội chi bộ xã Cát Ngạn", result[0].Title);
+            Assert.Equal("Đại hội chi bộ cơ sở", result[0].Title);
             Assert.Equal("Hội nghị / Đại hội", result[0].EventTypeName);
         }
 

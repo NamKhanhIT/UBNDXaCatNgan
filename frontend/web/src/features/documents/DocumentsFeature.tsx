@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { usePermission } from '../../hooks/use-permission';
 import { useToast } from '../../components/ui/ToastContext';
+import { getInboxDocumentsApi, InboxDocumentDto } from '../../services/inbox.service';
+import { getOutgoingDocumentsApi, OutgoingDocumentDto } from '../../services/outgoing-document.service';
 import {
   analyzeDocumentWithAi,
   suggestAssigneesForDocument,
@@ -43,85 +45,104 @@ export interface DocumentItem {
   aiSummary: string;
 }
 
-const INITIAL_DOCUMENTS: DocumentItem[] = [
-  {
-    id: 'DOC-001',
-    documentNumber: '142',
-    documentSymbol: 'CT-UBND',
-    subject: 'Chỉ thị về việc tăng cường các biện pháp phòng chống thiên tai và tìm kiếm cứu nạn mùa mưa bão năm 2026',
-    category: 'ChiDao',
-    categoryName: 'Chỉ đạo điều hành',
-    sender: 'UBND Tỉnh Nghệ An',
+function mapInboxToDocumentItem(doc: InboxDocumentDto): DocumentItem {
+  let cat: 'ChiDao' | 'GiaoViec' | 'BaoCao' | 'HopThuMoi' | 'ThongBao' = 'ChiDao';
+  const cLow = (doc.category || '').toLowerCase();
+  if (cLow.includes('họp') || cLow.includes('mời') || cLow.includes('meeting')) cat = 'HopThuMoi';
+  else if (cLow.includes('báo cáo') || cLow.includes('report')) cat = 'BaoCao';
+  else if (cLow.includes('giao việc') || cLow.includes('nhiệm vụ') || cLow.includes('task')) cat = 'GiaoViec';
+  else if (cLow.includes('thông báo') || cLow.includes('notice')) cat = 'ThongBao';
+
+  return {
+    id: doc.id,
+    documentNumber: doc.documentNumber || '—',
+    documentSymbol: doc.documentSymbol || 'CV-UBND',
+    subject: doc.subject || 'Văn bản tiếp nhận',
+    category: cat,
+    categoryName: doc.category || 'Chỉ đạo điều hành',
+    sender: doc.sender || doc.issuingAgency || 'Cơ quan cấp trên',
     direction: 'incoming',
-    issuedDate: '2026-08-19',
-    receivedDate: '2026-08-20',
-    deadlineDate: '2026-08-25',
-    isUrgent: true,
-    processingStatus: 'PendingAssignment',
-    aiSummary: 'Yêu cầu tổ chức trực ban 24/24 giờ, rà soát các vị trí xung yếu ven sông Lam.',
-  },
-  {
-    id: 'DOC-002',
-    documentNumber: '78',
-    documentSymbol: 'GM-UBND',
-    subject: 'Giấy mời họp kiểm điểm công tác chuyển đổi số và đề án 06 tháng 8 năm 2026',
-    category: 'HopThuMoi',
-    categoryName: 'Họp và thư mời',
-    sender: 'UBND Huyện Thanh Chương',
-    direction: 'incoming',
-    issuedDate: '2026-08-20',
-    receivedDate: '2026-08-21',
-    deadlineDate: '2026-08-23',
-    isUrgent: false,
-    processingStatus: 'PendingConfirmation',
-    aiSummary: 'Mời Lãnh đạo UBND xã và cán bộ phụ trách dự phiên họp trực tuyến rà soát dữ liệu.',
-  },
-  {
-    id: 'DOC-003',
-    documentNumber: '89',
-    documentSymbol: 'BC-KT',
-    subject: 'Báo cáo kết quả thực hiện nhiệm vụ quản lý đất đai và thu phí địa chính tháng 8 năm 2026',
-    category: 'BaoCao',
-    categoryName: 'Báo cáo công vụ',
-    sender: 'Phòng Kinh tế & Địa chính',
-    direction: 'incoming',
-    issuedDate: '2026-08-21',
-    receivedDate: '2026-08-21',
-    deadlineDate: null,
-    isUrgent: false,
-    processingStatus: 'PendingApproval',
-    aiSummary: 'Báo cáo tổng hợp tiến độ cấp đổi 45 hồ sơ địa chính và nguồn thu từ đất.',
-  },
-  {
-    id: 'DOC-004',
-    documentNumber: '105',
-    documentSymbol: 'QĐ-UBND',
-    subject: 'Quyết định thành lập Tổ công tác kiểm tra an toàn đê điều xã Cát Ngạn',
-    category: 'GiaoViec',
-    categoryName: 'Giao nhiệm vụ',
-    sender: 'UBND Xã Cát Ngạn',
+    issuedDate: doc.issuedDate || doc.receivedDate || new Date().toISOString(),
+    receivedDate: doc.receivedDate || new Date().toISOString(),
+    deadlineDate: doc.scheduledDate || null,
+    isUrgent: !!doc.isUrgent,
+    processingStatus: doc.isScheduled ? 'Completed' : 'PendingProcessing',
+    aiSummary: doc.aiSummary || doc.subject || 'Đang chờ điều phối phân công công tác.',
+  };
+}
+
+function mapOutgoingToDocumentItem(doc: OutgoingDocumentDto): DocumentItem {
+  let cat: 'ChiDao' | 'GiaoViec' | 'BaoCao' | 'HopThuMoi' | 'ThongBao' = 'BaoCao';
+  const tLow = (doc.documentTypeName || '').toLowerCase();
+  if (tLow.includes('quyết định') || tLow.includes('chỉ thị')) cat = 'ChiDao';
+  else if (tLow.includes('thông báo')) cat = 'ThongBao';
+  else if (tLow.includes('kế hoạch') || tLow.includes('tờ trình')) cat = 'GiaoViec';
+
+  let status: DocumentProcessingStatus = 'PendingApproval';
+  if (doc.status === 'Issued' || doc.status === 'Sent') status = 'Completed';
+  else if (doc.status === 'Draft') status = 'PendingProcessing';
+  else if (doc.status === 'PendingSignature') status = 'PendingApproval';
+
+  return {
+    id: doc.id,
+    documentNumber: doc.documentNumber || 'Dự thảo',
+    documentSymbol: doc.documentSymbol || 'UBND-VP',
+    subject: doc.title || 'Văn bản phát hành',
+    category: cat,
+    categoryName: doc.documentTypeName || 'Văn bản đi',
+    sender: doc.recipientNote || 'UBND Xã',
     direction: 'outgoing',
-    issuedDate: '2026-08-18',
-    receivedDate: '2026-08-18',
-    deadlineDate: '2026-08-30',
-    isUrgent: false,
-    processingStatus: 'Completed',
-    aiSummary: 'Thành lập Tổ kiểm tra do Phó Chủ tịch UBND xã làm Tổ trưởng.',
-  },
-];
+    issuedDate: doc.issuedDate || doc.draftedAt || new Date().toISOString(),
+    receivedDate: doc.draftedAt || new Date().toISOString(),
+    deadlineDate: doc.responseDeadline || null,
+    isUrgent: !!doc.isUrgent,
+    processingStatus: status,
+    aiSummary: doc.content || doc.title || 'Dự thảo văn bản công vụ đi của UBND Xã.',
+  };
+}
 
 export function DocumentsFeature() {
-  const { user } = useAuth();
+  const { user, activeRole } = useAuth();
   const { can } = usePermission();
   const { addToast } = useToast();
 
-  const [documents, setDocuments] = useState<DocumentItem[]>(INITIAL_DOCUMENTS);
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Bộ lọc
   const [filterDirection, setFilterDirection] = useState<'all' | 'incoming' | 'outgoing'>('all');
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchKeyword, setSearchKeyword] = useState<string>('');
+
+  // Nạp 100% dữ liệu động từ backend CSDL PostgreSQL
+  const loadDocuments = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const [inboxRes, outRes] = await Promise.all([
+        getInboxDocumentsApi({ page: 1, pageSize: 100 }),
+        getOutgoingDocumentsApi({ page: 1, pageSize: 100 }),
+      ]);
+
+      const items: DocumentItem[] = [];
+      if (inboxRes.success && inboxRes.data?.items) {
+        items.push(...inboxRes.data.items.map(mapInboxToDocumentItem));
+      }
+      if (outRes.success && outRes.data?.items) {
+        items.push(...outRes.data.items.map(mapOutgoingToDocumentItem));
+      }
+
+      setDocuments(items);
+    } catch (err) {
+      console.warn('Lỗi khi tải danh sách văn bản:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments, activeRole]);
 
   // Modal State
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
@@ -623,6 +644,13 @@ export function DocumentsFeature() {
                     </td>
                   </tr>
                 ))
+              ) : isLoading ? (
+                <tr>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b' }}>
+                    <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 28, color: '#2563eb', display: 'block', marginBottom: 10 }} aria-hidden="true" />
+                    <span style={{ fontWeight: 600 }}>Đang nạp danh sách văn bản từ hệ thống máy chủ...</span>
+                  </td>
+                </tr>
               ) : (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: '48px 20px', color: '#64748b' }}>

@@ -31,6 +31,23 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Mfa
                 throw new InvalidOperationException("Tài khoản chưa bật xác thực 2 yếu tố.");
             }
 
+            // ── Kênh EMAIL: xác nhận bằng mã email đã gửi qua /Auth/mfa/email-code ──
+            if (string.Equals(request.Channel, "email", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!EmailOtpHelper.IsValid(user, request.Code))
+                {
+                    throw new InvalidOperationException(
+                        "Mã OTP email không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu mã mới rồi thử lại.");
+                }
+
+                EmailOtpHelper.Consume(user);
+                user.MfaSecret = null;
+                user.MfaEnabled = false;
+                await _context.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            // ── Kênh TOTP (Authenticator) — nguyên trạng ──
             // Yêu cầu mã OTP hiện tại để chứng minh quyền sở hữu tài khoản
             if (!_totpService.Validate(user.MfaSecret ?? string.Empty, request.Code))
             {

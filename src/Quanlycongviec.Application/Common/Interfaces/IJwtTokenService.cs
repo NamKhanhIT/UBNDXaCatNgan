@@ -8,19 +8,22 @@ namespace Quanlycongviec.Application.Common.Interfaces
     {
         string GenerateToken(User user, string activeRole, IEnumerable<string> allRoles, int rankLevel = 5);
 
-        /// <summary>Sinh refresh token thô (ngẫu nhiên, dùng 1 lần)</summary>
+        // Sinh refresh token thô ngẫu nhiên dùng 1 lần
         string GenerateRefreshToken();
 
-        /// <summary>Băm refresh token bằng SHA-256 (hex) — chỉ lưu hash vào database</summary>
+        // Băm refresh token bằng SHA-256 (hex) để lưu database
         string HashRefreshToken(string rawToken);
 
-        /// <summary>
-        /// Sinh token chuyên dụng cho bước xác thực MFA (ngắn hạn 5 phút, có claim Purpose=mfa).
-        /// Dùng để đảm bảo người gửi mã OTP đã vượt qua bước kiểm tra mật khẩu.
-        /// </summary>
+        // Sinh MFA token tạm thời (5 phút, Purpose=mfa) sau khi mật khẩu đúng
         string GenerateMfaToken(Guid userId);
 
-        /// <summary>Kiểm tra MFA token còn hợp lệ (chữ ký, hạn, Purpose=mfa). Trả về userId nếu hợp lệ.</summary>
+        // Kiểm tra MFA token hợp lệ (Purpose=mfa, chữ ký, hạn)
         bool TryValidateMfaToken(string mfaToken, out Guid userId);
+
+        // BẢO MẬT (Audit Đợt 4): Sinh ResetToken tạm thời (5 phút, Purpose=reset) sau khi OTP/TOTP đúng
+        string GenerateResetToken(Guid userId);
+
+        // Kiểm tra ResetToken hợp lệ (Purpose=reset, chữ ký, hạn)
+        bool TryValidateResetToken(string resetToken, out Guid userId);
     }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserDto as PaginatedUserDto } from '../../../services/user.service';
 import { parseCvPdfWithAi, ExtractedCvWorkProfile } from '../../settings/services/cv-ai-parser.service';
 import { useToast } from '../../../components/ui/ToastContext';
@@ -64,6 +64,22 @@ export function OfficerDetailDrawer({ user, isOpen, onClose, onProfileUpdated }:
   const [aiPreviewData, setAiPreviewData] = useState<ExtractedCvWorkProfile | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState<string>('');
 
+  useEffect(() => {
+    if (user) {
+      const expList = user.expertise
+        ? user.expertise.split(',').map(s => s.trim()).filter(Boolean)
+        : ['Chuyên môn quản lý nhà nước cấp xã'];
+      setProfile(prev => ({
+        ...prev,
+        yearsOfExperience: user.yearsOfExperience || prev.yearsOfExperience,
+        expertise: expList.length > 0 ? expList : prev.expertise,
+        previousPositions: [
+          `${user.roleName || 'Cán bộ'} — ${user.departmentName || 'UBND Xã'} (Hiện tại)`,
+        ],
+      }));
+    }
+  }, [user]);
+
   if (!isOpen || !user) return null;
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,9 +94,13 @@ export function OfficerDetailDrawer({ user, isOpen, onClose, onProfileUpdated }:
     try {
       setIsUploading(true);
       setUploadedFileName(file.name);
-      const extracted = await parseCvPdfWithAi(file);
+      const extracted = await parseCvPdfWithAi(file, user.fullName);
       setAiPreviewData(extracted);
-      addToast('Bóc tách CV thành công', `AI đã trích xuất thành công hồ sơ từ tệp "${file.name}".`, 'success');
+      if (extracted.nameMatchStatus === 'MISMATCH') {
+        addToast('Cảnh báo danh tính', extracted.nameMatchMessage, 'warning');
+      } else {
+        addToast('Bóc tách CV thành công', `AI đã trích xuất thành công hồ sơ từ tệp "${file.name}".`, 'success');
+      }
     } catch (err) {
       console.error('Lỗi khi bóc tách CV:', err);
       addToast('Lỗi bóc tách CV', 'Không thể xử lý tệp CV này. Vui lòng kiểm tra lại.', 'danger');
@@ -232,7 +252,7 @@ export function OfficerDetailDrawer({ user, isOpen, onClose, onProfileUpdated }:
                 <div className="profile-grid">
                   <div>
                     <span className="profile-label">Email công vụ:</span>
-                    <span className="profile-value">{user.email || `${user.username}@catngan.gov.vn`}</span>
+                    <span className="profile-value">{user.email || `${user.username}@ubnd.gov.vn`}</span>
                   </div>
                   <div>
                     <span className="profile-label">Số điện thoại:</span>

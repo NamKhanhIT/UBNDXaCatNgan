@@ -1,12 +1,25 @@
-/**
- * Centralized API configuration & fetch wrapper for backend communication.
- * Dual-mode auth:
- *  - Desktop localhost: Cookie-based (HttpOnly, SameSite=Lax)
- *  - Remote/Mobile (Cloudflare Tunnel, LAN IP): Bearer token in localStorage
- */
+// Cấu hình kết nối API & fetch wrapper (hỗ trợ cả Cookie httpOnly và Bearer token)
 
 export const REMOTE_TOKEN_KEY = 'ubnd_access_token';
 export const REMOTE_REFRESH_TOKEN_KEY = 'ubnd_refresh_token';
+
+// BẢO MẬT (Audit H10): Whitelist API URL hợp lệ (chỉ loopback hoặc same-origin)
+function isAllowedCustomApiUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+
+    const host = parsed.hostname.toLowerCase();
+    const isLoopback =
+      host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    const isSameOrigin =
+      typeof window !== 'undefined' && parsed.origin === window.location.origin;
+
+    return isLoopback || isSameOrigin;
+  } catch {
+    return false;
+  }
+}
 
 export function getApiBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL !== undefined) {
@@ -14,20 +27,22 @@ export function getApiBaseUrl(): string {
   }
 
   if (typeof window !== 'undefined') {
-    // Ưu tiên URL tùy chỉnh (nếu người dùng nhập thủ công)
+    // Ưu tiên URL tùy chỉnh đã qua whitelist bảo mật
     const customUrl = localStorage.getItem('custom_api_url');
     if (customUrl && customUrl.trim()) {
-      return customUrl.trim();
+      const trimmed = customUrl.trim();
+      if (isAllowedCustomApiUrl(trimmed)) {
+        return trimmed;
+      }
+      localStorage.removeItem('custom_api_url');
     }
   }
 
-  // Mặc định trả về chuỗi rỗng để sử dụng relative path (/api/v1/...) qua Next.js Reverse Proxy
+  // Mặc định relative path (/api/v1/...) qua Next.js Reverse Proxy
   return '';
 }
 
-/**
- * Kiểm tra xem client đang truy cập từ xa (Cloudflare Tunnel, IP mạng, v.v.)
- */
+// Kiểm tra client truy cập từ xa (Tunnel/LAN IP)
 export function isRemoteAccess(): boolean {
   if (typeof window === 'undefined') return false;
 
@@ -39,9 +54,7 @@ export function isRemoteAccess(): boolean {
   );
 }
 
-/**
- * Kiểm tra xem client cần dùng Bearer token bổ sung
- */
+// Kiểm tra client cần dùng Bearer token bổ sung
 export function needsBearerAuth(): boolean {
   if (typeof window === 'undefined') return false;
 
@@ -50,45 +63,65 @@ export function needsBearerAuth(): boolean {
   return hostname !== 'localhost' && hostname !== '127.0.0.1';
 }
 
-/**
- * Lấy Bearer token từ localStorage (nếu có)
- */
+// Lấy Bearer access token từ localStorage
 export function getStoredToken(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(REMOTE_TOKEN_KEY);
 }
 
-/**
- * Lưu Bearer token vào localStorage
- */
+// BẢO MẬT (Audit H9): Lưu Bearer token và đặt cookie marker ubnd_logged_in cho Next.js middleware
 export function storeToken(token: string): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(REMOTE_TOKEN_KEY, token);
+  markLoggedInCookie();
 }
 
-/**
- * Lấy refresh token từ localStorage (nếu có)
- */
+const LOGGED_IN_MARKER_COOKIE = 'ubnd_logged_in';
+
+// Đặt cookie marker phiên cho middleware route protection
+export function markSessionActive(): void {
+  markLoggedInCookie();
+}
+
+function markLoggedInCookie(): void {
+  if (typeof document === 'undefined') return;
+  // Cookie marker xác định trạng thái đăng nhập (không chứa token bí mật)
+  document.cookie = `${LOGGED_IN_MARKER_COOKIE}=1; path=/; max-age=${7 * 24 * 3600}; SameSite=Lax`;
+}
+
+// Lấy refresh token từ localStorage
 export function getStoredRefreshToken(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(REMOTE_REFRESH_TOKEN_KEY);
 }
 
-/**
- * Lưu refresh token vào localStorage
- */
+// Lưu refresh token vào localStorage
 export function storeRefreshToken(token: string): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(REMOTE_REFRESH_TOKEN_KEY, token);
 }
 
-/**
- * Xóa Bearer token + refresh token khỏi localStorage
- */
+// Xóa access & refresh token khỏi localStorage
 export function clearToken(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(REMOTE_TOKEN_KEY);
   localStorage.removeItem(REMOTE_REFRESH_TOKEN_KEY);
+}
+
+const CACHED_USER_KEY = 'ubnd_cached_user';
+const ACTIVE_ROLE_KEY = 'ubnd_active_role';
+
+// BẢO MẬT (Audit Mục 3): Dọn sạch toàn bộ session storage & cookie marker
+export function clearSessionStorage(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(REMOTE_TOKEN_KEY);
+  localStorage.removeItem(REMOTE_REFRESH_TOKEN_KEY);
+  localStorage.removeItem(CACHED_USER_KEY);
+  localStorage.removeItem(ACTIVE_ROLE_KEY);
+  // Xóa cookie marker phiên
+  if (typeof document !== 'undefined') {
+    document.cookie = `${LOGGED_IN_MARKER_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+  }
 }
 
 export const API_BASE_URL = getApiBaseUrl();
@@ -102,10 +135,7 @@ export interface ApiResponse<T = any> {
   error?: string;
 }
 
-/**
- * Gọi lại access token bằng refresh token khi access token hết hạn (HTTP 401).
- * Chỉ áp dụng khi truy cập từ xa (Bearer token mode).
- */
+// Tự động refresh access token qua refresh endpoint khi nhận HTTP 401
 async function tryRefreshAccessToken(): Promise<boolean> {
   const refreshToken = getStoredRefreshToken();
   if (!refreshToken) return false;
@@ -119,7 +149,7 @@ async function tryRefreshAccessToken(): Promise<boolean> {
     });
 
     if (!response.ok) {
-      clearToken();
+      clearSessionStorage();
       return false;
     }
 
@@ -139,11 +169,12 @@ async function tryRefreshAccessToken(): Promise<boolean> {
     }
     return true;
   } catch {
-    clearToken();
+    clearSessionStorage();
     return false;
   }
 }
 
+// Wrapper fetch tập trung: tự động đính kèm Bearer token, xử lý cookie & auto-retry 401
 export async function apiFetch<T = any>(
   endpoint: string,
   options: RequestInit = {}
@@ -205,7 +236,7 @@ export async function apiFetch<T = any>(
       }
     }
 
-    // Xử lý an toàn trường hợp HTTP 204 No Content hoặc phản hồi rỗng
+    // Xử lý phản hồi 204 No Content
     if (response.status === 204) {
       return { success: true } as ApiResponse<T>;
     }
@@ -246,6 +277,63 @@ export async function apiFetch<T = any>(
     return {
       success: false,
       error: err.message || 'Không thể kết nối đến máy chủ API backend. Vui lòng kiểm tra lại kết nối mạng.',
+    };
+  }
+}
+
+// BẢO MẬT (Audit M7): Upload tệp chuẩn qua FormData với Bearer auth và auto-retry 401
+export async function apiUpload<T = any>(
+  endpoint: string,
+  formData: FormData
+): Promise<ApiResponse<T>> {
+  const baseUrl = getApiBaseUrl();
+  const url = endpoint.startsWith('http') ? endpoint : `${baseUrl}${endpoint}`;
+
+  const isLocalDemo = typeof window !== 'undefined' && localStorage.getItem('isLocalDemoMode') === 'true';
+  const headers: Record<string, string> = {
+    'X-Demo-Mode': isLocalDemo ? 'true' : 'false',
+  };
+  const storedToken = getStoredToken();
+  if (storedToken) {
+    headers['Authorization'] = `Bearer ${storedToken}`;
+  }
+
+  const send = () => fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  try {
+    let response = await send();
+
+    // Hết hạn access token → refresh 1 lần và thử lại
+    if (response.status === 401) {
+      const refreshed = await tryRefreshAccessToken();
+      if (refreshed) {
+        response = await send();
+      }
+    }
+
+    const text = await response.text();
+    let data: any = null;
+    if (text && text.trim()) {
+      try { data = JSON.parse(text); } catch { data = { message: text }; }
+    }
+
+    if (!response.ok || data?.success === false) {
+      return {
+        success: false,
+        error: data?.error || data?.message || `Lỗi tải lên tệp (Mã HTTP ${response.status})`,
+      };
+    }
+
+    return data ?? ({ success: true } as ApiResponse<T>);
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Lỗi mạng khi tải lên tệp.',
     };
   }
 }

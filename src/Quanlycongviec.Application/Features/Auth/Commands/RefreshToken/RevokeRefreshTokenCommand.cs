@@ -2,9 +2,7 @@ using MediatR;
 
 namespace Quanlycongviec.Application.Features.Auth.Commands.RefreshToken
 {
-    /// <summary>
-    /// Thu hồi refresh token khi đăng xuất.
-    /// </summary>
+    // Thu hồi refresh token khi đăng xuất
     public class RevokeRefreshTokenCommand : IRequest
     {
         public RevokeRefreshTokenCommand(string refreshToken)

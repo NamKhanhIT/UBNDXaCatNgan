@@ -28,7 +28,7 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Mfa
 
             var secret = _totpService.GenerateSecret();
             var accountName = !string.IsNullOrWhiteSpace(user.Email) ? user.Email : user.Username;
-            var provisioningUri = _totpService.GetProvisioningUri(secret, accountName, "UBND Xa Cat Ngan");
+            var provisioningUri = _totpService.GetProvisioningUri(secret, accountName, "KHM Software");
 
             return new MfaSetupResult
             {

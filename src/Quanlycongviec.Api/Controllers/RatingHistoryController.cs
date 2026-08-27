@@ -26,16 +26,8 @@ namespace Quanlycongviec.Api.Controllers
             _mediator = mediator;
         }
 
-        private Guid GetCurrentUserId()
-        {
-            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (Guid.TryParse(userIdStr, out var userId))
-            {
-                return userId;
-            }
-            // Fallback default admin user ID for local demo mode if claim is absent
-            return Guid.Parse("11111111-1111-1111-1111-111111111111");
-        }
+        // BẢO MẬT (Audit X1 + L3): dùng extension dùng chung — bỏ fallback GUID admin cứng
+        private Guid GetCurrentUserId() => User.GetUserId();
 
         /// <summary>
         /// Gửi đề xuất điều chỉnh điểm đánh giá nghiệm thu

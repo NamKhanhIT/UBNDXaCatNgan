@@ -11,7 +11,7 @@ const sampleTestimonials: Testimonial[] = [
   {
     avatarSrc: '/images/avatar-1.png',
     name: 'Nguyễn Đình Hùng',
-    handle: 'Chủ tịch UBND xã Cát Ngạn',
+    handle: 'Chủ tịch UBND xã',
     text: 'Hệ thống đôn đốc công vụ giúp xử lý 100% văn bản chỉ đạo đúng hạn, minh bạch và kịp thời.',
   },
   {

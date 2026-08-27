@@ -39,7 +39,7 @@ namespace Quanlycongviec.Infrastructure.AI
 
             // Cảnh báo mỗi lần khởi tạo
             _logger.LogWarning(
-                "⚠️ ApiCompatibleDocumentAiService: Nội dung văn bản hành chính sẽ được gửi tới {BaseUrl}. " +
+                "ApiCompatibleDocumentAiService: Nội dung văn bản hành chính sẽ được gửi tới {BaseUrl}. " +
                 "Đây là quyết định chính sách dữ liệu đã được xác nhận (DataSovereigntyAcknowledged=true).",
                 _options.Api.BaseUrl);
         }
@@ -158,66 +158,65 @@ namespace Quanlycongviec.Infrastructure.AI
         {
             return @"Bạn là hệ thống AI phân tích văn bản hành chính Việt Nam. Trả về JSON theo schema dưới đây.
 
-RÀNG BUỘC BẮT BUỘC:
-1. Chỉ điền trường nào có bằng chứng trực tiếp trong văn bản. Để null nếu không chắc chắn hoặc không được đề cập. Không suy luận, không phỏng đoán.
-2. Với trường suggestedDepartmentId, CHỈ được chọn 1 Id trong danh sách phòng ban dưới đây. Không tự đặt tên phòng ban mới, không suy diễn Id không có trong danh sách. Để null nếu không xác định được.
+            RÀNG BUỘC BẮT BUỘC:
+            1. Chỉ điền trường nào có bằng chứng trực tiếp trong văn bản. Để null nếu không chắc chắn hoặc không được đề cập. Không suy luận, không phỏng đoán.
+            2. Với trường suggestedDepartmentId, CHỈ được chọn 1 Id trong danh sách phòng ban dưới đây. Không tự đặt tên phòng ban mới, không suy diễn Id không có trong danh sách. Để null nếu không xác định được.
 
-DANH SÁCH PHÒNG BAN:
-" + departmentList + @"
+            DANH SÁCH PHÒNG BAN:
+            " + departmentList + @"
 
-JSON SCHEMA:
-{
-  ""category"": ""MeetingInvitation"" | ""SuperiorDirective"" | ""TaskAssignmentDown"" | ""ReportSubmissionUp"" | ""Other"",
-  ""title"": ""string hoặc null"",
-  ""summary"": ""string hoặc null"",
-  ""deadlineDate"": ""yyyy-MM-dd hoặc null"",
-  ""eventStartDateTime"": ""yyyy-MM-ddTHH:mm:ss hoặc null"",
-  ""eventEndDateTime"": ""yyyy-MM-ddTHH:mm:ss hoặc null"",
-  ""subjects"": [""string""] hoặc [],
-  ""objectives"": ""string hoặc null"",
-  ""suggestedDepartmentId"": ""guid hoặc null"",
-  ""suggestedDepartmentName"": ""string hoặc null"",
-  ""confidence"": 0.0 tới 1.0
-}";
+            JSON SCHEMA:
+            {
+            ""category"": ""MeetingInvitation"" | ""SuperiorDirective"" | ""TaskAssignmentDown"" | ""ReportSubmissionUp"" | ""Other"",
+            ""title"": ""string hoặc null"",
+            ""summary"": ""string hoặc null"",
+            ""deadlineDate"": ""yyyy-MM-dd hoặc null"",
+            ""eventStartDateTime"": ""yyyy-MM-ddTHH:mm:ss hoặc null"",
+            ""eventEndDateTime"": ""yyyy-MM-ddTHH:mm:ss hoặc null"",
+            ""subjects"": [""string""] hoặc [],
+            ""objectives"": ""string hoặc null"",
+            ""suggestedDepartmentId"": ""guid hoặc null"",
+            ""suggestedDepartmentName"": ""string hoặc null"",
+            ""confidence"": 0.0 tới 1.0
+            }";
         }
 
         private static string BuildAssignmentSystemPrompt(string candidateInfo)
         {
             return @"Bạn là hệ thống AI gợi ý giao việc cho UBND xã. Dựa trên mô tả công việc và danh sách cán bộ, chọn người phù hợp nhất.
 
-RÀNG BUỘC BẮT BUỘC:
-1. CHỈ chọn userId trong danh sách cán bộ được cung cấp.
-2. Nếu cán bộ có chuyên môn/kinh nghiệm là ""chưa cập nhật"" hoặc 0, KHÔNG được bịa lý do liên quan tới kinh nghiệm/chuyên môn cho người đó. Chỉ lập luận dựa trên tải việc.
-3. Đưa ra lý do cụ thể, dễ hiểu cho người dùng không rành kỹ thuật.
+            RÀNG BUỘC BẮT BUỘC:
+            1. CHỈ chọn userId trong danh sách cán bộ được cung cấp.
+            2. Nếu cán bộ có chuyên môn/kinh nghiệm là ""chưa cập nhật"" hoặc 0, KHÔNG được bịa lý do liên quan tới kinh nghiệm/chuyên môn cho người đó. Chỉ lập luận dựa trên tải việc.
+            3. Đưa ra lý do cụ thể, dễ hiểu cho người dùng không rành kỹ thuật.
 
-DANH SÁCH CÁN BỘ:
-" + candidateInfo + @"
+            DANH SÁCH CÁN BỘ:
+            " + candidateInfo + @"
 
-JSON SCHEMA:
-{
-  ""suggestedUserId"": ""guid"",
-  ""suggestedUserName"": ""string"",
-  ""reason"": ""string — lý do chọn người này"",
-  ""suggestedDepartmentId"": ""guid hoặc null"",
-  ""suggestedDepartmentName"": ""string hoặc null"",
-  ""confidence"": 0.0 tới 1.0,
-  ""alternatives"": [{ ""userId"": ""guid"", ""fullName"": ""string"", ""reason"": ""string"" }]
-}";
+            JSON SCHEMA:
+            {
+            ""suggestedUserId"": ""guid"",
+            ""suggestedUserName"": ""string"",
+            ""reason"": ""string — lý do chọn người này"",
+            ""suggestedDepartmentId"": ""guid hoặc null"",
+            ""suggestedDepartmentName"": ""string hoặc null"",
+            ""confidence"": 0.0 tới 1.0,
+            ""alternatives"": [{ ""userId"": ""guid"", ""fullName"": ""string"", ""reason"": ""string"" }]
+            }";
         }
 
         private static string BuildChecklistSystemPrompt()
         {
             return @"Bạn là hệ thống AI tạo checklist tiến độ cho công việc hành chính. Dựa trên mô tả công việc, đề xuất danh sách các đầu việc con (5-10 mục).
+            RÀNG BUỘC:
+            1. Mỗi đầu việc phải ngắn gọn, cụ thể, hành động được.
+            2. Sắp xếp theo thứ tự thực hiện logic.
+            3. Không đề xuất quá chung chung (ví dụ: ""Hoàn thành công việc"").
 
-RÀNG BUỘC:
-1. Mỗi đầu việc phải ngắn gọn, cụ thể, hành động được.
-2. Sắp xếp theo thứ tự thực hiện logic.
-3. Không đề xuất quá chung chung (ví dụ: ""Hoàn thành công việc"").
-
-JSON SCHEMA:
-{
-  ""items"": [{ ""title"": ""string"", ""order"": 1 }]
-}";
+            JSON SCHEMA:
+            {
+            ""items"": [{ ""title"": ""string"", ""order"": 1 }]
+            }";
         }
 
         #endregion

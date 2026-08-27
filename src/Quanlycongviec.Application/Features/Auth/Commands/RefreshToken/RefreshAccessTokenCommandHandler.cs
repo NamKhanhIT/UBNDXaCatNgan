@@ -61,9 +61,10 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.RefreshToken
             var activeUserRole = user.UserRoles.FirstOrDefault(ur => ur.Role.Code == activeRole);
             int rankLevel = activeUserRole?.Role.RankLevel ?? 5;
 
-            // Xoay vòng: thu hồi token cũ, cấp token mới
-            await _refreshTokenService.RevokeAsync(request.RefreshToken, cancellationToken);
-            var newRefreshToken = await _refreshTokenService.CreateAsync(user.Id, cancellationToken);
+            // BẢO MẬT (Audit Đợt 4 - M4): xoay vòng NGUYÊN TỬ — revoke cũ + ghi
+            // ReplacedByTokenHash + cấp mới trong một thao tác; tái sử dụng token
+            // đã xoay sẽ bị phát hiện và thu hồi toàn bộ phiên của tài khoản.
+            var newRefreshToken = await _refreshTokenService.RotateAsync(user.Id, request.RefreshToken, cancellationToken);
 
             var token = _jwtTokenService.GenerateToken(user, activeRole, roles, rankLevel);
 
@@ -83,7 +84,8 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.RefreshToken
                 }).ToList(),
                 Token = token,
                 RefreshToken = newRefreshToken,
-                MfaEnabled = user.MfaEnabled
+                MfaEnabled = user.MfaEnabled,
+                MustChangePassword = user.MustChangePassword
             };
         }
     }

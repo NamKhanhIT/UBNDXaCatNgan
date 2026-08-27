@@ -6,19 +6,14 @@ using Quanlycongviec.Application.Common.Interfaces;
 
 namespace Quanlycongviec.Application.Common.Services
 {
-    /// <summary>
-    /// Dịch vụ TOTP (RFC 6238) — xác thực 2 yếu tố bằng ứng dụng Authenticator
-    /// (Google Authenticator / Ente Auth / Aegis / Microsoft Authenticator).
-    /// Tự triển khai HMAC-SHA1 + Base32, không phụ thuộc thư viện ngoài.
-    /// Tích hợp Constant-Time comparison chống Timing Attack.
-    /// </summary>
+    // Dịch vụ TOTP (RFC 6238) — xác thực 2 yếu tố Authenticator (HMAC-SHA1 + Base32, constant-time comparison)
     public class TotpService : ITotpService
     {
         private static readonly DateTime UnixEpoch = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         private const int StepSeconds = 30;
         private const int Digits = 6;
 
-        /// <summary>Sinh secret Base32 ngẫu nhiên (32 bytes = 256 bits → ~56 ký tự)</summary>
+        // Sinh secret Base32 ngẫu nhiên (32 bytes = 256 bits)
         public string GenerateSecret() => GenerateSecretInternal();
 
         public static string GenerateSecretInternal()
@@ -31,27 +26,32 @@ namespace Quanlycongviec.Application.Common.Services
             return Base32Encode(bytes);
         }
 
-        /// <summary>Tạo URI otpauth:// để quét mã QR trong app Authenticator</summary>
-        public string GetProvisioningUri(string secret, string accountName, string issuer = "UBND Xa Cat Ngan")
+        // Tạo URI otpauth:// để quét mã QR trong app Authenticator
+        public string GetProvisioningUri(string secret, string accountName, string issuer = "KHM Software")
             => GetProvisioningUriInternal(secret, accountName, issuer);
 
-        public static string GetProvisioningUriInternal(string secret, string accountName, string issuer = "UBND Xa Cat Ngan")
+        public static string GetProvisioningUriInternal(string secret, string accountName, string issuer = "KHM Software")
         {
-            var cleanAccount = string.IsNullOrWhiteSpace(accountName) ? "CanBoUBND" : accountName.Trim();
-            var cleanIssuer = string.IsNullOrWhiteSpace(issuer) ? "UBND Xa Cat Ngan" : issuer.Trim();
+            var cleanAccount = string.IsNullOrWhiteSpace(accountName) ? "NguoiDung" : accountName.Trim();
+            var cleanIssuer = string.IsNullOrWhiteSpace(issuer) ? "KHM Software" : issuer.Trim();
             var label = Uri.EscapeDataString($"{cleanIssuer}:{cleanAccount}");
             return $"otpauth://totp/{label}?secret={secret.Trim()}&issuer={Uri.EscapeDataString(cleanIssuer)}&digits={Digits}&period={StepSeconds}";
         }
 
-        /// <summary>
-        /// Kiểm tra mã OTP 6 chữ số theo secret, cho phép lệch ±1 bước (30 giây) để bù trôi đồng hồ.
-        /// Sử dụng so sánh Constant-Time chống Timing Attack.
-        /// </summary>
+        // Kiểm tra mã OTP 6 chữ số theo secret (cho phép lệch ±1 timestep, so sánh constant-time)
         public bool Validate(string secret, string code, DateTime? utcNow = null)
             => ValidateInternal(secret, code, utcNow);
 
+        public bool TryValidate(string secret, string code, out long usedCounter, DateTime? utcNow = null)
+            => TryValidateInternal(secret, code, out usedCounter, utcNow);
+
         public static bool ValidateInternal(string secret, string code, DateTime? utcNow = null)
+            => TryValidateInternal(secret, code, out _, utcNow);
+
+        public static bool TryValidateInternal(string secret, string code, out long usedCounter, DateTime? utcNow = null)
         {
+            usedCounter = -1;
+
             if (string.IsNullOrWhiteSpace(secret) || string.IsNullOrWhiteSpace(code))
             {
                 return false;
@@ -74,6 +74,7 @@ namespace Quanlycongviec.Application.Common.Services
 
                 if (CryptographicOperations.FixedTimeEquals(expectedBytes, userBytes))
                 {
+                    usedCounter = counter + offset;
                     return true;
                 }
             }

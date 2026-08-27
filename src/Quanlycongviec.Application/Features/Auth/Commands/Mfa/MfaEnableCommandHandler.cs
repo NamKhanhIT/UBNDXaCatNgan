@@ -26,6 +26,29 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Mfa
                 throw new KeyNotFoundException("Không tìm thấy người dùng.");
             }
 
+            if (user.MfaEnabled)
+            {
+                throw new InvalidOperationException("Tài khoản đã bật xác thực 2 yếu tố từ trước.");
+            }
+
+            // ── Kênh EMAIL: bật MFA thuần email, không cần ứng dụng Authenticator ──
+            // Mã đã được gửi trước đó qua /Auth/mfa/email-code (context session)
+            if (string.Equals(request.Channel, "email", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!EmailOtpHelper.IsValid(user, request.Code))
+                {
+                    throw new InvalidOperationException(
+                        "Mã OTP email không hợp lệ hoặc đã hết hạn (hiệu lực 5 phút). Vui lòng yêu cầu mã mới.");
+                }
+
+                EmailOtpHelper.Consume(user);   // one-time
+                user.MfaSecret = null;          // không có secret TOTP — đăng nhập sau dùng kênh email
+                user.MfaEnabled = true;
+                await _context.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            // ── Kênh TOTP (Authenticator) — nguyên trạng ──
             if (string.IsNullOrWhiteSpace(request.Secret) || string.IsNullOrWhiteSpace(request.Code))
             {
                 throw new InvalidOperationException("Thiếu secret hoặc mã OTP.");

@@ -1,5 +1,5 @@
 {
-  "name": "ubndxacatngan-web",
+  "name": "ubndxa-web",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -11,6 +11,7 @@
   "dependencies": {
     "@gsap/react": "^2.1.2",
     "@microsoft/signalr": "^10.0.11",
+    "docx-preview": "^0.4.0",
     "framer-motion": "^11.11.11",
     "gsap": "^3.15.0",
     "lucide-react": "^0.454.0",

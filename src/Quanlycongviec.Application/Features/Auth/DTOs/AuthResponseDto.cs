@@ -22,13 +22,16 @@ namespace Quanlycongviec.Application.Features.Auth.DTOs
         public string Token { get; set; } = string.Empty;
         public string RefreshToken { get; set; } = string.Empty;
 
-        /// <summary>Yêu cầu xác thực 2 yếu tố (người dùng đã bật MFA) — cần gọi /Auth/mfa/verify-login</summary>
+        // Yêu cầu xác thực 2 yếu tố (cần gọi /Auth/mfa/verify-login)
         public bool MfaRequired { get; set; }
 
-        /// <summary>Token dùng 1 lần (5 phút) cho bước xác thực OTP sau mật khẩu</summary>
+        // Token dùng 1 lần (5 phút) cho bước xác thực OTP sau mật khẩu
         public string MfaToken { get; set; } = string.Empty;
 
-        /// <summary>Trạng thái MFA của tài khoản (đã bật xác thực 2 yếu tố hay chưa)</summary>
+        // Trạng thái MFA của tài khoản
         public bool MfaEnabled { get; set; }
+
+        // BẢO MẬT (Audit A5): Tài khoản khởi tạo bắt buộc đổi mật khẩu trước khi thao tác
+        public bool MustChangePassword { get; set; }
     }
 }

@@ -209,7 +209,7 @@ export async function analyzeDocumentWithAi(docId: string, subject: string): Pro
         ],
         confidence: 0.93,
         sourcePage: 2,
-        sourceText: 'Mục tiêu: Đảm bảo an toàn tính mạng và tài sản cho nhân dân trên địa bàn xã Cát Ngạn.',
+        sourceText: 'Mục tiêu: Đảm bảo an toàn tính mạng và tài sản cho nhân dân trên địa bàn xã.',
       },
       targetSubjects: {
         value: ['Chủ tịch UBND xã', 'Ban Chỉ huy Quân sự xã', 'Phòng Kinh tế & Địa chính'],
@@ -287,7 +287,7 @@ export async function analyzeDocumentWithAi(docId: string, subject: string): Pro
       value: ['Chủ tịch UBND xã', 'Văn phòng HĐND & UBND'],
       confidence: 0.92,
       sourcePage: 1,
-      sourceText: 'Kính gửi: Chủ tịch UBND xã Cát Ngạn.',
+      sourceText: 'Kính gửi: Chủ tịch UBND xã.',
     },
     relatedDepartments: {
       value: ['Phòng Kinh tế & Địa chính'],

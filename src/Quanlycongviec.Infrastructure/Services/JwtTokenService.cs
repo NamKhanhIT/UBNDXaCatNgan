@@ -27,8 +27,8 @@ namespace Quanlycongviec.Infrastructure.Services
                     "Jwt:Secret chưa được cấu hình. Không thể sinh JWT token. " +
                     "Vui lòng đặt trong appsettings hoặc dotnet user-secrets.");
 
-            var issuer = _configuration["Jwt:Issuer"] ?? "UBNDXaCatNganApi";
-            var audience = _configuration["Jwt:Audience"] ?? "UBNDXaCatNganClient";
+            var issuer = _configuration["Jwt:Issuer"] ?? "KhmWorkApi";
+            var audience = _configuration["Jwt:Audience"] ?? "KhmWorkClient";
 
             // Access token thời hạn ngắn (mặc định 30 phút) — giảm rủi ro khi token bị lộ
             var accessTokenMinutes = int.TryParse(_configuration["Jwt:AccessTokenMinutes"], out var minutes)
@@ -48,6 +48,13 @@ namespace Quanlycongviec.Infrastructure.Services
                 new Claim("ActiveRole", activeRole),
                 new Claim("RankLevel", rankLevel.ToString())
             };
+
+            // BẢO MẬT (Audit Đợt 4 - A5): nhúng cờ ép đổi mật khẩu vào token —
+            // gate middleware đọc claim (rẻ) thay vì truy vấn DB mỗi request.
+            if (user.MustChangePassword)
+            {
+                claims.Add(new Claim("MustChangePassword", "true"));
+            }
 
             foreach (var role in allRoles)
             {
@@ -87,8 +94,8 @@ namespace Quanlycongviec.Infrastructure.Services
                 ?? throw new InvalidOperationException(
                     "Jwt:Secret chưa được cấu hình. Không thể sinh MFA token.");
 
-            var issuer = _configuration["Jwt:Issuer"] ?? "UBNDXaCatNganApi";
-            var audience = _configuration["Jwt:Audience"] ?? "UBNDXaCatNganClient";
+            var issuer = _configuration["Jwt:Issuer"] ?? "KhmWorkApi";
+            var audience = _configuration["Jwt:Audience"] ?? "KhmWorkClient";
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
             var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -118,8 +125,8 @@ namespace Quanlycongviec.Infrastructure.Services
                 ?? throw new InvalidOperationException(
                     "Jwt:Secret chưa được cấu hình. Không thể xác thực MFA token.");
 
-            var issuer = _configuration["Jwt:Issuer"] ?? "UBNDXaCatNganApi";
-            var audience = _configuration["Jwt:Audience"] ?? "UBNDXaCatNganClient";
+            var issuer = _configuration["Jwt:Issuer"] ?? "KhmWorkApi";
+            var audience = _configuration["Jwt:Audience"] ?? "KhmWorkClient";
 
             var tokenHandler = new JwtSecurityTokenHandler();
             var validationParameters = new TokenValidationParameters
@@ -141,6 +148,85 @@ namespace Quanlycongviec.Infrastructure.Services
                 // Bắt buộc claim Purpose = mfa (chống dùng access token thay thế)
                 var purpose = principal.FindFirst("Purpose")?.Value;
                 if (!string.Equals(purpose, "mfa", StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                var userIdStr = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                    ?? principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+
+                return Guid.TryParse(userIdStr, out userId);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // ── BẢO MẬT (Audit Đợt 4): Reset token 2 bước cho luồng quên mật khẩu ──
+        // Bước verify-otp đúng → cấp token purpose=reset (5 phút) → bước đặt mật
+        // khẩu mới xác minh token thay vì nhận OTP thô từ client.
+
+        public string GenerateResetToken(Guid userId)
+        {
+            var secretKey = _configuration["Jwt:Secret"]
+                ?? throw new InvalidOperationException(
+                    "Jwt:Secret chưa được cấu hình. Không thể sinh reset token.");
+
+            var issuer = _configuration["Jwt:Issuer"] ?? "KhmWorkApi";
+            var audience = _configuration["Jwt:Audience"] ?? "KhmWorkClient";
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+            var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+            var claims = new List<Claim>
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
+                new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                new Claim("Purpose", "reset")
+            };
+
+            var token = new JwtSecurityToken(
+                issuer: issuer,
+                audience: audience,
+                claims: claims,
+                expires: DateTime.UtcNow.AddMinutes(5),
+                signingCredentials: credentials);
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
+        }
+
+        public bool TryValidateResetToken(string resetToken, out Guid userId)
+        {
+            userId = Guid.Empty;
+
+            var secretKey = _configuration["Jwt:Secret"]
+                ?? throw new InvalidOperationException(
+                    "Jwt:Secret chưa được cấu hình. Không thể xác thực reset token.");
+
+            var issuer = _configuration["Jwt:Issuer"] ?? "KhmWorkApi";
+            var audience = _configuration["Jwt:Audience"] ?? "KhmWorkClient";
+
+            var tokenHandler = new JwtSecurityTokenHandler();
+            var validationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = issuer,
+                ValidAudience = audience,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+                ClockSkew = TimeSpan.FromMinutes(1)
+            };
+
+            try
+            {
+                var principal = tokenHandler.ValidateToken(resetToken, validationParameters, out _);
+
+                // Bắt buộc Purpose = reset — access/mfa token đều bị từ chối
+                var purpose = principal.FindFirst("Purpose")?.Value;
+                if (!string.Equals(purpose, "reset", StringComparison.Ordinal))
                 {
                     return false;
                 }

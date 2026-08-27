@@ -255,10 +255,16 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
               cursor: 'pointer',
             }}
             value={activeRole}
-            onChange={e => {
+            onChange={async e => {
               const newRole = e.target.value as RoleCode;
-              setActiveRoleContext(newRole);
-              addToast('Chuyển vai trò', `Đã chuyển sang ngữ cảnh: ${ROLE_HIERARCHY[newRole]?.label}`, 'info');
+              // BẢO MẬT (Audit Đợt 4 - M5): chờ API xác nhận — thất bại thì select
+              // tự revert về activeRole cũ (controlled value) và báo lỗi rõ ràng.
+              const ok = await setActiveRoleContext(newRole);
+              if (ok) {
+                addToast('Chuyển vai trò', `Đã chuyển sang ngữ cảnh: ${ROLE_HIERARCHY[newRole]?.label}`, 'info');
+              } else {
+                addToast('Chuyển vai trò thất bại', 'Máy chủ từ chối hoặc không phản hồi. Giữ nguyên ngữ cảnh hiện tại.', 'danger');
+              }
             }}
           >
             <optgroup label="── Lãnh đạo UBND ──">

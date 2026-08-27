@@ -1,8 +1,4 @@
-/**
- * Design Tokens & Governance Constants for UBND Xã Cát Ngạn
- * Phục vụ hệ thống giao diện hành chính công vụ chuẩn mực, dễ đọc, tương phản cao
- */
-
+// Design Tokens & Quy chuẩn giao diện hành chính công vụ UBND Cấp Xã
 export const DESIGN_TOKENS = {
   colors: {
     // Primary Red - Quốc kỳ & Hành chính

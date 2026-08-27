@@ -6,6 +6,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Quanlycongviec.Application.Common.Interfaces;
+using Quanlycongviec.Application.Features.Auth.Commands.Mfa;
 
 namespace Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword
 {
@@ -47,7 +48,9 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword
 
             // Sinh mã OTP 6 chữ số ngẫu nhiên an toàn
             var otp = RandomNumberGenerator.GetInt32(100000, 999999).ToString();
-            user.PasswordResetOtp = otp;
+
+            // BẢO MẬT (Audit M3): Chỉ lưu SHA-256 hash của OTP trong database
+            user.PasswordResetOtp = EmailOtpHelper.HashCode(otp);
             user.PasswordResetOtpExpiry = DateTime.UtcNow.AddMinutes(10);
 
             await _context.SaveChangesAsync(cancellationToken);
@@ -56,7 +59,9 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword
             var toEmail = !string.IsNullOrWhiteSpace(user.Email) ? user.Email : request.Email;
             var sent = await _emailService.SendPasswordResetOtpAsync(toEmail, user.FullName, otp, cancellationToken);
 
-            _logger.LogInformation("[ForgotPassword] Đã tạo mã OTP khôi phục cho {Username} ({Email}) - Mã: {Otp} (Sent: {Sent})", user.Username, toEmail, otp, sent);
+            // BẢO MẬT (Audit H1): Mask OTP trong log (chỉ giữ 3 số cuối)
+            var maskedOtp = $"***{otp[^3..]}";
+            _logger.LogInformation("[ForgotPassword] Đã tạo mã OTP khôi phục cho {Username} ({Email}) - Mã: {MaskedOtp} (Sent: {Sent})", user.Username, toEmail, maskedOtp, sent);
             return true;
         }
     }

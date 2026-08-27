@@ -32,7 +32,7 @@ namespace Quanlycongviec.Application.Tests.OutgoingDocuments
         public async Task UpdateOutgoingDocument_WhenStatusNotDraft_ShouldThrowException()
         {
             // Arrange
-            var user = new User { Username = "namnv", FullName = "Nguyên Văn Nam", Email = "nam@catngan.gov.vn" };
+            var user = new User { Username = "namnv", FullName = "Nguyễn Văn Nam", Email = "nam@ubnd.gov.vn" };
             _context.Users.Add(user);
 
             var doc = new OutgoingDocument
@@ -65,8 +65,8 @@ namespace Quanlycongviec.Application.Tests.OutgoingDocuments
         public async Task SignAndIssue_ShouldAutoGenerateSequentialDocumentNumber()
         {
             // Arrange
-            var leader = new User { Username = "chutich", FullName = "Nguyễn Đình Hùng", Email = "hung@catngan.gov.vn", ActiveRoleCode = "ChuTichUBND" };
-            var drafter = new User { Username = "namnv", FullName = "Nguyễn Văn Nam", Email = "nam@catngan.gov.vn" };
+            var leader = new User { Username = "chutich", FullName = "Nguyễn Đình Hùng", Email = "hung@ubnd.gov.vn", ActiveRoleCode = "ChuTichUBND" };
+            var drafter = new User { Username = "namnv", FullName = "Nguyễn Văn Nam", Email = "nam@ubnd.gov.vn" };
             _context.Users.AddRange(leader, drafter);
 
             var doc1 = new OutgoingDocument { Id = Guid.NewGuid(), Title = "Quyết định 1", DocumentType = DocumentTypeEnum.QuyetDinh, Status = OutgoingDocumentStatusEnum.PendingSignature, DraftedByUserId = drafter.Id };
@@ -96,7 +96,7 @@ namespace Quanlycongviec.Application.Tests.OutgoingDocuments
         public async Task SignAndIssue_WhenUserNotAuthorized_ShouldFail()
         {
             // Arrange
-            var chuyenVien = new User { Username = "namnv", FullName = "Nguyễn Văn Nam", Email = "nam@catngan.gov.vn" };
+            var chuyenVien = new User { Username = "namnv", FullName = "Nguyễn Văn Nam", Email = "nam@ubnd.gov.vn" };
             _context.Users.Add(chuyenVien);
 
             var doc = new OutgoingDocument { Id = Guid.NewGuid(), Title = "Tờ trình ngân sách", DocumentType = DocumentTypeEnum.ToTrinh, Status = OutgoingDocumentStatusEnum.PendingSignature, DraftedByUserId = chuyenVien.Id };

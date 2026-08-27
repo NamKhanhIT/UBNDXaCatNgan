@@ -24,86 +24,78 @@ namespace Quanlycongviec.Api.Controllers
         private readonly ILogger<AuthController> _logger;
         private readonly IConfiguration _configuration;
         private readonly Quanlycongviec.Application.Common.Interfaces.IApplicationDbContext _context;
+        private readonly Quanlycongviec.Application.Common.Interfaces.ITurnstileValidator _turnstileValidator;
 
         public AuthController(
             ISender mediator,
             ILogger<AuthController> logger,
             IConfiguration configuration,
-            Quanlycongviec.Application.Common.Interfaces.IApplicationDbContext context)
+            Quanlycongviec.Application.Common.Interfaces.IApplicationDbContext context,
+            Quanlycongviec.Application.Common.Interfaces.ITurnstileValidator turnstileValidator)
         {
             _mediator = mediator;
             _logger = logger;
             _configuration = configuration;
             _context = context;
+            _turnstileValidator = turnstileValidator;
         }
 
-        /// <summary>
-        /// Xác định truy cập từ xa (Cloudflare, mobile ngoài mạng LAN)
-        /// </summary>
-        private bool IsRemoteAccess()
+        // BẢO MẬT (Audit P4B): Xác minh chống bot (Turnstile) cho endpoint công khai
+        private Task<bool> PassesBotCheckAsync()
         {
-            var origin = Request.Headers["Origin"].ToString();
-            var referer = Request.Headers["Referer"].ToString();
-            var source = (!string.IsNullOrEmpty(origin) ? origin : referer).ToLowerInvariant();
-
-            if (string.IsNullOrEmpty(source)) return false;
-
-            return source.Contains("trycloudflare.com")
-                || source.Contains("loca.lt")
-                || source.Contains("ngrok.io")
-                || source.Contains("ngrok-free.app");
+            var token = Request.Headers["X-Turnstile-Token"].ToString();
+            return _turnstileValidator.ValidateAsync(
+                string.IsNullOrWhiteSpace(token) ? null : token,
+                HttpContext.Connection.RemoteIpAddress?.ToString(),
+                HttpContext.RequestAborted);
         }
 
-        /// <summary>
-        /// Đăng ký tài khoản cán bộ mới
-        /// </summary>
+        private IActionResult BotCheckRejected() =>
+            BadRequest(new { success = false, error = "Xác minh chống bot không đạt. Vui lòng thử lại." });
+
+        // BẢO MẬT (Audit C2): Đăng ký tài khoản cán bộ mới — chỉ lãnh đạo (LeaderOnly)
         [HttpPost("register")]
-        [AllowAnonymous]
+        [Authorize(Policy = "LeaderOnly")]
         [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> Register([FromBody] RegisterCommand command)
         {
             var result = await _mediator.Send(command);
             SetTokenCookie(result.Token, result.RefreshToken);
-            // Trả token trong body để client mobile/remote dùng Bearer auth
             return Ok(new { success = true, data = result, token = result.Token, refreshToken = result.RefreshToken, message = "Đăng ký thành công." });
         }
 
-        /// <summary>
-        /// Đăng nhập tài khoản và lấy danh sách chức danh kiêm nhiệm
-        /// </summary>
+        // Đăng nhập tài khoản và lấy danh sách chức danh kiêm nhiệm
         [HttpPost("login")]
         [AllowAnonymous]
         [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> Login([FromBody] LoginCommand command)
         {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
             var result = await _mediator.Send(command);
-            // Chỉ set cookie đăng nhập khi đã qua xác thực đầy đủ (không bị chặn bởi MFA)
             if (!result.MfaRequired && !string.IsNullOrEmpty(result.Token))
             {
                 SetTokenCookie(result.Token, result.RefreshToken);
             }
-            // Trả token trong body: client remote/mobile sẽ lưu vào localStorage và gửi qua Authorization header
             return Ok(new { success = true, data = result, token = result.Token, refreshToken = result.RefreshToken, message = result.MfaRequired ? "Yêu cầu xác thực 2 yếu tố (OTP)." : "Đăng nhập thành công." });
         }
 
-        /// <summary>
-        /// Chuyển đổi tư cách / ngữ cảnh kiêm nhiệm (Context Switching)
-        /// </summary>
+        // BẢO MẬT (Audit C1): Chuyển đổi ngữ cảnh kiêm nhiệm — UserId lấy từ JWT claim chống IDOR
         [HttpPost("switch-context")]
         public async Task<IActionResult> SwitchContext([FromBody] SwitchContextCommand command)
         {
+            command = command with { UserId = GetCurrentUserId() };
             var result = await _mediator.Send(command);
             SetTokenCookie(result.Token, result.RefreshToken);
             return Ok(new { success = true, data = result, token = result.Token, refreshToken = result.RefreshToken, message = $"Đã chuyển ngữ cảnh sang vai trò [{command.TargetRoleCode}] thành công." });
         }
 
-        /// <summary>
-        /// Cấp lại access token mới khi token hiện tại hết hạn (dùng refresh token)
-        /// </summary>
+        // Cấp lại access token mới khi token hiện tại hết hạn bằng refresh token
         [HttpPost("refresh")]
         [AllowAnonymous]
+        [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> Refresh([FromBody] RefreshAccessTokenCommand command)
         {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
             try
             {
                 var result = await _mediator.Send(command);
@@ -116,14 +108,13 @@ namespace Quanlycongviec.Api.Controllers
             }
         }
 
-        /// <summary>
-        /// Hoàn tất đăng nhập 2 bước: xác thực mã OTP (sau khi đã qua bước mật khẩu)
-        /// </summary>
+        // Hoàn tất đăng nhập 2 bước: xác thực mã OTP/TOTP
         [HttpPost("mfa/verify-login")]
         [AllowAnonymous]
         [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> VerifyMfaLogin([FromBody] VerifyMfaLoginCommand command)
         {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
             try
             {
                 var result = await _mediator.Send(command);
@@ -136,9 +127,7 @@ namespace Quanlycongviec.Api.Controllers
             }
         }
 
-        /// <summary>
-        /// Sinh secret TOTP + URI quét QR (bước 1 bật MFA — chưa lưu)
-        /// </summary>
+        // Bước 1 bật MFA: Sinh secret TOTP + URI quét mã QR
         [HttpPost("mfa/setup")]
         [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> MfaSetup()
@@ -148,9 +137,7 @@ namespace Quanlycongviec.Api.Controllers
             return Ok(new { success = true, data = result });
         }
 
-        /// <summary>
-        /// Xác nhận mã OTP đầu tiên và bật MFA (bước 2)
-        /// </summary>
+        // Bước 2 bật MFA: Xác nhận mã OTP đầu tiên để kích hoạt
         [HttpPost("mfa/enable")]
         [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> MfaEnable([FromBody] MfaEnableCommand command)
@@ -167,9 +154,7 @@ namespace Quanlycongviec.Api.Controllers
             }
         }
 
-        /// <summary>
-        /// Tắt MFA — yêu cầu mã OTP hiện tại để xác nhận
-        /// </summary>
+        // Tắt MFA: Yêu cầu mã OTP hiện tại để xác nhận
         [HttpPost("mfa/disable")]
         [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> MfaDisable([FromBody] MfaDisableCommand command)
@@ -186,16 +171,68 @@ namespace Quanlycongviec.Api.Controllers
             }
         }
 
-        /// <summary>
-        /// Đăng xuất — xoá cookie và thu hồi refresh token
-        /// </summary>
+        // BẢO MẬT (Audit Đợt 3): Gửi mã OTP xác thực 2 yếu tố qua email công vụ (cooldown 60s)
+        [HttpPost("mfa/email-code")]
+        [HttpPost("mfa/send-email-code")]
+        [AllowAnonymous]
+        [EnableRateLimiting("LoginLimiter")]
+        public async Task<IActionResult> SendMfaEmailCode([FromBody] SendMfaEmailCodeCommand? command)
+        {
+            try
+            {
+                command ??= new SendMfaEmailCodeCommand();
+                if (string.IsNullOrWhiteSpace(command.MfaToken))
+                {
+                    command.SessionUserId = GetCurrentUserId();
+                }
+
+                var result = await _mediator.Send(command);
+                return Ok(new
+                {
+                    success = true,
+                    data = result,
+                    cooldownSeconds = result.CooldownSeconds,
+                    maskedEmail = result.MaskedEmail,
+                    message = $"Mã xác thực đã được gửi tới {result.MaskedEmail}. Mã có hiệu lực 5 phút."
+                });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { success = false, error = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+        }
+
+        // BẢO MẬT: Đăng xuất khỏi tất cả các thiết bị khác (thu hồi toàn bộ Refresh Token khác phiên hiện tại)
+        [HttpPost("logout-other-sessions")]
+        [HttpPost("revoke-other-sessions")]
+        [Authorize]
+        public async Task<IActionResult> LogoutOtherSessions()
+        {
+            var userId = GetCurrentUserId();
+            var currentRefreshToken = Request.Cookies["refresh_token"];
+            await _mediator.Send(new Quanlycongviec.Application.Features.Auth.Commands.RefreshToken.RevokeOtherSessionsCommand(userId, currentRefreshToken));
+            return Ok(new { success = true, message = "Đã đăng xuất tài khoản khỏi tất cả các thiết bị khác thành công." });
+        }
+
+        // BẢO MẬT (Audit H2): Đăng xuất — xóa cookie và thu hồi refresh token (hỗ trợ cả body & cookie)
         [HttpPost("logout")]
         [AllowAnonymous]
+        [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> Logout([FromBody] LogoutRequest? request)
         {
-            if (!string.IsNullOrEmpty(request?.RefreshToken))
+            var refreshToken = request?.RefreshToken;
+            if (string.IsNullOrEmpty(refreshToken))
             {
-                await _mediator.Send(new RevokeRefreshTokenCommand(request.RefreshToken));
+                refreshToken = Request.Cookies["refresh_token"];
+            }
+
+            if (!string.IsNullOrEmpty(refreshToken))
+            {
+                await _mediator.Send(new RevokeRefreshTokenCommand(refreshToken));
             }
 
             Response.Cookies.Delete("access_token", new CookieOptions
@@ -213,18 +250,17 @@ namespace Quanlycongviec.Api.Controllers
             return Ok(new { success = true, message = "Đăng xuất thành công." });
         }
 
-        /// <summary>
-        /// Yêu cầu gửi mã OTP đặt lại mật khẩu qua email công vụ
-        /// </summary>
+        // Bước 1 quên mật khẩu: Gửi mã OTP đặt lại mật khẩu qua email công vụ
         [HttpPost("forgot-password/send-otp")]
         [AllowAnonymous]
         [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> SendPasswordResetOtp([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.SendPasswordResetOtpCommand command)
         {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
             try
             {
                 var result = await _mediator.Send(command);
-                return Ok(new { success = result, message = "Mã xác thực khôi phục mật khẩu đã được gửi đến hòm thư của đồng chí." });
+                return Ok(new { success = result, message = "Mã xác thực khôi phục mật khẩu đã được gửi đến hòm thư. Vui lòng kiểm tra hòm thư!" });
             }
             catch (InvalidOperationException ex)
             {
@@ -237,18 +273,17 @@ namespace Quanlycongviec.Api.Controllers
             }
         }
 
-        /// <summary>
-        /// Đặt lại mật khẩu bằng mã OTP nhận qua Email
-        /// </summary>
-        [HttpPost("forgot-password/reset-with-otp")]
+        // BẢO MẬT (Audit Đợt 4): Bước 2 quên mật khẩu Email — xác minh OTP và cấp ResetToken
+        [HttpPost("forgot-password/verify-otp")]
         [AllowAnonymous]
         [EnableRateLimiting("LoginLimiter")]
-        public async Task<IActionResult> ResetPasswordWithOtp([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.ResetPasswordWithOtpCommand command)
+        public async Task<IActionResult> VerifyResetOtp([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.VerifyResetOtpCommand command)
         {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
             try
             {
                 var result = await _mediator.Send(command);
-                return Ok(new { success = result, message = "Đặt lại mật khẩu thành công. Đồng chí có thể đăng nhập ngay bằng mật khẩu mới." });
+                return Ok(new { success = true, resetToken = result.ResetToken, data = new { resetToken = result.ResetToken }, message = "Mã xác thực chính xác. Vui lòng đặt mật khẩu mới." });
             }
             catch (InvalidOperationException ex)
             {
@@ -256,19 +291,63 @@ namespace Quanlycongviec.Api.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đặt lại mật khẩu bằng OTP: {Message}", ex.Message);
+                _logger.LogError(ex, "Lỗi khi xác minh OTP khôi phục mật khẩu: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi xác minh mã xác thực." });
+            }
+        }
+
+        // BẢO MẬT (Audit Đợt 4): Bước 2 quên mật khẩu Authenticator — xác minh TOTP và cấp ResetToken
+        [HttpPost("forgot-password/verify-reset-mfa")]
+        [AllowAnonymous]
+        [EnableRateLimiting("LoginLimiter")]
+        public async Task<IActionResult> VerifyResetMfa([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.VerifyResetMfaCommand command)
+        {
+            try
+            {
+                var result = await _mediator.Send(command);
+                return Ok(new { success = true, resetToken = result.ResetToken, data = new { resetToken = result.ResetToken }, message = "Xác thực 2 bước chính xác. Vui lòng đặt mật khẩu mới." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xác minh khôi phục mật khẩu: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi xác minh mã xác thực." });
+            }
+        }
+
+        // Bước 3 quên mật khẩu Email — đặt mật khẩu mới bằng ResetToken
+        [HttpPost("forgot-password/reset-with-otp")]
+        [AllowAnonymous]
+        [EnableRateLimiting("LoginLimiter")]
+        public async Task<IActionResult> ResetPasswordWithOtp([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.ResetPasswordWithOtpCommand command)
+        {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
+            try
+            {
+                var result = await _mediator.Send(command);
+                return Ok(new { success = result, message = "Đặt lại mật khẩu thành công. Bạn có thể đăng nhập ngay bằng mật khẩu mới." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đặt lại mật khẩu: {Message}", ex.Message);
                 return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi hoàn tất đặt lại mật khẩu." });
             }
         }
 
-        /// <summary>
-        /// Đặt lại mật khẩu tức thì bằng mã xác thực 2 bước Authenticator (MFA)
-        /// </summary>
+        // Bước 3 quên mật khẩu Authenticator — đặt mật khẩu mới bằng ResetToken
         [HttpPost("forgot-password/reset-with-mfa")]
         [AllowAnonymous]
         [EnableRateLimiting("LoginLimiter")]
         public async Task<IActionResult> ResetPasswordWithMfa([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword.ResetPasswordWithMfaCommand command)
         {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
             try
             {
                 var result = await _mediator.Send(command);
@@ -280,14 +359,162 @@ namespace Quanlycongviec.Api.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Lỗi khi đặt lại mật khẩu bằng MFA: {Message}", ex.Message);
+                _logger.LogError(ex, "Lỗi khi đặt lại mật khẩu: {Message}", ex.Message);
                 return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi hoàn tất đặt lại mật khẩu." });
             }
         }
 
-        /// <summary>
-        /// Kiểm tra trạng thái đăng nhập — trả về thông tin user từ JWT cookie / DB
-        /// </summary>
+        // BẢO MẬT: Bước 1 Đổi mật khẩu — Gửi mã OTP về Email công vụ của cán bộ
+        [HttpPost("change-password/send-otp")]
+        public async Task<IActionResult> SendChangePasswordOtp()
+        {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
+            try
+            {
+                var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(userIdStr, out var userId))
+                {
+                    return Unauthorized(new { success = false, error = "Phiên làm việc không hợp lệ." });
+                }
+
+                await _mediator.Send(new Quanlycongviec.Application.Features.Auth.Commands.ChangePassword.SendChangePasswordOtpCommand(userId));
+                return Ok(new { success = true, message = "Mã xác thực OTP đã được gửi đến email công vụ của đồng chí." });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi gửi mã OTP đổi mật khẩu: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi gửi mã xác thực." });
+            }
+        }
+
+        // BẢO MẬT: Bước 1 Đổi mật khẩu — Xác thực mật khẩu hiện tại và OTP để cấp ChangePasswordToken
+        [HttpPost("change-password/verify-step1")]
+        public async Task<IActionResult> VerifyChangePasswordStep1([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ChangePassword.VerifyChangePasswordStepCommand command)
+        {
+            if (!await PassesBotCheckAsync()) return BotCheckRejected();
+            try
+            {
+                var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(userIdStr, out var userId))
+                {
+                    return Unauthorized(new { success = false, error = "Phiên làm việc không hợp lệ." });
+                }
+
+                var fixedCommand = command with { UserId = userId };
+                var result = await _mediator.Send(fixedCommand);
+
+                return Ok(new
+                {
+                    success = true,
+                    changePasswordToken = result.ChangePasswordToken,
+                    data = new { changePasswordToken = result.ChangePasswordToken },
+                    message = result.Message
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi xác minh Bước 1 đổi mật khẩu: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi xác minh danh tính." });
+            }
+        }
+
+        // BẢO MẬT: Bước 2 Đổi mật khẩu — Thiết lập mật khẩu mới qua ChangePasswordToken
+        [HttpPost("change-password/complete")]
+        public async Task<IActionResult> CompleteChangePassword([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ChangePassword.CompleteChangePasswordCommand command)
+        {
+            try
+            {
+                var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(userIdStr, out var userId))
+                {
+                    return Unauthorized(new { success = false, error = "Phiên làm việc không hợp lệ." });
+                }
+
+                var fixedCommand = command with { UserId = userId };
+                var result = await _mediator.Send(fixedCommand);
+
+                SetTokenCookie(result.Token, result.RefreshToken);
+                return Ok(new
+                {
+                    success = true,
+                    message = "Đã cập nhật mật khẩu mới thành công.",
+                    data = result,
+                    token = result.Token,
+                    refreshToken = result.RefreshToken
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi hoàn tất đổi mật khẩu: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi cập nhật mật khẩu mới." });
+            }
+        }
+
+        // BẢO MẬT (Audit A5): Đổi mật khẩu trực tiếp cho người dùng đã đăng nhập (tương thích ngược)
+        [HttpPost("change-password")]
+        public async Task<IActionResult> ChangePassword([FromBody] Quanlycongviec.Application.Features.Auth.Commands.ChangePassword.ChangePasswordCommand command)
+        {
+            try
+            {
+                var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(userIdStr, out var userId))
+                {
+                    return Unauthorized(new { success = false, error = "Phiên làm việc không hợp lệ." });
+                }
+
+                var fixedCommand = command with { UserId = userId };
+                var result = await _mediator.Send(fixedCommand);
+
+                SetTokenCookie(result.Token, result.RefreshToken);
+                return Ok(new
+                {
+                    success = true,
+                    message = "Đã cập nhật mật khẩu mới thành công.",
+                    data = result,
+                    token = result.Token,
+                    refreshToken = result.RefreshToken
+                });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { success = false, error = ex.Message });
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Unauthorized(new { success = false, error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Lỗi khi đổi mật khẩu: {Message}", ex.Message);
+                return StatusCode(500, new { success = false, error = "Đã xảy ra lỗi khi cập nhật mật khẩu." });
+            }
+        }
+
+        // Lấy thông tin tài khoản hiện tại từ JWT / DB
         [HttpGet("me")]
         public async Task<IActionResult> Me()
         {
@@ -324,17 +551,13 @@ namespace Quanlycongviec.Api.Controllers
             });
         }
 
-        private Guid GetCurrentUserId()
-        {
-            var userIdStr = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            return Guid.TryParse(userIdStr, out var userId) ? userId : Guid.Empty;
-        }
+        // BẢO MẬT (Audit X1): Lấy ID người dùng hiện tại qua CurrentUserExtensions
+        private Guid GetCurrentUserId() => User.GetUserId();
 
         private void SetTokenCookie(string token, string refreshToken)
         {
             var isHttps = Request.IsHttps || string.Equals(Request.Headers["X-Forwarded-Proto"], "https", StringComparison.OrdinalIgnoreCase);
 
-            // Access token: thời hạn ngắn (khớp với JWT exp)
             var accessTokenMinutes = int.TryParse(_configuration["Jwt:AccessTokenMinutes"], out var minutes)
                 ? minutes
                 : 30;
@@ -348,7 +571,6 @@ namespace Quanlycongviec.Api.Controllers
                 Expires = DateTimeOffset.UtcNow.AddMinutes(accessTokenMinutes)
             };
 
-            // Refresh token: thời hạn dài hơn (7 ngày mặc định), chỉ dùng để cấp lại access token
             var refreshTokenDays = int.TryParse(_configuration["Jwt:RefreshTokenDays"], out var days)
                 ? days
                 : 7;
