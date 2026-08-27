@@ -74,8 +74,9 @@ namespace Quanlycongviec.Application.Features.Users.Commands.ChangeEmail
 
             await _context.SaveChangesAsync(cancellationToken);
 
+            string maskedNewEmail = updatedEmail.Contains('@') ? updatedEmail[..2] + "****@" + updatedEmail.Split('@')[1] : "***";
             _logger.LogInformation("UserId {UserId} ({Username}) đã đổi Email công vụ thành công sang {NewEmail}",
-                user.Id, user.Username, updatedEmail);
+                user.Id, user.Username, maskedNewEmail);
 
             return new ConfirmChangeEmailResult(true, null, "Đã cập nhật địa chỉ Email công vụ thành công!", updatedEmail);
         }

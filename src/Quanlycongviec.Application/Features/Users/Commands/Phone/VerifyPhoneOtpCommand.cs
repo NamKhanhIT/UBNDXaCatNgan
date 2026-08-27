@@ -85,8 +85,8 @@ namespace Quanlycongviec.Application.Features.Users.Commands.Phone
             await _context.SaveChangesAsync(cancellationToken);
 
             string maskedPhone = cleanPhone.Length >= 7 ? cleanPhone[..3] + "****" + cleanPhone[^3..] : "***";
-            _logger.LogInformation("UserId {UserId} ({FullName}) đã xác thực số điện thoại SMS thành công: {Phone}",
-                user.Id, user.FullName, maskedPhone);
+            _logger.LogInformation("UserId {UserId} ({Username}) đã xác thực số điện thoại SMS thành công: {Phone}",
+                user.Id, user.Username, maskedPhone);
 
             return new VerifyPhoneOtpResult(true, null, "Xác thực số điện thoại qua tin nhắn SMS thành công!", cleanPhone);
         }

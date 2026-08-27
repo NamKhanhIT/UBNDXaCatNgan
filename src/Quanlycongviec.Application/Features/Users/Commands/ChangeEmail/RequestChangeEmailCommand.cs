@@ -98,17 +98,18 @@ namespace Quanlycongviec.Application.Features.Users.Commands.ChangeEmail
             await _context.SaveChangesAsync(cancellationToken);
 
             // 5. Gửi Email chứa mã OTP kích hoạt đến địa chỉ Email mới bằng mẫu email chuẩn hóa
+            string maskedEmail = cleanNewEmail.Contains('@') ? cleanNewEmail[..2] + "****@" + cleanNewEmail.Split('@')[1] : "***";
             try
             {
                 await _emailService.SendEmailChangeOtpAsync(cleanNewEmail, user.FullName, otp, cancellationToken);
-                _logger.LogInformation("Đã gửi OTP đổi email thành công tới {Email} cho UserId {UserId}", cleanNewEmail, user.Id);
+                _logger.LogInformation("Đã gửi OTP đổi email thành công tới {Email} cho UserId {UserId}", maskedEmail, user.Id);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Lỗi gửi email OTP tới {Email}: {Message}", cleanNewEmail, ex.Message);
+                _logger.LogWarning(ex, "Lỗi gửi email OTP tới {Email}: {Message}", maskedEmail, ex.Message);
             }
 
-            return new RequestChangeEmailResult(true, null, $"Mã xác thực OTP 6 số đã được gửi đến email '{cleanNewEmail}'. Vui lòng kiểm tra hòm thư.", 60);
+            return new RequestChangeEmailResult(true, null, $"Mã xác thực OTP 6 số đã được gửi đến email '{maskedEmail}'. Vui lòng kiểm tra hòm thư.", 60);
         }
 
         private static string HashSha256(string input)

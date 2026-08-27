@@ -119,7 +119,7 @@ export async function confirmChangeEmailApi(otpCode: string): Promise<ApiRespons
   });
 }
 
-// ── QUY TRÌNH XÁC THỰC SỐ ĐIỆN THOẠI QUA SMS GATEWAY MIỄN PHÍ ──
+// Quy trình xác thực số điện thoại qua SMS Gateway miễn phí
 
 export interface SendPhoneOtpResponse {
   cooldownSeconds?: number;
@@ -132,7 +132,7 @@ export async function sendPhoneOtpApi(phoneNumber: string): Promise<ApiResponse<
 
   // Ghi log bảo mật mã hóa trong DevTools Console (chống hacker & bảo mật danh tính)
   console.groupCollapsed(
-    `%c🔒 [BẢO MẬT SMS] Yêu cầu mã xác thực SĐT: ${maskedPhone}`,
+    `%c[BẢO MẬT SMS] Yêu cầu mã xác thực SĐT: ${maskedPhone}`,
     'color: #059669; font-weight: bold; background: #f0fdf4; padding: 3px 8px; border-radius: 4px; border: 1px solid #bbf7d0;'
   );
   console.info('Kênh phát tin:', 'Hệ Thống Tin Nhắn SMS Công Vụ (Bảo mật TLS 1.3)');
@@ -161,7 +161,7 @@ export async function verifyPhoneOtpApi(
 
   // Ghi log xác minh mã OTP mã hóa trong DevTools Console
   console.groupCollapsed(
-    `%c🔒 [BẢO MẬT SMS] Xác minh mã OTP SĐT: ${maskedPhone}`,
+    `%c[BẢO MẬT SMS] Xác minh mã OTP SĐT: ${maskedPhone}`,
     'color: #2563eb; font-weight: bold; background: #eff6ff; padding: 3px 8px; border-radius: 4px; border: 1px solid #bfdbfe;'
   );
   console.info('Số điện thoại xác thực (Masked):', maskedPhone);
@@ -176,30 +176,16 @@ export async function verifyPhoneOtpApi(
   });
 }
 
-// Gửi thử nghiệm tin nhắn SMS thông báo công vụ
+// Gửi thử tin nhắn SMS thông báo công vụ
 
 export interface SendTestSmsResponse {
   gatewayStatus?: string;
 }
 
 export async function sendTestSmsApi(phoneNumber?: string): Promise<ApiResponse<SendTestSmsResponse>> {
-  const clean = phoneNumber?.trim().replace(/\s/g, '');
-  const maskedPhone = clean && clean.length >= 7 ? clean.slice(0, 3) + '****' + clean.slice(-3) : 'Số điện thoại cán bộ';
-
-  // Ghi log bảo mật trong DevTools Console
-  console.groupCollapsed(
-    `%c🔒 [BẢO MẬT SMS] Phát tin nhắn thử nghiệm: ${maskedPhone}`,
-    'color: #047857; font-weight: bold; background: #ecfdf5; padding: 3px 8px; border-radius: 4px; border: 1px solid #a7f3d0;'
-  );
-  console.info('Loại giao dịch:', 'Tin nhắn SMS thông báo công vụ thử nghiệm');
-  console.info('Kênh bảo mật:', 'Android SMS Gateway / Local GSM Modem (TLS 1.3)');
-  console.info('Số điện thoại nhận tin (Masked):', maskedPhone);
-  console.info('Thời điểm phát lệnh:', new Date().toLocaleString('vi-VN'));
-  console.groupEnd();
-
   return await apiFetch<SendTestSmsResponse>('/api/v1/Users/notifications/test-sms', {
     method: 'POST',
-    body: JSON.stringify({ phoneNumber: clean }),
+    body: JSON.stringify({ phoneNumber }),
   });
 }
 
