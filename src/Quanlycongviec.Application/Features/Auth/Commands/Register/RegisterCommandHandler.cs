@@ -13,6 +13,13 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Register
 {
     public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthResponseDto>
     {
+        // BẢO MẬT (Audit C2): Whitelist vai trò được phép cấp cho tài khoản tự đăng ký
+        private static readonly HashSet<string> AllowedRoleCodes = new(StringComparer.Ordinal)
+        {
+            "ChuyenVien",
+            "PhoPhong"
+        };
+
         private readonly IApplicationDbContext _context;
         private readonly IPasswordHasher _passwordHasher;
         private readonly IJwtTokenService _jwtTokenService;
@@ -37,24 +44,20 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Register
 
             if (existingUser != null)
             {
-                throw new InvalidOperationException("Username hooc Email da ton tai trong he thong.");
+                throw new InvalidOperationException("Tên đăng nhập hoặc email đã tồn tại trong hệ thống.");
+            }
+
+            // BẢO MẬT (Audit C2): Từ chối vai trò ngoài whitelist để ngăn tự nâng quyền lãnh đạo
+            if (string.IsNullOrWhiteSpace(request.InitialRoleCode) ||
+                !AllowedRoleCodes.Contains(request.InitialRoleCode))
+            {
+                throw new InvalidOperationException(
+                    "Vai trò không hợp lệ. Chỉ được cấp các vai trò: Chuyên viên, Phó trưởng phòng. Vai trò lãnh đạo phải do Quản trị viên gán trực tiếp trong cơ sở dữ liệu.");
             }
 
             var role = await _context.Roles
-                .FirstOrDefaultAsync(r => r.Code == request.InitialRoleCode, cancellationToken);
-
-            if (role == null)
-            {
-                role = new Role
-                {
-                    Name = request.InitialRoleCode == "BiThu" ? "Bí thư Đảng ủy" :
-                           request.InitialRoleCode == "ChuTichUBND" ? "Chủ tịch UBND" : "Chuyên viên",
-                    Code = request.InitialRoleCode,
-                    Description = "Role tự động tạo khi đăng ký"
-                };
-                _context.Roles.Add(role);
-                await _context.SaveChangesAsync(cancellationToken);
-            }
+                .FirstOrDefaultAsync(r => r.Code == request.InitialRoleCode, cancellationToken)
+                ?? throw new InvalidOperationException($"Vai trò [{request.InitialRoleCode}] chưa được khởi tạo trong hệ thống.");
 
             var user = new User
             {

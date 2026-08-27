@@ -1,4 +1,4 @@
-import { apiFetch, getApiBaseUrl, getStoredToken } from './api.config';
+import { apiFetch, apiUpload, getApiBaseUrl } from './api.config';
 
 export interface DocumentAttachmentDto {
   id: string;
@@ -37,41 +37,14 @@ export async function uploadFileApi(
   targetType: string = 'Inbox',
   attachmentType: string = 'MainDocument'
 ): Promise<{ success: boolean; data?: string; error?: string }> {
+  // BẢO MẬT (Audit M7): Upload file qua apiUpload (hỗ trợ Bearer auth & retry 401)
   const formData = new FormData();
   formData.append('file', file);
   formData.append('documentId', documentId);
   formData.append('targetType', targetType);
   formData.append('attachmentType', attachmentType);
 
-  const token = getStoredToken();
-  const baseUrl = getApiBaseUrl();
-
-  try {
-    const res = await fetch(`${baseUrl}/api/v1/Files/upload`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: formData,
-    });
-
-    const text = await res.text();
-    let json: any = null;
-    if (text && text.trim()) {
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = { message: text };
-      }
-    }
-
-    if (!res.ok || !json?.success) {
-      return { success: false, error: json?.error || json?.message || `Lỗi tải lên tệp (Mã HTTP ${res.status})` };
-    }
-    return { success: true, data: json.data };
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Lỗi mạng khi upload file.' };
-  }
+  return await apiUpload<string>('/api/v1/Files/upload', formData);
 }
 
 export async function uploadAndAnalyzeApi(
@@ -85,38 +58,11 @@ export async function uploadAndAnalyzeApi(
   error?: string;
   message?: string;
 }> {
+  // BẢO MẬT (Audit M7): Upload và phân tích AI qua apiUpload (hỗ trợ Bearer auth & retry 401)
   const effectiveDocId = documentId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : '00000000-0000-0000-0000-000000000000');
   const formData = new FormData();
   formData.append('file', file);
   formData.append('documentId', effectiveDocId);
 
-  const token = getStoredToken();
-  const baseUrl = getApiBaseUrl();
-
-  try {
-    const res = await fetch(`${baseUrl}/api/v1/Files/upload-and-analyze`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: formData,
-    });
-
-    const text = await res.text();
-    let json: any = null;
-    if (text && text.trim()) {
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = { message: text };
-      }
-    }
-
-    if (!res.ok || !json?.success) {
-      return { success: false, error: json?.error || json?.message || `Lỗi phân tích văn bản (Mã HTTP ${res.status})` };
-    }
-    return json;
-  } catch (err: any) {
-    return { success: false, error: err.message || 'Lỗi kết nối khi gửi file phân tích AI.' };
-  }
+  return await apiUpload('/api/v1/Files/upload-and-analyze', formData);
 }

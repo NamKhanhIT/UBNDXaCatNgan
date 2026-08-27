@@ -17,7 +17,7 @@ export function AiRoutingActionModal({ report, routeType, onConfirm, onClose }: 
   const [meetingStartTime, setMeetingStartTime] = useState('08:00');
   const [meetingEndTime, setMeetingEndTime] = useState('11:30');
   const [meetingLocation, setMeetingLocation] = useState(
-    report.eventDetails?.value?.location || 'Hội trường UBND Xã Cát Ngạn'
+    report.eventDetails?.value?.location || 'Hội trường UBND Cấp Xã'
   );
   const [meetingAttendees, setMeetingAttendees] = useState(
     report.eventDetails?.value?.attendees || 'Chủ tịch UBND xã, Công chức Địa chính, Văn phòng'

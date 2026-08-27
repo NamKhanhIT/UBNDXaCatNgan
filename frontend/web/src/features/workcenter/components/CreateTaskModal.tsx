@@ -12,12 +12,13 @@ interface CreateTaskModalProps {
   onTaskCreated: (newTask: TaskItemDto) => void;
 }
 
-const FALLBACK_USERS: UserDto[] = [
+// BẢO MẬT (Audit M6): Danh sách cán bộ fallback mẫu (chỉ nạp khi bật NEXT_PUBLIC_DEMO_MODE)
+const FALLBACK_USERS: UserDto[] = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? [
   {
     id: 'a0000000-0000-0000-0000-000000000006',
     username: 'nam',
     fullName: 'Nguyễn Văn Nam',
-    email: 'nam@catngan.gov.vn',
+    email: 'nam@ubnd.gov.vn',
     primaryDepartmentId: '10000000-0000-0000-0000-000000000002',
     departmentName: 'Phòng Kinh tế & Địa chính',
     roleName: 'Chuyên viên Địa chính',
@@ -31,7 +32,7 @@ const FALLBACK_USERS: UserDto[] = [
     id: 'a0000000-0000-0000-0000-000000000005',
     username: 'tp_vh',
     fullName: 'Trần Thị Mai',
-    email: 'tp_vh@catngan.gov.vn',
+    email: 'tp_vh@ubnd.gov.vn',
     primaryDepartmentId: '10000000-0000-0000-0000-000000000003',
     departmentName: 'Phòng Văn hóa - Xã hội',
     roleName: 'Trưởng phòng VH-XH',
@@ -45,7 +46,7 @@ const FALLBACK_USERS: UserDto[] = [
     id: 'a0000000-0000-0000-0000-000000000004',
     username: 'tp_kt',
     fullName: 'Lê Văn Tùng',
-    email: 'tp_kt@catngan.gov.vn',
+    email: 'tp_kt@ubnd.gov.vn',
     primaryDepartmentId: '10000000-0000-0000-0000-000000000002',
     departmentName: 'Phòng Kinh tế & Địa chính',
     roleName: 'Trưởng phòng Kinh tế',
@@ -59,7 +60,7 @@ const FALLBACK_USERS: UserDto[] = [
     id: 'a0000000-0000-0000-0000-000000000003',
     username: 'hoang',
     fullName: 'Nguyễn Văn Hoàng',
-    email: 'hoang@catngan.gov.vn',
+    email: 'hoang@ubnd.gov.vn',
     primaryDepartmentId: '10000000-0000-0000-0000-000000000001',
     departmentName: 'Văn phòng HĐND & UBND',
     roleName: 'Phó Chủ tịch - Chánh VP',
@@ -69,7 +70,7 @@ const FALLBACK_USERS: UserDto[] = [
     utilizationRate: 50,
     isOverloaded: false,
   },
-];
+] : [];
 
 const GUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
@@ -80,7 +81,8 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [userList, setUserList] = useState<UserDto[]>(FALLBACK_USERS);
-  const [assigneeId, setAssigneeId] = useState<string>(FALLBACK_USERS[0].id);
+  // M6: mảng fallback rỗng ở production — không được truy cập [0] trực tiếp
+  const [assigneeId, setAssigneeId] = useState<string>(FALLBACK_USERS[0]?.id ?? '');
   const [dueDate, setDueDate] = useState('2026-08-25');
   const [priority, setPriority] = useState<'Khan' | 'Cao' | 'Binh_Thuong'>('Cao');
   const [estimatedHours, setEstimatedHours] = useState(8);
@@ -121,7 +123,13 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
       const mappedPriority: 'Low' | 'Medium' | 'High' | 'Urgent' =
         priority === 'Khan' ? 'Urgent' : priority === 'Cao' ? 'High' : 'Medium';
 
-      const targetAssignee = userList.find(u => u.id === assigneeId) || FALLBACK_USERS[0];
+      // M6: không còn fallback cán bộ giả ở production — thiếu assignee thì chặn gửi
+      const targetAssignee = userList.find(u => u.id === assigneeId);
+      if (!targetAssignee) {
+        addToast('Thiếu người thực hiện', 'Vui lòng chọn cán bộ thụ lý từ danh sách.', 'warning');
+        setIsLoading(false);
+        return;
+      }
       const validAssignerId = (user?.userId && GUID_REGEX.test(user.userId))
         ? user.userId
         : 'a0000000-0000-0000-0000-000000000001';
@@ -156,7 +164,7 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
           assignerId: validAssignerId,
           assignerName: user?.fullName || 'Chủ tịch UBND',
           assigneeId: validAssigneeId,
-          assigneeName: targetAssignee.fullName || 'Nguyễn Văn Nam',
+          assigneeName: targetAssignee.fullName || targetAssignee.username,
           departmentName: targetAssignee.departmentName || 'Phòng Kinh tế & Địa chính',
           dueDate,
           priority,

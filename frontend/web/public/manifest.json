@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "UBND Xã Cát Ngạn - Quản Lý Công Việc",
-  "short_name": "UBND Cát Ngạn",
-  "description": "Hệ thống quản lý giao việc, lưu trữ văn bản và đôn đốc chỉ đạo UBND Xã Cát Ngạn",
+  "name": "UBND Cấp Xã - Quản Lý Công Việc",
+  "short_name": "UBND Cấp Xã",
+  "description": "Hệ thống quản lý giao việc, lưu trữ văn bản và đôn đốc chỉ đạo UBND Cấp Xã",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

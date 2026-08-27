@@ -3,9 +3,7 @@ using MediatR;
 
 namespace Quanlycongviec.Application.Features.Auth.Commands.Mfa
 {
-    /// <summary>
-    /// Bước 1: Sinh secret TOTP mới + URI quét QR (CHƯA lưu — chờ xác nhận mã OTP đầu tiên).
-    /// </summary>
+    // Bước 1 bật MFA: Sinh secret TOTP mới + URI quét mã QR
     public class MfaSetupCommand : IRequest<MfaSetupResult>
     {
         public MfaSetupCommand(Guid userId)

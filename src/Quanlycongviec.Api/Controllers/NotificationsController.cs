@@ -22,15 +22,8 @@ namespace Quanlycongviec.Api.Controllers
             _mediator = mediator;
         }
 
-        private Guid CurrentUserId
-        {
-            get
-            {
-                var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                    ?? User.FindFirst("sub")?.Value;
-                return Guid.TryParse(claim, out var id) ? id : Guid.Empty;
-            }
-        }
+        // BẢO MẬT (Audit X1): dùng extension dùng chung CurrentUserExtensions.GetUserId
+        private Guid CurrentUserId => User.GetUserId();
 
         /// <summary>
         /// Lấy danh sách thông báo của người dùng đăng nhập hiện tại

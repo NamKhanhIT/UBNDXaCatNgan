@@ -23,12 +23,12 @@ namespace Quanlycongviec.Infrastructure
             if (isDemoMode && useInMemoryDb)
             {
                 services.AddDbContext<ApplicationDbContext>(options =>
-                    options.UseInMemoryDatabase("UbndXaCatNganDemoDb"));
+                    options.UseInMemoryDatabase("UbndXaDemoDb"));
             }
             else
             {
                 var connectionString = configuration.GetConnectionString("DefaultConnection")
-                    ?? "Host=localhost;Port=5432;Database=ubndxacatngan;Username=postgres;Password=CHANGE_ME_VIA_USER_SECRETS";
+                    ?? "Host=localhost;Port=5432;Database=quanlycongviec_xa;Username=postgres;Password=CHANGE_ME_VIA_USER_SECRETS";
 
                 services.AddDbContext<ApplicationDbContext>(options =>
                     options.UseNpgsql(connectionString));
@@ -43,7 +43,18 @@ namespace Quanlycongviec.Infrastructure
             services.AddScoped<IRefreshTokenService, RefreshTokenService>();
             services.AddScoped<IEmailService, SmtpEmailService>();
 
+            // ── Dịch vụ SMS Miễn Phí (Android Gateway / GSM Modem / Simulator) ──
+            services.Configure<Quanlycongviec.Application.Common.Options.SmsOptions>(
+                configuration.GetSection(Quanlycongviec.Application.Common.Options.SmsOptions.SectionName));
+            services.AddHttpClient<ISmsNotificationService, FreeSmsGatewayService>();
+
             services.Configure<SmtpOptions>(configuration.GetSection(SmtpOptions.SectionName));
+
+            // ── BẢO MẬT (Audit Đợt 4 - P4B): Cloudflare Turnstile chống bot ──
+            services.Configure<Quanlycongviec.Application.Common.Options.TurnstileOptions>(
+                configuration.GetSection(Quanlycongviec.Application.Common.Options.TurnstileOptions.SectionName));
+            services.AddHttpClient<Quanlycongviec.Application.Common.Interfaces.ITurnstileValidator,
+                Quanlycongviec.Infrastructure.Services.TurnstileValidator>();
 
             // ── AI Provider Registration (Prompt F) ──
             services.Configure<Quanlycongviec.Application.Common.Options.AiProviderOptions>(
@@ -113,8 +124,8 @@ namespace Quanlycongviec.Infrastructure
                     "Jwt:Secret chưa được cấu hình. Vui lòng đặt trong appsettings hoặc dotnet user-secrets. " +
                     "Ứng dụng từ chối khởi động khi thiếu secret.");
 
-            var jwtIssuer = configuration["Jwt:Issuer"] ?? "UBNDXaCatNganApi";
-            var jwtAudience = configuration["Jwt:Audience"] ?? "UBNDXaCatNganClient";
+            var jwtIssuer = configuration["Jwt:Issuer"] ?? "KhmWorkApi";
+            var jwtAudience = configuration["Jwt:Audience"] ?? "KhmWorkClient";
 
             services.AddAuthentication(options =>
             {

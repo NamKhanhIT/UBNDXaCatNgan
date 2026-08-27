@@ -29,8 +29,8 @@ namespace Quanlycongviec.Application.Tests.Auth
         {
             // Arrange
             var secret = "JBSWY3DPEHPK3PXP";
-            var email = "chutich@catngan.gov.vn";
-            var issuer = "UBND Xa Cat Ngan";
+            var email = "chutich@ubnd.gov.vn";
+            var issuer = "UBND Cap Xa";
 
             // Act
             var uri = _totpService.GetProvisioningUri(secret, email, issuer);

@@ -43,19 +43,10 @@ namespace Quanlycongviec.Api.Controllers
             _logger = logger;
         }
 
-        private Guid CurrentUserId
-        {
-            get
-            {
-                var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                    ?? User.FindFirst("sub")?.Value;
-                return Guid.TryParse(claim, out var id) ? id : Guid.Empty;
-            }
-        }
+        // BẢO MẬT (Audit X1): Lấy ID người dùng hiện tại qua CurrentUserExtensions
+        private Guid CurrentUserId => User.GetUserId();
 
-        /// <summary>
-        /// Lấy danh sách file đính kèm liên kết với 1 văn bản
-        /// </summary>
+        // Lấy danh sách file đính kèm liên kết với 1 văn bản
         [HttpGet("document/{documentId:guid}")]
         public async Task<IActionResult> GetDocumentAttachments([FromRoute] Guid documentId)
         {
@@ -81,10 +72,7 @@ namespace Quanlycongviec.Api.Controllers
             return Ok(new { success = true, data = attachments });
         }
 
-        /// <summary>
-        /// Inline Secure File Streamer — Cho phép xem PDF / Image trực tiếp trên trình duyệt.
-        /// File vật lý không tồn tại → trả 404, KHÔNG sinh file giả.
-        /// </summary>
+        // Xem trực tiếp PDF / Ảnh trên trình duyệt (file không tồn tại trả 404)
         [HttpGet("{id:guid}/view")]
         public async Task<IActionResult> ViewFileInline([FromRoute] Guid id)
         {
@@ -106,7 +94,6 @@ namespace Quanlycongviec.Api.Controllers
                 return File(fileBytes, contentType);
             }
 
-            // File vật lý không tồn tại → 404 rõ ràng
             _logger.LogWarning("File vật lý không tồn tại: {FilePath} (AttachmentId={Id})", att.FilePath, id);
             return NotFound(new
             {
@@ -115,10 +102,7 @@ namespace Quanlycongviec.Api.Controllers
             });
         }
 
-        /// <summary>
-        /// Tải file về máy cá nhân.
-        /// File vật lý không tồn tại → trả 404, KHÔNG sinh file giả.
-        /// </summary>
+        // Tải file về máy (file không tồn tại trả 404)
         [HttpGet("{id:guid}/download")]
         public async Task<IActionResult> DownloadFile([FromRoute] Guid id)
         {
@@ -146,9 +130,7 @@ namespace Quanlycongviec.Api.Controllers
             });
         }
 
-        /// <summary>
-        /// Upload file đính kèm mới cho văn bản — có validation dung lượng + loại file.
-        /// </summary>
+        // BẢO MẬT (Audit N1): Upload file đính kèm mới với validation dung lượng và Path.GetFileName chống path traversal
         [HttpPost("upload")]
         public async Task<IActionResult> UploadFile(
             [FromForm] IFormFile file,
@@ -166,7 +148,7 @@ namespace Quanlycongviec.Api.Controllers
                 Directory.CreateDirectory(storageDir);
             }
 
-            string safeFileName = $"{Guid.NewGuid()}_{file.FileName}";
+            string safeFileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
             string fullPath = Path.Combine(storageDir, safeFileName);
 
             using (var stream = new FileStream(fullPath, FileMode.Create))
@@ -199,15 +181,7 @@ namespace Quanlycongviec.Api.Controllers
             return Ok(new { success = true, data = att.Id, message = "Tải file đính kèm thành công." });
         }
 
-        /// <summary>
-        /// Upload file + AI phân tích tự động (Prompt F).
-        /// 1. Lưu file vào đĩa (có validation)
-        /// 2. OCR/extract text
-        /// 3. Lấy danh sách Department thật → gọi AI AnalyzeDocumentAsync
-        /// 4. Validate SuggestedDepartmentId → ghi kết quả vào InboxDocument
-        /// 5. Trả về DocumentAnalysisResult cho frontend kiểm duyệt
-        /// ⚠️ CHƯA tạo TaskItem/CalendarEvent chính thức — chỉ lưu kết quả nháp.
-        /// </summary>
+        // Upload file và phân tích tự động bằng AI (OCR -> AI Extraction -> lưu nháp)
         [HttpPost("upload-and-analyze")]
         public async Task<IActionResult> UploadAndAnalyze(
             [FromForm] IFormFile file,
@@ -223,7 +197,8 @@ namespace Quanlycongviec.Api.Controllers
             string storageDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "documents");
             if (!Directory.Exists(storageDir)) Directory.CreateDirectory(storageDir);
 
-            string safeFileName = $"{Guid.NewGuid()}_{file.FileName}";
+            // BẢO MẬT (Đợt 4 - N1): Path.GetFileName loại thành phần điều hướng ../ do client kiểm soát
+            string safeFileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
             string fullPath = Path.Combine(storageDir, safeFileName);
 
             using (var stream = new FileStream(fullPath, FileMode.Create))

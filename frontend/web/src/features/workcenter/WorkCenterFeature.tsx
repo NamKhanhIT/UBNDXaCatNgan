@@ -22,157 +22,6 @@ export type WorkCenterTab =
   | 'sent'
   | 'completed';
 
-const DEFAULT_TASKS: TaskItemDto[] = [
-  {
-    id: 'TSK-2026-001',
-    title: 'Xử lý hồ sơ chuyển mục đích sử dụng đất tại Thôn 2',
-    description: 'Kiểm tra hiện trạng quy hoạch và hoàn thiện hồ sơ trình UBND huyện phê duyệt.',
-    assignerId: 'u4',
-    assignerName: 'Lê Văn Tùng',
-    assigneeId: 'u6',
-    assigneeName: 'Nguyễn Văn Nam',
-    departmentName: 'Phòng Kinh tế & Địa chính',
-    type: 'Administrative',
-    estimatedEffortHours: 8,
-    dueDate: '2026-08-22',
-    priority: 'Cao',
-    status: 'Dang_Xu_Ly',
-    progressPercentage: 60,
-    isEscalated: false,
-    ratingScore: 8.5,
-    createdAt: '2026-08-20T08:00:00Z',
-  },
-  {
-    id: 'TSK-2026-002',
-    title: 'Tổng hợp danh sách chi trả chế độ người có công đợt 2/2026',
-    description: 'Rà soát danh sách đối tượng thụ hưởng chính sách an sinh xã hội toàn xã.',
-    assignerId: 'u1',
-    assignerName: 'Nguyễn Đình Hùng',
-    assigneeId: 'u5',
-    assigneeName: 'Trần Thị Mai',
-    departmentName: 'Phòng Văn hóa - Xã hội',
-    type: 'Administrative',
-    estimatedEffortHours: 6,
-    dueDate: '2026-08-23',
-    priority: 'Khan',
-    status: 'Cho_Duyet',
-    submissionNote: 'Đã hoàn tất rà soát 12/12 thôn, danh sách 86 đối tượng đủ điều kiện.',
-    progressPercentage: 90,
-    isEscalated: false,
-    ratingScore: 9.0,
-    createdAt: '2026-08-19T09:30:00Z',
-  },
-  {
-    id: 'TSK-2026-003',
-    title: 'Chuẩn bị tài liệu kỳ họp HĐND xã chuyên đề tháng 8/2026',
-    description: 'In ấn văn kiện, gửi giấy mời đại biểu và kiểm tra công tác hậu cần hội trường.',
-    assignerId: 'u2',
-    assignerName: 'Phan Văn Hà',
-    assigneeId: 'u3',
-    assigneeName: 'Nguyễn Văn Hoàng',
-    departmentName: 'Văn phòng HĐND & UBND',
-    type: 'Administrative',
-    estimatedEffortHours: 4,
-    dueDate: '2026-08-25',
-    priority: 'Binh_Thuong',
-    status: 'Chua_Lam',
-    progressPercentage: 0,
-    isEscalated: false,
-    createdAt: '2026-08-21T07:15:00Z',
-  },
-  {
-    id: 'TSK-2026-004',
-    title: 'Báo cáo giải ngân vốn đầu tư công trình đường liên thôn Quý 2',
-    description: 'Nghiệm thu khối lượng hoàn thành và lập hồ sơ thanh quyết toán.',
-    assignerId: 'u1',
-    assignerName: 'Nguyễn Đình Hùng',
-    assigneeId: 'u4',
-    assigneeName: 'Lê Văn Tùng',
-    departmentName: 'Phòng Kinh tế & Địa chính',
-    type: 'Administrative',
-    estimatedEffortHours: 12,
-    dueDate: '2026-08-15',
-    priority: 'Cao',
-    status: 'Hoan_Thanh',
-    submissionNote: 'Đã giải ngân đạt 98% kế hoạch, nộp đủ biên bản nghiệm thu A-B.',
-    progressPercentage: 100,
-    isEscalated: false,
-    ratingScore: 9.5,
-    createdAt: '2026-08-10T08:00:00Z',
-    completedAt: '2026-08-15T16:00:00Z',
-  },
-];
-
-const DEFAULT_INBOX: InboxDocumentDto[] = [
-  {
-    id: 'INB-001',
-    documentNumber: '142',
-    documentSymbol: 'UBND-VP',
-    subject: 'Chỉ đạo tăng cường công tác phòng chống lụt bão và thiên tai quý 3/2026',
-    category: 'Chỉ đạo điều hành',
-    sender: 'UBND Tỉnh Nghệ An',
-    issuedDate: '2026-08-19',
-    receivedDate: '2026-08-20',
-    isUrgent: true,
-    isScheduled: true,
-    scheduledDate: '2026-08-21',
-    scheduledShift: 'Sang',
-    aiSummary: 'Yêu cầu trực ban 24/24, rà soát các điểm xung yếu dọc sông Lam.',
-  },
-  {
-    id: 'INB-002',
-    documentNumber: '89',
-    documentSymbol: 'STP-VP',
-    subject: 'Hướng dẫn số hóa sổ hộ tịch và chứng thực điện tử cấp xã',
-    category: 'Tư pháp - Hộ tịch',
-    sender: 'Sở Tư Pháp',
-    issuedDate: '2026-08-20',
-    receivedDate: '2026-08-21',
-    isUrgent: false,
-    isScheduled: false,
-    aiSummary: 'Triển khai cấp bản sao trích lục trực tuyến trên Cổng Dịch vụ công quốc gia.',
-  },
-];
-
-const DEFAULT_OUTGOING: OutgoingDocumentDto[] = [
-  {
-    id: 'OUT-001',
-    documentNumber: '105/UBND-VP',
-    documentSequenceNumber: 105,
-    documentSymbol: 'UBND-VP',
-    documentType: 'QuyetDinh',
-    documentTypeName: 'Quyết định',
-    title: 'Quyết định thành lập Tổ công tác chuyển đổi số và đề án 06 xã Cát Ngạn',
-    content: 'Thành lập Tổ công tác do Chủ tịch UBND xã làm Tổ trưởng...',
-    status: 'Issued',
-    statusName: 'Đã ban hành',
-    draftedByUserId: 'u3',
-    draftedByUserName: 'Nguyễn Văn Hoàng',
-    draftedAt: '2026-08-18T08:00:00Z',
-    issuedDate: '2026-08-19',
-    recipientNote: 'Các ban ngành, đoàn thể, thôn bản',
-    isUrgent: false,
-    isCorrectionDocument: false,
-  },
-  {
-    id: 'OUT-002',
-    documentSequenceNumber: 106,
-    documentSymbol: 'UBND-KT',
-    documentType: 'ThongBao',
-    documentTypeName: 'Thông báo',
-    title: 'Thông báo lịch tiêm phòng gia súc vụ Thu Đông năm 2026',
-    content: 'UBND xã thông báo đến toàn thể nhân dân lịch tiêm phòng dịch tả lợn...',
-    status: 'PendingSignature',
-    statusName: 'Chờ ký duyệt',
-    draftedByUserId: 'u4',
-    draftedByUserName: 'Lê Văn Tùng',
-    draftedAt: '2026-08-20T10:00:00Z',
-    recipientNote: 'Bà con nhân dân 12 xóm',
-    isUrgent: true,
-    isCorrectionDocument: false,
-  },
-];
-
 export function WorkCenterFeature() {
   const searchParams = useSearchParams();
   const urlTab = searchParams.get('tab');
@@ -182,9 +31,9 @@ export function WorkCenterFeature() {
   const { addToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<WorkCenterTab>('all');
-  const [tasks, setTasks] = useState<TaskItemDto[]>(DEFAULT_TASKS);
-  const [inboxDocs, setInboxDocs] = useState<InboxDocumentDto[]>(DEFAULT_INBOX);
-  const [outgoingDocs, setOutgoingDocs] = useState<OutgoingDocumentDto[]>(DEFAULT_OUTGOING);
+  const [tasks, setTasks] = useState<TaskItemDto[]>([]);
+  const [inboxDocs, setInboxDocs] = useState<InboxDocumentDto[]>([]);
+  const [outgoingDocs, setOutgoingDocs] = useState<OutgoingDocumentDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Filter, Search & Pagination
@@ -215,18 +64,18 @@ export function WorkCenterFeature() {
       try {
         setIsLoading(true);
         const [taskRes, inboxRes, outRes] = await Promise.all([
-          getTasksApi({ page: 1, pageSize: 50 }),
-          getInboxDocumentsApi({ page: 1, pageSize: 50 }),
-          getOutgoingDocumentsApi({ page: 1, pageSize: 50 }),
+          getTasksApi({ page: 1, pageSize: 100 }),
+          getInboxDocumentsApi({ page: 1, pageSize: 100 }),
+          getOutgoingDocumentsApi({ page: 1, pageSize: 100 }),
         ]);
 
-        if (taskRes.success && taskRes.data?.items && taskRes.data.items.length > 0) {
+        if (taskRes.success && taskRes.data?.items) {
           setTasks(taskRes.data.items);
         }
-        if (inboxRes.success && inboxRes.data?.items && inboxRes.data.items.length > 0) {
+        if (inboxRes.success && inboxRes.data?.items) {
           setInboxDocs(inboxRes.data.items);
         }
-        if (outRes.success && outRes.data?.items && outRes.data.items.length > 0) {
+        if (outRes.success && outRes.data?.items) {
           setOutgoingDocs(outRes.data.items);
         }
       } catch (err) {

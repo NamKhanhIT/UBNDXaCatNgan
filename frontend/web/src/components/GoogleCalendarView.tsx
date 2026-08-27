@@ -79,6 +79,24 @@ export function GoogleCalendarView({
   const [eventsList, setEventsList] = useState<CalendarEventDto[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
 
+  // Nạp danh sách sự kiện/cuộc họp thực tế từ CSDL PostgreSQL
+  useEffect(() => {
+    async function fetchCalendarEvents() {
+      try {
+        setEventsLoading(true);
+        const res = await getCalendarEventsApi();
+        if (res.success && res.data) {
+          setEventsList(res.data);
+        }
+      } catch (err) {
+        console.warn('Lỗi khi nạp danh sách sự kiện lịch:', err);
+      } finally {
+        setEventsLoading(false);
+      }
+    }
+    fetchCalendarEvents();
+  }, []);
+
   // Lắng nghe sự kiện lịch công tác SignalR Realtime
   useSignalREvent('CalendarEventCreated', (data: any) => {
     if (data?.title) {

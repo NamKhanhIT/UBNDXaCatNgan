@@ -40,13 +40,15 @@ export default function RootLayout({
         <script
           dangerouslySetInnerHTML={{
             __html: `
-              if ('serviceWorker' in navigator && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-                navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                  for (let registration of registrations) {
-                    registration.unregister();
-                  }
-                });
-              }
+              try {
+                var appSetting = localStorage.getItem('ubnd_appearance_settings');
+                if (appSetting) {
+                  var p = JSON.parse(appSetting);
+                  if (p.font) document.documentElement.setAttribute('data-font', p.font);
+                  if (p.density) document.documentElement.setAttribute('data-density', p.density);
+                  if (p.theme) document.documentElement.setAttribute('data-theme', p.theme);
+                }
+              } catch(e) {}
             `,
           }}
         />

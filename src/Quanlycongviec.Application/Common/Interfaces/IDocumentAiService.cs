@@ -16,7 +16,7 @@ namespace Quanlycongviec.Application.Common.Interfaces
         /// Phân tích văn bản: phân loại, trích xuất deadline/đối tượng/mục tiêu, gợi ý phòng ban.
         /// AI chỉ điền field có bằng chứng trực tiếp, để null nếu không chắc chắn.
         /// </summary>
-        /// <param name="extractedText">Nội dung text đã trích xuất từ file (qua OCR hoặc PDF text layer)</param>
+        /// <param name="extractedText">Nội dung văn bản đã trích xuất từ file (qua OCR hoặc PDF text layer)</param>
         /// <param name="availableDepartments">Danh sách phòng ban thật từ database — AI chỉ được chọn trong danh sách này</param>
         /// <param name="ct">Cancellation token</param>
         Task<DocumentAnalysisResult> AnalyzeDocumentAsync(

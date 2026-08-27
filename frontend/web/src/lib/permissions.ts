@@ -1,8 +1,4 @@
-/**
- * Permission & Scope System — Hệ thống Phân Quyền & Phạm Vi Tác Nghiệp
- * Chuẩn hóa RBAC và Data Scoping cho chính quyền cấp xã (UBND Xã Cát Ngạn)
- */
-
+// Hệ thống Phân Quyền & Phạm Vi Tác Nghiệp (RBAC & Data Scoping) cho chính quyền UBND Cấp Xã
 import { RoleCode, ROLE_HIERARCHY } from '../services/role-hierarchy.service';
 
 export type Scope = 'Organization' | 'Department' | 'Personal';

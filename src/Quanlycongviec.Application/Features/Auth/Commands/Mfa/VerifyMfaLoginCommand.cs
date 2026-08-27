@@ -3,12 +3,13 @@ using Quanlycongviec.Application.Features.Auth.DTOs;
 
 namespace Quanlycongviec.Application.Features.Auth.Commands.Mfa
 {
-    /// <summary>
-    /// Hoàn tất đăng nhập 2 bước: xác thực mã OTP (sau khi đã qua bước mật khẩu).
-    /// </summary>
+    // Xác thực mã OTP/TOTP hoàn tất đăng nhập 2 bước (channel: totp | email)
     public class VerifyMfaLoginCommand : IRequest<AuthResponseDto>
     {
         public string MfaToken { get; set; } = string.Empty;
         public string Code { get; set; } = string.Empty;
+
+        // Kênh xác thực: "totp" | "email" | "" (tự động thử cả 2)
+        public string Channel { get; set; } = string.Empty;
     }
 }

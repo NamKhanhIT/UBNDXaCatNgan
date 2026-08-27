@@ -8,85 +8,12 @@ import { useToast } from '../../components/ui/ToastContext';
 import { EvaluateOfficerModal } from './components/EvaluateOfficerModal';
 import { EvaluationTimelineModal } from './components/EvaluationTimelineModal';
 
-const DEFAULT_OFFICERS: OfficerGRADScoreDto[] = [
-  {
-    userId: 'u1',
-    fullName: 'Nguyễn Đình Hùng',
-    roleName: 'Chủ tịch UBND',
-    departmentName: 'UBND Xã Cát Ngạn',
-    totalTasksAssigned: 15,
-    completedTasksCount: 15,
-    overdueTasksCount: 0,
-    systemAutoScore30: 3.0,
-    leaderEvaluationScore70: 6.8,
-    finalScore100: 98,
-    finalGRADScore: 9.8,
-    tierGrade: 'A',
-  },
-  {
-    userId: 'u3',
-    fullName: 'Nguyễn Văn Hoàng',
-    roleName: 'Phó Chủ tịch (Chánh VP)',
-    departmentName: 'Văn phòng HĐND & UBND',
-    totalTasksAssigned: 18,
-    completedTasksCount: 17,
-    overdueTasksCount: 0,
-    systemAutoScore30: 2.9,
-    leaderEvaluationScore70: 6.5,
-    finalScore100: 94,
-    finalGRADScore: 9.4,
-    tierGrade: 'A',
-  },
-  {
-    userId: 'u4',
-    fullName: 'Lê Văn Tùng',
-    roleName: 'Trưởng phòng Kinh tế',
-    departmentName: 'Phòng Kinh tế - Hạ tầng & Đô thị',
-    totalTasksAssigned: 12,
-    completedTasksCount: 11,
-    overdueTasksCount: 1,
-    systemAutoScore30: 2.6,
-    leaderEvaluationScore70: 6.0,
-    finalScore100: 86,
-    finalGRADScore: 8.6,
-    tierGrade: 'B',
-  },
-  {
-    userId: 'u5',
-    fullName: 'Trần Thị Mai',
-    roleName: 'Trưởng phòng VH-XH',
-    departmentName: 'Phòng Văn hóa - Xã hội',
-    totalTasksAssigned: 10,
-    completedTasksCount: 10,
-    overdueTasksCount: 0,
-    systemAutoScore30: 3.0,
-    leaderEvaluationScore70: 6.2,
-    finalScore100: 92,
-    finalGRADScore: 9.2,
-    tierGrade: 'A',
-  },
-  {
-    userId: 'u6',
-    fullName: 'Nguyễn Văn Nam',
-    roleName: 'Chuyên viên Địa chính',
-    departmentName: 'Phòng Kinh tế - Hạ tầng & Đô thị',
-    totalTasksAssigned: 8,
-    completedTasksCount: 7,
-    overdueTasksCount: 0,
-    systemAutoScore30: 2.7,
-    leaderEvaluationScore70: 5.8,
-    finalScore100: 85,
-    finalGRADScore: 8.5,
-    tierGrade: 'B',
-  },
-];
-
 export function EvaluationFeature() {
   const { activeRole } = useAuth();
   const { can } = usePermission();
   const { addToast } = useToast();
 
-  const [officers, setOfficers] = useState<OfficerGRADScoreDto[]>(DEFAULT_OFFICERS);
+  const [officers, setOfficers] = useState<OfficerGRADScoreDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Search, Filter & Pagination State
@@ -108,7 +35,7 @@ export function EvaluationFeature() {
       try {
         setIsLoading(true);
         const res = await getGRADReportApi();
-        if (res.success && res.data?.officers && res.data.officers.length > 0) {
+        if (res.success && res.data?.officers) {
           setOfficers(res.data.officers);
         }
       } catch (err) {
@@ -303,7 +230,14 @@ export function EvaluationFeature() {
                 </tr>
               </thead>
               <tbody>
-                {filteredOfficers.length === 0 ? (
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
+                      <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 24, color: '#2563eb', display: 'block', marginBottom: 10 }} aria-hidden="true" />
+                      <span style={{ fontWeight: 600 }}>Đang nạp bảng điểm thi đua GRAD từ hệ thống máy chủ...</span>
+                    </td>
+                  </tr>
+                ) : filteredOfficers.length === 0 ? (
                   <tr>
                     <td colSpan={8} style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>
                       Không tìm thấy cán bộ nào phù hợp với điều kiện tìm kiếm.

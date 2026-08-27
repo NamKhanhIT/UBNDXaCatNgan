@@ -2,6 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  output: 'standalone',
   async rewrites() {
     const backend = process.env.BACKEND_INTERNAL_URL || 'http://localhost:5015';
     return [

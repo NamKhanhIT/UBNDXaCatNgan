@@ -46,7 +46,7 @@ namespace Quanlycongviec.Application.Tests.Auth
             {
                 Username = "bithu_chutich",
                 FullName = "Trần Văn B",
-                Email = "bithu@catngan.gov.vn",
+                Email = "bithu@ubnd.gov.vn",
                 ActiveRoleCode = "BiThu"
             };
             _context.Users.Add(user);

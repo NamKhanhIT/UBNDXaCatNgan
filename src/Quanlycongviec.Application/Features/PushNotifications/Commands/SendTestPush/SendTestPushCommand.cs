@@ -30,7 +30,7 @@ namespace Quanlycongviec.Application.Features.PushNotifications.Commands.SendTes
 
             return await _webPushService.SendNotificationAsync(
                 request.UserId,
-                "UBND Xã Cát Ngạn - Thông Báo Thử Nghiệm",
+                "Hệ Thống Quản Lý Công Việc - Thông Báo Thử Nghiệm",
                 $"Thông báo đẩy Web Push đang hoạt động tốt trên các thiết bị đã liên kết của bạn lúc {DateTime.Now:HH:mm:ss dd/MM/yyyy}!",
                 "/",
                 null,

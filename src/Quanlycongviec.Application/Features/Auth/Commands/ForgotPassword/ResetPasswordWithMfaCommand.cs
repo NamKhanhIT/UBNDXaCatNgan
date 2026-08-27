@@ -8,66 +8,72 @@ using Quanlycongviec.Application.Common.Interfaces;
 
 namespace Quanlycongviec.Application.Features.Auth.Commands.ForgotPassword
 {
-    public record ResetPasswordWithMfaCommand(string Email, string MfaCode, string NewPassword) : IRequest<bool>;
+    // BẢO MẬT (Audit Đợt 4): Bước 3 quên mật khẩu qua Authenticator — đổi mật khẩu bằng ResetToken
+    public record ResetPasswordWithMfaCommand(string ResetToken, string NewPassword) : IRequest<bool>;
 
     public class ResetPasswordWithMfaCommandHandler : IRequestHandler<ResetPasswordWithMfaCommand, bool>
     {
         private readonly IApplicationDbContext _context;
-        private readonly ITotpService _totpService;
         private readonly IPasswordHasher _passwordHasher;
+        private readonly IRefreshTokenService _refreshTokenService;
+        private readonly IJwtTokenService _jwtTokenService;
         private readonly ILogger<ResetPasswordWithMfaCommandHandler> _logger;
 
         public ResetPasswordWithMfaCommandHandler(
             IApplicationDbContext context,
-            ITotpService totpService,
             IPasswordHasher passwordHasher,
+            IRefreshTokenService refreshTokenService,
+            IJwtTokenService jwtTokenService,
             ILogger<ResetPasswordWithMfaCommandHandler> logger)
         {
             _context = context;
-            _totpService = totpService;
             _passwordHasher = passwordHasher;
+            _refreshTokenService = refreshTokenService;
+            _jwtTokenService = jwtTokenService;
             _logger = logger;
         }
 
         public async Task<bool> Handle(ResetPasswordWithMfaCommand request, CancellationToken cancellationToken)
         {
-            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.MfaCode) || string.IsNullOrWhiteSpace(request.NewPassword))
+            if (string.IsNullOrWhiteSpace(request.ResetToken) || string.IsNullOrWhiteSpace(request.NewPassword))
             {
-                throw new InvalidOperationException("Vui lòng cung cấp đầy đủ thông tin: Email, mã xác thực 2 bước và mật khẩu mới.");
+                throw new InvalidOperationException(ForgotPasswordMessages.InputIncomplete);
             }
 
-            if (request.NewPassword.Length < 6)
+            var (isValid, passwordError) = Quanlycongviec.Application.Common.Security.PasswordPolicy.Validate(request.NewPassword);
+            if (!isValid)
             {
-                throw new InvalidOperationException("Mật khẩu mới phải có độ dài tối thiểu 6 ký tự.");
+                throw new InvalidOperationException(passwordError ?? ForgotPasswordMessages.PasswordTooShort);
             }
 
-            var cleanEmail = request.Email.Trim().ToLowerInvariant();
-            var user = await _context.Users
-                .FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail || u.Username.ToLower() == cleanEmail, cancellationToken);
+            // BẢO MẬT (Audit Đợt 4): Chỉ chấp nhận token có Purpose=reset và còn hạn
+            if (!_jwtTokenService.TryValidateResetToken(request.ResetToken, out var userId))
+            {
+                throw new InvalidOperationException(ForgotPasswordMessages.ResetFailedGeneric);
+            }
+
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
 
             if (user == null)
             {
-                throw new InvalidOperationException("Tài khoản không tồn tại trong hệ thống.");
+                throw new InvalidOperationException(ForgotPasswordMessages.ResetFailedGeneric);
             }
 
+            // Kiểm tra tài khoản phải đang bật MFA
             if (!user.MfaEnabled || string.IsNullOrWhiteSpace(user.MfaSecret))
             {
-                throw new InvalidOperationException("Tài khoản này chưa kích hoạt tính năng Xác thực 2 bước. Vui lòng sử dụng phương thức nhận mã OTP qua Email.");
+                throw new InvalidOperationException(ForgotPasswordMessages.ResetFailedGeneric);
             }
 
-            // Kiểm tra mã TOTP Authenticator
-            var isValidMfa = _totpService.Validate(user.MfaSecret, request.MfaCode.Trim());
-            if (!isValidMfa)
-            {
-                throw new InvalidOperationException("Mã xác thực 2 bước từ ứng dụng Authenticator không chính xác hoặc đã hết hạn.");
-            }
-
-            // Đặt lại mật khẩu thành công
             user.PasswordHash = _passwordHasher.HashPassword(request.NewPassword);
             user.PasswordResetOtp = null;
             user.PasswordResetOtpExpiry = null;
 
             await _context.SaveChangesAsync(cancellationToken);
+
+            // BẢO MẬT (Audit H6): Thu hồi toàn bộ refresh token cũ của tài khoản
+            await _refreshTokenService.RevokeAllForUserAsync(user.Id, cancellationToken);
+
             _logger.LogInformation("[ForgotPassword] Đã đặt lại mật khẩu thành công bằng Authenticator 2 bước cho tài khoản {Username}", user.Username);
 
             return true;

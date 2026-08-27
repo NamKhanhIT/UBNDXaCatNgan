@@ -21,18 +21,30 @@ export interface SubscribePushPayload {
  * Chuyển đổi VAPID Public Key từ Base64 URL-safe sang Uint8Array
  */
 export function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding)
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
+  try {
+    const clean = (base64String || '').trim();
+    const padding = '='.repeat((4 - (clean.length % 4)) % 4);
+    const base64 = (clean + padding)
+      .replace(/-/g, '+')
+      .replace(/_/g, '/');
 
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
 
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  } catch (err) {
+    console.warn('Lỗi giải mã VAPID Key base64, sử dụng khóa chuẩn:', err);
+    const fallbackKey = 'BEl62iUYgUivxIkv69yViEuiBIa+Ib9+SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U=';
+    const rawData = window.atob(fallbackKey);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
   }
-  return outputArray;
 }
 
 /**
@@ -108,7 +120,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
 /**
  * VAPID Public Key cấu hình đồng bộ với Backend
  */
-const DEFAULT_VAPID_PUBLIC_KEY = 'BC8Z-c3-0p2f-76y_22q-09s8f-7y6_54y23-88_12q45-7y8_99y23-45_67q89-01y';
+const DEFAULT_VAPID_PUBLIC_KEY = 'BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U';
 
 /**
  * Lấy VAPID Public Key từ Backend API
@@ -223,9 +235,13 @@ export async function subscribeCurrentDevice(customLabel?: string): Promise<Push
   }
 
   // 1. Xin quyền thông báo
+  if (Notification.permission === 'denied') {
+    throw new Error('Quyền nhận thông báo đang bị chặn. Vui lòng bấm vào biểu tượng cài đặt cạnh URL và Cho phép (Allow) thông báo cho trang web này.');
+  }
+
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
-    throw new Error('Người dùng đã từ chối cấp quyền nhận thông báo.');
+    throw new Error('Người dùng chưa cấp quyền nhận thông báo trên trình duyệt.');
   }
 
   // 2. Đăng ký Service Worker
@@ -242,11 +258,36 @@ export async function subscribeCurrentDevice(customLabel?: string): Promise<Push
 
   // 4. Đăng ký PushManager
   let subscription = await swReady.pushManager.getSubscription();
+  if (subscription) {
+    const existingP256dh = subscription.getKey('p256dh');
+    const existingAuth = subscription.getKey('auth');
+    if (!existingP256dh || !existingAuth) {
+      try {
+        await subscription.unsubscribe();
+      } catch {}
+      subscription = null;
+    }
+  }
+
   if (!subscription) {
-    subscription = await swReady.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: applicationServerKey as any
-    });
+    try {
+      subscription = await swReady.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: applicationServerKey as any
+      });
+    } catch (subErr: any) {
+      // Nếu gặp lỗi invalid key, thử unsubscribe và đăng ký lại
+      try {
+        const oldSub = await swReady.pushManager.getSubscription();
+        if (oldSub) await oldSub.unsubscribe();
+        subscription = await swReady.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: applicationServerKey as any
+        });
+      } catch (retryErr: any) {
+        throw new Error(`Lỗi đăng ký PushManager: ${retryErr.message || subErr.message}`);
+      }
+    }
   }
 
   // 5. Trích xuất keys p256dh và auth

@@ -182,6 +182,8 @@ namespace Quanlycongviec.Infrastructure.Migrations
 
                     b.HasIndex("StartDateTime", "EndDateTime");
 
+                    b.HasIndex("DepartmentId", "StartDateTime", "EndDateTime");
+
                     b.ToTable("CalendarEvents");
                 });
 
@@ -631,6 +633,10 @@ namespace Quanlycongviec.Infrastructure.Migrations
 
                     b.HasIndex("ScheduledTaskId");
 
+                    b.HasIndex("AiSuggestedDepartmentId", "IsDeleted");
+
+                    b.HasIndex("DocumentNumber", "ReceivedDate", "IsDeleted");
+
                     b.ToTable("InboxDocuments");
                 });
 
@@ -691,7 +697,7 @@ namespace Quanlycongviec.Infrastructure.Migrations
 
                     b.HasIndex("TaskItemId");
 
-                    b.HasIndex("UserId");
+                    b.HasIndex("UserId", "IsRead", "CreatedAt");
 
                     b.ToTable("Notifications");
                 });
@@ -808,6 +814,10 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.HasIndex("DraftedByUserId");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("SignedByUserId", "IsDeleted");
+
+                    b.HasIndex("DocumentNumber", "IssuedDate", "IsDeleted");
 
                     b.ToTable("OutgoingDocuments");
                 });
@@ -1269,9 +1279,13 @@ namespace Quanlycongviec.Infrastructure.Migrations
 
                     b.HasIndex("AssignerId");
 
-                    b.HasIndex("DepartmentId");
+                    b.HasIndex("Status", "IsDeleted");
 
                     b.HasIndex("AssigneeId", "Status", "DueDate");
+
+                    b.HasIndex("AssigneeId", "Status", "IsDeleted");
+
+                    b.HasIndex("DepartmentId", "Status", "IsDeleted");
 
                     b.ToTable("TaskItems");
                 });
@@ -1364,11 +1378,32 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<long>("LastUsedTotpCounter")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("MfaEmailOtpExpiry")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MfaEmailOtpHash")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("MfaEmailOtpSentUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("MfaEnabled")
                         .HasColumnType("boolean");
 
                     b.Property<string>("MfaSecret")
                         .HasColumnType("text");
+
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("OtpFailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("OtpLockedUntil")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("PasswordHash")
                         .IsRequired()
@@ -1400,7 +1435,9 @@ namespace Quanlycongviec.Infrastructure.Migrations
 
                     b.HasIndex("FullName");
 
-                    b.HasIndex("PrimaryDepartmentId");
+                    b.HasIndex("ActiveRoleCode", "IsDeleted");
+
+                    b.HasIndex("PrimaryDepartmentId", "IsDeleted");
 
                     b.ToTable("Users");
                 });

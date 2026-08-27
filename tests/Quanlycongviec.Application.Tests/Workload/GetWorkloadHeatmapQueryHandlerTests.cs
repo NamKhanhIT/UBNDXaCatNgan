@@ -27,7 +27,7 @@ namespace Quanlycongviec.Application.Tests.Workload
         public async Task Handle_ShouldReturnWorkloadHeatmap_WithOverloadWarning()
         {
             // Arrange
-            var user = new User { Username = "quatai_user", FullName = "Nguyễn Văn Quá Tải", Email = "quatai@catngan.gov.vn" };
+            var user = new User { Username = "quatai_user", FullName = "Nguyễn Văn Quá Tải", Email = "quatai@ubnd.gov.vn" };
             _context.Users.Add(user);
             _context.WorkloadCapacities.Add(new WorkloadCapacity { UserId = user.Id, WeeklyMaxHours = 40.0 });
 

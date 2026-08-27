@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Quanlycongviec.Application.Common.Interfaces;
 using Quanlycongviec.Application.Features.Auth.DTOs;
 
@@ -15,22 +16,25 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Mfa
         private readonly IJwtTokenService _jwtTokenService;
         private readonly IRefreshTokenService _refreshTokenService;
         private readonly ITotpService _totpService;
+        private readonly Microsoft.Extensions.Logging.ILogger<VerifyMfaLoginCommandHandler> _logger;
 
         public VerifyMfaLoginCommandHandler(
             IApplicationDbContext context,
             IJwtTokenService jwtTokenService,
             IRefreshTokenService refreshTokenService,
-            ITotpService totpService)
+            ITotpService totpService,
+            Microsoft.Extensions.Logging.ILogger<VerifyMfaLoginCommandHandler> logger)
         {
             _context = context;
             _jwtTokenService = jwtTokenService;
             _refreshTokenService = refreshTokenService;
             _totpService = totpService;
+            _logger = logger;
         }
 
         public async Task<AuthResponseDto> Handle(VerifyMfaLoginCommand request, CancellationToken cancellationToken)
         {
-            // 1. Kiểm tra token MFA (phải là token Purpose=mfa do login cấp, còn hạn 5 phút)
+            // 1. Kiểm tra MFA token tạm thời (Purpose=mfa, 5 phút)
             if (!_jwtTokenService.TryValidateMfaToken(request.MfaToken, out var userId))
             {
                 throw new UnauthorizedAccessException("Phiên xác thực đã hết hạn. Vui lòng đăng nhập lại.");
@@ -48,18 +52,69 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Mfa
                 throw new UnauthorizedAccessException("Tài khoản không còn tồn tại.");
             }
 
-            if (!user.MfaEnabled || string.IsNullOrEmpty(user.MfaSecret))
+            if (!user.MfaEnabled)
             {
                 throw new UnauthorizedAccessException("Tài khoản chưa bật xác thực 2 yếu tố.");
             }
 
-            // 2. Xác minh mã OTP (Constant-Time)
-            if (!_totpService.Validate(user.MfaSecret, request.Code))
+            // 2. Xác minh mã OTP/TOTP theo kênh hoặc tự động nhận diện
+            bool isEmailValid = EmailOtpHelper.IsValid(user, request.Code);
+            bool isTotpValid = false;
+            long usedCounter = 0;
+
+            if (!string.IsNullOrEmpty(user.MfaSecret))
             {
-                throw new UnauthorizedAccessException("Mã OTP không hợp lệ hoặc đã hết hạn.");
+                isTotpValid = _totpService.TryValidate(user.MfaSecret, request.Code, out usedCounter)
+                    && usedCounter > user.LastUsedTotpCounter;
             }
 
-            // 3. Cấp token đầy đủ như đăng nhập bình thường
+            if (string.Equals(request.Channel, "email", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!isEmailValid)
+                {
+                    throw new UnauthorizedAccessException(
+                        "Mã OTP email không hợp lệ hoặc đã hết hạn (hiệu lực 5 phút). Vui lòng yêu cầu mã mới.");
+                }
+
+                EmailOtpHelper.Consume(user);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            else if (string.Equals(request.Channel, "totp", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrEmpty(user.MfaSecret))
+                {
+                    throw new UnauthorizedAccessException(
+                        "Tài khoản này chỉ hỗ trợ xác thực qua Email công vụ. Vui lòng chọn kênh Email để nhận mã OTP.");
+                }
+
+                if (!isTotpValid)
+                {
+                    throw new UnauthorizedAccessException("Mã OTP Authenticator không hợp lệ hoặc đã hết hạn.");
+                }
+
+                user.LastUsedTotpCounter = usedCounter;
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                // Tự động thử cả 2 kênh
+                if (isEmailValid)
+                {
+                    EmailOtpHelper.Consume(user);
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                else if (isTotpValid)
+                {
+                    user.LastUsedTotpCounter = usedCounter;
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+                else
+                {
+                    throw new UnauthorizedAccessException("Mã OTP không hợp lệ hoặc đã hết hạn.");
+                }
+            }
+
+            // 3. Cấp token phiên đầy đủ
             var roles = user.UserRoles.Select(ur => ur.Role.Code).ToList();
             if (!roles.Any())
             {
@@ -89,7 +144,8 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Mfa
                 }).ToList(),
                 Token = token,
                 RefreshToken = refreshToken,
-                MfaEnabled = true
+                MfaEnabled = true,
+                MustChangePassword = user.MustChangePassword
             };
         }
     }

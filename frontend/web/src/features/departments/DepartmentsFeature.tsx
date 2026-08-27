@@ -12,33 +12,14 @@ import { WorkloadBalancingView } from './components/WorkloadBalancingView';
 import { useToast } from '../../components/ui/ToastContext';
 
 // 5 Phòng ban chuyên môn chuẩn theo CSDL & Bối cảnh hành chính UBND Cấp Xã
-const DEFAULT_DEPARTMENTS: DepartmentDto[] = [
-  { id: '10000000-0000-0000-0000-000000000001', name: 'Văn phòng HĐND & UBND', code: 'VAN_PHONG', memberCount: 5 },
-  { id: '10000000-0000-0000-0000-000000000002', name: 'Phòng Kinh tế - Hạ tầng & Đô thị', code: 'KINH_TE', memberCount: 6 },
-  { id: '10000000-0000-0000-0000-000000000003', name: 'Phòng Văn hóa - Xã hội', code: 'VAN_HOA_XA_HOI', memberCount: 4 },
-  { id: '10000000-0000-0000-0000-000000000004', name: 'Trung tâm Phục vụ Hành chính công', code: 'HANH_CHINH_CONG', memberCount: 4 },
-  { id: '10000000-0000-0000-0000-000000000005', name: 'Khối Đảng - HĐND - UBMTTQ', code: 'KHOI_DANG_DOAN_THE', memberCount: 3 },
-];
-
-const DEFAULT_USERS: PaginatedUserDto[] = [
-  { id: 'a0000000-0000-0000-0000-000000000001', username: 'admin', fullName: 'Nguyễn Đình Hùng', email: 'admin@catngan.gov.vn', roleName: 'Chủ tịch UBND', rankLevel: 1, departmentName: 'Văn phòng HĐND & UBND', assignedHours: 22, maxHours: 40, utilizationRate: 55, isOverloaded: false, yearsOfExperience: 15, expertise: 'Quản lý nhà nước, Điều hành chung' },
-  { id: 'a0000000-0000-0000-0000-000000000002', username: 'bithu', fullName: 'Phan Văn Hà', email: 'bithu@catngan.gov.vn', roleName: 'Bí thư Đảng ủy', rankLevel: 1, departmentName: 'Khối Đảng - HĐND - UBMTTQ', assignedHours: 18, maxHours: 40, utilizationRate: 45, isOverloaded: false, yearsOfExperience: 18, expertise: 'Công tác xây dựng Đảng, Giám sát chính trị' },
-  { id: 'a0000000-0000-0000-0000-000000000003', username: 'pct_vp', fullName: 'Nguyễn Văn Hoàng', email: 'pct_vp@catngan.gov.vn', roleName: 'Phó Chủ tịch (Chánh VP)', rankLevel: 2, departmentName: 'Văn phòng HĐND & UBND', assignedHours: 32, maxHours: 40, utilizationRate: 80, isOverloaded: false, yearsOfExperience: 12, expertise: 'Nội chính, Pháp chế, Cải cách hành chính' },
-  { id: 'a0000000-0000-0000-0000-000000000004', username: 'tp_kt', fullName: 'Lê Văn Tùng', email: 'tp_kt@catngan.gov.vn', roleName: 'Trưởng phòng Kinh tế', rankLevel: 3, departmentName: 'Phòng Kinh tế - Hạ tầng & Đô thị', assignedHours: 34, maxHours: 40, utilizationRate: 85, isOverloaded: false, yearsOfExperience: 10, expertise: 'Tài chính - Ngân sách, Xây dựng cơ bản' },
-  { id: 'a0000000-0000-0000-0000-000000000005', username: 'tp_vh', fullName: 'Trần Thị Mai', email: 'tp_vh@catngan.gov.vn', roleName: 'Trưởng phòng VH-XH', rankLevel: 3, departmentName: 'Phòng Văn hóa - Xã hội', assignedHours: 26, maxHours: 40, utilizationRate: 65, isOverloaded: false, yearsOfExperience: 8, expertise: 'Văn hóa, Giáo dục, Y tế, An sinh xã hội' },
-  { id: 'a0000000-0000-0000-0000-000000000006', username: 'nam', fullName: 'Nguyễn Văn Nam', email: 'nam@catngan.gov.vn', roleName: 'Chuyên viên Địa chính', rankLevel: 5, departmentName: 'Phòng Kinh tế - Hạ tầng & Đô thị', assignedHours: 39, maxHours: 40, utilizationRate: 97, isOverloaded: true, yearsOfExperience: 4, expertise: 'Địa chính, Trích đo GPMB, Trật tự xây dựng' },
-  { id: 'a0000000-0000-0000-0000-000000000007', username: 'thu', fullName: 'Hoàng Thị Thu', email: 'thu@catngan.gov.vn', roleName: 'Chuyên viên Văn thư', rankLevel: 5, departmentName: 'Văn phòng HĐND & UBND', assignedHours: 28, maxHours: 40, utilizationRate: 70, isOverloaded: false, yearsOfExperience: 6, expertise: 'Văn thư, Lưu trữ, Sổ văn bản điện tử' },
-  { id: 'a0000000-0000-0000-0000-000000000008', username: 'duc', fullName: 'Phạm Văn Đức', email: 'duc@catngan.gov.vn', roleName: 'Chuyên viên Một cửa', rankLevel: 5, departmentName: 'Trung tâm Phục vụ Hành chính công', assignedHours: 24, maxHours: 40, utilizationRate: 60, isOverloaded: false, yearsOfExperience: 5, expertise: 'Một cửa điện tử, Số hóa hồ sơ TTHC' },
-];
-
 export function DepartmentsFeature() {
   const { activeRole } = useAuth();
   const { can } = usePermission();
   const { addToast } = useToast();
 
   const [subTab, setSubTab] = useState<'phongban' | 'canbo' | 'taiviec'>('phongban');
-  const [departments, setDepartments] = useState<DepartmentDto[]>(DEFAULT_DEPARTMENTS);
-  const [users, setUsers] = useState<PaginatedUserDto[]>(DEFAULT_USERS);
+  const [departments, setDepartments] = useState<DepartmentDto[]>([]);
+  const [users, setUsers] = useState<PaginatedUserDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Search, Filter, Sort & Pagination in 'canbo' tab
@@ -62,10 +43,10 @@ export function DepartmentsFeature() {
           getUsersPaginatedApi({ page: 1, pageSize: 50 }),
         ]);
 
-        if (deptRes.success && deptRes.data && deptRes.data.length > 0) {
+        if (deptRes.success && deptRes.data) {
           setDepartments(deptRes.data);
         }
-        if (userRes.success && userRes.data?.items && userRes.data.items.length > 0) {
+        if (userRes.success && userRes.data?.items) {
           setUsers(userRes.data.items);
         }
       } catch (err) {
@@ -581,7 +562,7 @@ export function DepartmentsFeature() {
                             </td>
                             <td>
                               <div style={{ fontSize: '0.82rem', color: '#334155', fontWeight: 500 }}>
-                                {u.email || `${u.username}@catngan.gov.vn`}
+                                {u.email || `${u.username}@ubnd.gov.vn`}
                               </div>
                             </td>
                             <td>

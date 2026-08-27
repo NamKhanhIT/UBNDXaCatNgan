@@ -81,7 +81,7 @@ export function SettingsFeature() {
           }}
         >
           <i className="fa-solid fa-id-card-clip" style={{ fontSize: 15, width: 18, textAlign: 'center', color: activeTab === 'work-profile' ? '#7c3aed' : '#64748b' }} aria-hidden="true" />
-          <span>Hồ Sơ Công Vụ & CV AI</span>
+          <span>Hồ Sơ Năng Lực & Minh Chứng</span>
         </button>
 
         <button

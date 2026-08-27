@@ -72,7 +72,7 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 taskItem.Id,
                 8.5, // Chênh 0.5 điểm (<= 1.0 threshold)
                 "Bổ sung đánh giá còn tồn tại thiếu sót nhỏ trong biên bản kiểm tra",
-                "https://minhchung.catngan.gov.vn/bienban-85.pdf",
+                "https://minhchung.ubnd.gov.vn/bienban-85.pdf",
                 assigner.Id,
                 3.0,
                 5.5
@@ -117,7 +117,7 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 taskItem.Id,
                 5.0, // Chênh 3.5 điểm (> 1.0) -> Cần cấp trên duyệt
                 "Phát hiện hồ sơ vi phạm quy trình lưu trữ, điều chỉnh giảm điểm để kiểm điểm",
-                "https://minhchung.catngan.gov.vn/phieu-kiem-doan-inspect.pdf",
+                "https://minhchung.ubnd.gov.vn/phieu-kiem-doan-inspect.pdf",
                 assigner.Id,
                 3.0,
                 2.0
@@ -156,7 +156,7 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 taskItem.Id,
                 9.5, // Chuyên viên tự nâng điểm của mình
                 "Tự cảm thấy làm tốt nên muốn tự sửa nâng điểm số công việc",
-                "https://minhchung.catngan.gov.vn/tu-danh-gia.pdf",
+                "https://minhchung.ubnd.gov.vn/tu-danh-gia.pdf",
                 assignee.Id // Assignee tự gọi
             );
 
@@ -188,7 +188,7 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 taskItem.Id,
                 8.0,
                 "Sửa lại thôi", // Chỉ 12 ký tự (< 30)
-                "https://minhchung.catngan.gov.vn/minhchung.pdf",
+                "https://minhchung.ubnd.gov.vn/minhchung.pdf",
                 assigner.Id
             );
 
@@ -230,7 +230,7 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 ScoreDelta = 3.5,
                 ChangedByUserId = assigner.Id,
                 Reason = "Điều chỉnh giảm điểm do phát hiện sai sót số liệu tổng hợp trong phụ lục",
-                EvidenceUrl = "https://minhchung.catngan.gov.vn/bien-ban-sai-so.pdf",
+                EvidenceUrl = "https://minhchung.ubnd.gov.vn/bien-ban-sai-so.pdf",
                 ApprovalStatus = RatingApprovalStatusEnum.PendingApproval
             };
             _context.RatingHistories.Add(pendingRevision);
@@ -281,7 +281,7 @@ namespace Quanlycongviec.Application.Tests.RatingHistory
                 ScoreDelta = 3.5,
                 ChangedByUserId = assigner.Id,
                 Reason = "Đề xuất hạ điểm do nhận thấy công việc chưa đạt tiến độ cam kết",
-                EvidenceUrl = "https://minhchung.catngan.gov.vn/bienban-ha-diem.pdf",
+                EvidenceUrl = "https://minhchung.ubnd.gov.vn/bienban-ha-diem.pdf",
                 ApprovalStatus = RatingApprovalStatusEnum.PendingApproval
             };
             _context.RatingHistories.Add(pendingRevision);

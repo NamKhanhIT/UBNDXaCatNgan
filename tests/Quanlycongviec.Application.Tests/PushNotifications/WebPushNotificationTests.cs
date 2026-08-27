@@ -216,7 +216,7 @@ namespace Quanlycongviec.Application.Tests.PushNotifications
             {
                 PublicKey = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U",
                 PrivateKey = "UU224Yug2No0EP8v5Y34q9_75yYc5-j_rP90xYk2-K0",
-                Subject = "mailto:admin@catngan.gov.vn"
+                Subject = "mailto:admin@ubnd.gov.vn"
             });
 
             var configMock = new Mock<IConfiguration>();

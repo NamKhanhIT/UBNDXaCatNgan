@@ -37,9 +37,9 @@ namespace Quanlycongviec.Application.Tests.Users
             _context.Departments.AddRange(dept1, dept2);
             _context.Roles.AddRange(role1, role2);
 
-            var user1 = new User { Username = "hungbd", FullName = "Bùi Văn Hùng", Email = "hung@catngan.gov.vn", PrimaryDepartment = dept1, ActiveRoleCode = "ChuTichUBND" };
-            var user2 = new User { Username = "namnv", FullName = "Nguyễn Văn Nam", Email = "nam@catngan.gov.vn", PrimaryDepartment = dept1, ActiveRoleCode = "ChuyenVien" };
-            var user3 = new User { Username = "maitt", FullName = "Trần Thị Mai", Email = "mai@catngan.gov.vn", PrimaryDepartment = dept2, ActiveRoleCode = "TruongPhong" };
+            var user1 = new User { Username = "hungbd", FullName = "Bùi Văn Hùng", Email = "hung@ubnd.gov.vn", PrimaryDepartment = dept1, ActiveRoleCode = "ChuTichUBND" };
+            var user2 = new User { Username = "namnv", FullName = "Nguyễn Văn Nam", Email = "nam@ubnd.gov.vn", PrimaryDepartment = dept1, ActiveRoleCode = "ChuyenVien" };
+            var user3 = new User { Username = "maitt", FullName = "Trần Thị Mai", Email = "mai@ubnd.gov.vn", PrimaryDepartment = dept2, ActiveRoleCode = "TruongPhong" };
 
             _context.Users.AddRange(user1, user2, user3);
 

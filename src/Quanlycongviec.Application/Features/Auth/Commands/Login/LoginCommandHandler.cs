@@ -12,6 +12,10 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Login
 {
     public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponseDto>
     {
+        // BẢO MẬT (Audit M10): Dummy bcrypt hash dùng verify khi user không tồn tại để cân bằng timing
+        private const string DummyBcryptHash =
+            "$2a$11$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
         private readonly IApplicationDbContext _context;
         private readonly IPasswordHasher _passwordHasher;
         private readonly IJwtTokenService _jwtTokenService;
@@ -38,7 +42,14 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Login
                     .ThenInclude(ur => ur.Department)
                 .FirstOrDefaultAsync(u => u.Username == request.Username || u.Email == request.Username, cancellationToken);
 
-            if (user == null || !_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
+            // BẢO MẬT (Audit M10): Chống timing attack — luôn verify dummy hash khi user không tồn tại
+            if (user == null)
+            {
+                _passwordHasher.VerifyPassword(request.Password, DummyBcryptHash);
+                throw new UnauthorizedAccessException("Tên đăng nhập hoặc mật khẩu không chính xác.");
+            }
+
+            if (!_passwordHasher.VerifyPassword(request.Password, user.PasswordHash))
             {
                 throw new UnauthorizedAccessException("Tên đăng nhập hoặc mật khẩu không chính xác.");
             }
@@ -67,7 +78,8 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Login
                     ActiveRole = activeRole,
                     MfaRequired = true,
                     MfaToken = _jwtTokenService.GenerateMfaToken(user.Id),
-                    MfaEnabled = true
+                    MfaEnabled = true,
+                    MustChangePassword = user.MustChangePassword
                 };
             }
 
@@ -90,7 +102,8 @@ namespace Quanlycongviec.Application.Features.Auth.Commands.Login
                 }).ToList(),
                 Token = token,
                 RefreshToken = refreshToken,
-                MfaEnabled = user.MfaEnabled
+                MfaEnabled = user.MfaEnabled,
+                MustChangePassword = user.MustChangePassword
             };
         }
     }

@@ -28,8 +28,8 @@ namespace Quanlycongviec.Application.Tests.Tasks
         public async Task Handle_ShouldCreateTaskAndLogAudit_Successfully()
         {
             // Arrange
-            var assigner = new User { Username = "chutich", FullName = "Chủ tịch UBND", Email = "chutich@catngan.gov.vn" };
-            var assignee = new User { Username = "chuyenvien1", FullName = "Chuyên viên Nam", Email = "nam@catngan.gov.vn" };
+            var assigner = new User { Username = "chutich", FullName = "Chủ tịch UBND", Email = "chutich@ubnd.gov.vn" };
+            var assignee = new User { Username = "chuyenvien1", FullName = "Chuyên viên Nam", Email = "nam@ubnd.gov.vn" };
 
             _context.Users.AddRange(assigner, assignee);
             _context.WorkloadCapacities.Add(new WorkloadCapacity { UserId = assignee.Id, WeeklyMaxHours = 40.0, CurrentAssignedHours = 10.0 });

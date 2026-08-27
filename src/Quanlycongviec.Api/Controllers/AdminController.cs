@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -9,31 +10,44 @@ using Quanlycongviec.Infrastructure.Persistence;
 
 namespace Quanlycongviec.Api.Controllers
 {
+    // BẢO MẬT (Audit C3): Controller quản trị — yêu cầu xác thực + policy LeaderOnly
     [ApiController]
     [Route("api/v1/[controller]")]
+    [Authorize]
     public class AdminController : ControllerBase
     {
         private readonly IApplicationDbContext _context;
         private readonly IServiceProvider _serviceProvider;
         private readonly ILogger<AdminController> _logger;
+        private readonly IWebHostEnvironment _environment;
 
         public AdminController(
             IApplicationDbContext context,
             IServiceProvider serviceProvider,
-            ILogger<AdminController> logger)
+            ILogger<AdminController> logger,
+            IWebHostEnvironment environment)
         {
             _context = context;
             _serviceProvider = serviceProvider;
             _logger = logger;
+            _environment = environment;
         }
 
-        /// <summary>
-        /// Nạp lại toàn bộ bộ dữ liệu mẫu phong phú (Rich Seed Dataset) từ scripts/seed_database.sql.
-        /// </summary>
+        // BẢO MẬT (Audit C3): Nạp lại dữ liệu mẫu — chỉ chạy trong Development và yêu cầu LeaderOnly
         [HttpPost("seed-demo")]
-        [AllowAnonymous]
+        [Authorize(Policy = "LeaderOnly")]
         public async Task<IActionResult> SeedDemoData()
         {
+            // Phòng vệ thứ hai ngoài attribute: chặn hẳn ở Production bất kể ai gọi
+            if (!_environment.IsDevelopment())
+            {
+                return StatusCode(403, new
+                {
+                    success = false,
+                    message = "Chức năng nạp dữ liệu mẫu chỉ khả dụng trong môi trường phát triển (Development)."
+                });
+            }
+
             try
             {
                 _logger.LogInformation("Bắt đầu nạp lại bộ dữ liệu mẫu phong phú (Rich Seed Dataset)...");
@@ -50,7 +64,7 @@ namespace Quanlycongviec.Api.Controllers
                 return Ok(new
                 {
                     success = true,
-                    message = "Đã nạp thành công bộ dữ liệu mẫu phong phú cho toàn hệ thống UBND Xã Cát Ngạn!",
+                    message = "Đã nạp thành công bộ dữ liệu mẫu phong phú cho toàn hệ thống!",
                     timestamp = DateTime.UtcNow,
                     summary = new
                     {
@@ -76,21 +90,7 @@ namespace Quanlycongviec.Api.Controllers
             }
         }
 
-        /// <summary>
-        /// Tắt MFA cho toàn bộ tài khoản mẫu (phục vụ môi trường Demo/Test).
-        /// </summary>
-        [HttpPost("reset-mfa")]
-        [AllowAnonymous]
-        public async Task<IActionResult> ResetMfa()
-        {
-            var users = await _context.Users.ToListAsync();
-            foreach (var user in users)
-            {
-                user.MfaEnabled = false;
-                user.MfaSecret = null;
-            }
-            await _context.SaveChangesAsync();
-            return Ok(new { success = true, message = "Đã tắt xác thực 2 bước cho tất cả tài khoản cán bộ mẫu." });
-        }
+        // BẢO MẬT (Audit C3): đã XÓA HẲN endpoint reset-mfa —
+        // endpoint này cho phép tắt MFA của TOÀN BỘ tài khoản ẩn danh, không có nghiệp vụ hợp lệ nào.
     }
 }

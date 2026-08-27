@@ -1,18 +1,84 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useToast } from '../../../components/ui/ToastContext';
+import { applyAppearanceToDom, DEFAULT_APPEARANCE, AppearanceSettings } from '../../../lib/appearance';
+import { getUserProfileApi, updateUserProfileApi } from '../../../services/user.service';
 
 export function AppearanceSettingsTab() {
   const { addToast } = useToast();
 
-  const [selectedFont, setSelectedFont] = useState<string>('Be Vietnam Pro');
+  const [selectedFont, setSelectedFont] = useState<'Be Vietnam Pro' | 'Roboto' | 'Inter'>('Be Vietnam Pro');
   const [displayDensity, setDisplayDensity] = useState<'comfortable' | 'compact'>('comfortable');
   const [themeColor, setThemeColor] = useState<'govt-red' | 'classic-blue'>('govt-red');
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  const handleSaveAppearance = (e: React.FormEvent) => {
+  useEffect(() => {
+    async function loadAppearance() {
+      try {
+        let loaded: Partial<AppearanceSettings> | null = null;
+        // Thử lấy từ DB
+        const profileRes = await getUserProfileApi();
+        if (profileRes.success && profileRes.data?.appearancePreferences) {
+          try {
+            loaded = JSON.parse(profileRes.data.appearancePreferences);
+          } catch {}
+        }
+
+        // Fallback localStorage
+        if (!loaded) {
+          const cached = localStorage.getItem('ubnd_appearance_settings');
+          if (cached) {
+            try {
+              loaded = JSON.parse(cached);
+            } catch {}
+          }
+        }
+
+        if (loaded) {
+          if (loaded.font) setSelectedFont(loaded.font);
+          if (loaded.density) setDisplayDensity(loaded.density);
+          if (loaded.theme) setThemeColor(loaded.theme);
+          applyAppearanceToDom({ ...DEFAULT_APPEARANCE, ...loaded });
+        }
+      } catch (err) {
+        console.warn('Lỗi nạp cài đặt giao diện:', err);
+      }
+    }
+    loadAppearance();
+  }, []);
+
+  const handleSaveAppearance = async (e: React.FormEvent) => {
     e.preventDefault();
-    addToast('Thành công', `Đã lưu cài đặt giao diện với font chữ ${selectedFont}!`, 'success');
+    try {
+      setIsSaving(true);
+      const settings: AppearanceSettings = {
+        font: selectedFont,
+        density: displayDensity,
+        theme: themeColor,
+      };
+
+      // Áp dụng ngay trên DOM
+      applyAppearanceToDom(settings);
+
+      // Lưu vào localStorage
+      localStorage.setItem('ubnd_appearance_settings', JSON.stringify(settings));
+
+      // Lưu vào PostgreSQL
+      const res = await updateUserProfileApi({
+        appearancePreferences: JSON.stringify(settings),
+      });
+
+      if (res.success) {
+        addToast('Thành công', `Đã lưu cài đặt giao diện vào cơ sở dữ liệu PostgreSQL với phông chữ ${selectedFont}!`, 'success');
+      } else {
+        addToast('Lỗi Lưu CSDL', res.error || 'Không thể lưu cài đặt giao diện vào cơ sở dữ liệu. Vui lòng kiểm tra kết nối Backend API.', 'danger');
+      }
+    } catch (err: any) {
+      addToast('Lỗi', err.message || 'Không thể lưu cài đặt giao diện vào CSDL.', 'danger');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

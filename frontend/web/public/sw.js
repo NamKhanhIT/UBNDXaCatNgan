@@ -1,8 +1,4 @@
-/**
- * Service Worker xử lý Web Push & Background Notifications
- * Hệ thống Quản trị & Điều hành UBND Xã Cát Ngạn
- */
-
+// Service Worker xử lý Web Push & Background Notifications UBND Cấp Xã
 const DEFAULT_ICON = '/icon-192.png';
 
 self.addEventListener('install', (event) => {
@@ -16,7 +12,7 @@ self.addEventListener('activate', (event) => {
 // Xử lý sự kiện nhận thông báo đẩy từ Web Push Server
 self.addEventListener('push', (event) => {
   let data = {
-    title: 'UBND Xã Cát Ngạn',
+    title: 'UBND Cấp Xã',
     body: 'Bạn có thông báo mới từ hệ thống điều hành công việc.',
     icon: DEFAULT_ICON,
     badge: DEFAULT_ICON,
@@ -46,7 +42,7 @@ self.addEventListener('push', (event) => {
     badge: data.badge,
     data: data.data,
     vibrate: [200, 100, 200],
-    tag: 'ubnd-catngan-notification',
+    tag: 'ubnd-notification',
     renotify: true,
     requireInteraction: false
   };

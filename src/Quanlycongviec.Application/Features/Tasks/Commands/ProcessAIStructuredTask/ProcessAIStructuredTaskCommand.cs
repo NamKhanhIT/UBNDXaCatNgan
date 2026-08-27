@@ -40,7 +40,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.ProcessAIStructured
             // Structured JSON Schema verification guardrail enforces non-hallucination outputs
             var result = new AIGeneratedTaskResultDto
             {
-                Title = "Tóm tắt & Hoàn thiện dự thảo báo cáo quý xã Cát Ngạn",
+                Title = "Tóm tắt & Hoàn thiện dự thảo báo cáo quý của đơn vị",
                 Description = $"Tác vụ sinh tự động từ văn bản chỉ đạo: {request.MeetingNotesOrDocumentText.Substring(0, Math.Min(100, request.MeetingNotesOrDocumentText.Length))}...",
                 Priority = "High",
                 DeadlineDate = DateTime.UtcNow.AddDays(3).ToString("yyyy-MM-dd"),

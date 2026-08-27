@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { RoleCode, ROLE_HIERARCHY } from '../../services/role-hierarchy.service';
 import { AuthUser, getCurrentUser, logoutUser, switchContext } from '../../services/auth.service';
+import { clearSessionStorage, markSessionActive } from '../../services/api.config';
 import { Permission, Scope, hasPermission, hasScope, createPermissionChecker } from '../../lib/permissions';
 
 interface AuthContextType {
@@ -13,7 +14,7 @@ interface AuthContextType {
   can: (permission: Permission) => boolean;
   hasDataScope: (scope: Scope) => boolean;
   setSession: (user: AuthUser, role?: RoleCode) => void;
-  setActiveRoleContext: (role: RoleCode) => Promise<void>;
+  setActiveRoleContext: (role: RoleCode) => Promise<boolean>;
   logout: () => Promise<void>;
 }
 
@@ -22,9 +23,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const LOCAL_STORAGE_ROLE_KEY = 'ubnd_active_role';
 const LOCAL_STORAGE_USER_KEY = 'ubnd_cached_user';
 
+// BẢO MẬT (Audit M5): Vai trò dự phòng mặc định là vai trò quyền thấp nhất (Chuyên viên)
+const SAFE_FALLBACK_ROLE: RoleCode = 'ChuyenVien';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [activeRole, setActiveRole] = useState<RoleCode>('ChuTichUBND');
+  const [activeRole, setActiveRole] = useState<RoleCode>(SAFE_FALLBACK_ROLE);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -56,22 +60,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (serverUser) {
             setUser(serverUser);
             setIsLoggedIn(true);
-            const role = (serverUser.activeRole as RoleCode) || cachedRole || 'ChuTichUBND';
+            // BẢO MẬT (Audit M5): Fallback an toàn thấp nhất thay vì quyền cao nhất
+            const role = (serverUser.activeRole as RoleCode) || cachedRole || SAFE_FALLBACK_ROLE;
             if (ROLE_HIERARCHY[role]) {
               setActiveRole(role);
               localStorage.setItem(LOCAL_STORAGE_ROLE_KEY, role);
             }
             localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(serverUser));
           } else {
-            // Phiên làm việc backend không tồn tại hoặc đã hết hạn
+            // BẢO MẬT (Audit Mục 3): Phiên backend không hợp lệ -> dọn sạch toàn bộ session
             setUser(null);
             setIsLoggedIn(false);
-            localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
-            localStorage.removeItem(LOCAL_STORAGE_ROLE_KEY);
+            clearSessionStorage();
           }
         }
       } catch (err) {
+        // BẢO MẬT (Audit C2): Lỗi mạng/ngoại lệ -> dọn sạch phiên để chống zombie session
         console.error('Lỗi khi kiểm tra phiên đăng nhập:', err);
+        if (isMounted) {
+          setUser(null);
+          setIsLoggedIn(false);
+          clearSessionStorage();
+        }
       } finally {
         if (isMounted) {
           setIsLoading(false);
@@ -86,28 +96,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setSession = useCallback((newUser: AuthUser, role?: RoleCode) => {
-    const targetRole = role || (newUser.activeRole as RoleCode) || 'ChuTichUBND';
+    // BẢO MẬT (Audit M5): Fallback an toàn thấp nhất khi thiết lập phiên
+    const targetRole = role || (newUser.activeRole as RoleCode) || SAFE_FALLBACK_ROLE;
     setUser(newUser);
     setActiveRole(targetRole);
     setIsLoggedIn(true);
     localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(newUser));
     localStorage.setItem(LOCAL_STORAGE_ROLE_KEY, targetRole);
+    // BẢO MẬT (Audit H9): Đặt cookie marker cho middleware route protection
+    markSessionActive();
   }, []);
 
-  const setActiveRoleContext = useCallback(async (newRole: RoleCode) => {
-    setActiveRole(newRole);
-    localStorage.setItem(LOCAL_STORAGE_ROLE_KEY, newRole);
+  // BẢO MẬT (Audit M5): Đổi ngữ cảnh vai trò (chỉ cập nhật UI sau khi API xác nhận thành công)
+  const setActiveRoleContext = useCallback(async (newRole: RoleCode): Promise<boolean> => {
+    if (!user?.userId) return false;
 
-    if (user?.userId) {
-      try {
-        const res = await switchContext(user.userId, newRole);
-        if (res.success && res.user) {
-          setUser(res.user);
-          localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(res.user));
-        }
-      } catch (err) {
-        console.warn('Switch context API error:', err);
+    try {
+      const res = await switchContext(user.userId, newRole);
+      if (!res.success || !res.user) {
+        console.warn('Switch context bị từ chối:', res.error);
+        return false;
       }
+
+      setUser(res.user);
+      setActiveRole(newRole);
+      localStorage.setItem(LOCAL_STORAGE_ROLE_KEY, newRole);
+      localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(res.user));
+      return true;
+    } catch (err) {
+      console.warn('Switch context API error:', err);
+      return false;
     }
   }, [user]);
 
@@ -119,8 +137,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setUser(null);
       setIsLoggedIn(false);
-      localStorage.removeItem(LOCAL_STORAGE_USER_KEY);
-      localStorage.removeItem(LOCAL_STORAGE_ROLE_KEY);
+      // BẢO MẬT (Audit Mục 3): Dọn sạch toàn bộ session storage & cookie marker
+      clearSessionStorage();
       if (typeof window !== 'undefined') {
         window.location.href = '/login';
       }
