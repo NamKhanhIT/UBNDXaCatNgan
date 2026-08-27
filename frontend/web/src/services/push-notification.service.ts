@@ -290,16 +290,25 @@ export async function subscribeCurrentDevice(customLabel?: string): Promise<Push
     }
   }
 
-  // 5. Trích xuất keys p256dh và auth
-  const p256dhBuffer = subscription.getKey('p256dh');
-  const authBuffer = subscription.getKey('auth');
+  // 5. Trích xuất keys p256dh và auth (ưu tiên chuẩn toJSON W3C Push API)
+  const json = subscription.toJSON();
+  let p256dhKey = json.keys?.p256dh || '';
+  let authKey = json.keys?.auth || '';
 
-  if (!p256dhBuffer || !authBuffer) {
-    throw new Error('Không thể trích xuất khóa mã hóa từ Push Subscription.');
+  if (!p256dhKey || !authKey) {
+    const p256dhBuffer = subscription.getKey('p256dh');
+    const authBuffer = subscription.getKey('auth');
+
+    if (!p256dhBuffer || !authBuffer) {
+      throw new Error('Không thể trích xuất khóa mã hóa từ Push Subscription.');
+    }
+
+    p256dhKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(p256dhBuffer))))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    authKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(authBuffer))))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
-  const p256dhKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(p256dhBuffer))));
-  const authKey = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(authBuffer))));
   const deviceLabel = customLabel || getAutoDeviceLabel();
 
   // 6. Gửi lên backend

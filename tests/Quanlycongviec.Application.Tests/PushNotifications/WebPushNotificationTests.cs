@@ -229,5 +229,15 @@ namespace Quanlycongviec.Application.Tests.PushNotifications
             key.Should().NotBeNullOrWhiteSpace();
             key.Should().Be("BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U");
         }
+
+        [Fact]
+        public void VapidKeys_ShouldBeValidForWebPush()
+        {
+            var options = new WebPushOptions();
+            Action actPub = () => WebPush.VapidHelper.ValidatePublicKey(options.PublicKey);
+            Action actPriv = () => WebPush.VapidHelper.ValidatePrivateKey(options.PrivateKey);
+            actPub.Should().NotThrow();
+            actPriv.Should().NotThrow();
+        }
     }
 }

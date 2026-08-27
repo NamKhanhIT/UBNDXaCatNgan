@@ -35,14 +35,17 @@ namespace Quanlycongviec.Application.Features.PushNotifications.Commands.Subscri
                 throw new ArgumentException("Endpoint không được để trống.", nameof(request.Endpoint));
             }
 
+            string cleanP256dh = NormalizeKey(request.P256dhKey);
+            string cleanAuth = NormalizeKey(request.AuthKey);
+
             var existing = await _context.PushSubscriptions
                 .FirstOrDefaultAsync(s => s.Endpoint == request.Endpoint, cancellationToken);
 
             if (existing != null)
             {
                 existing.UserId = request.UserId;
-                existing.P256dhKey = request.P256dhKey;
-                existing.AuthKey = request.AuthKey;
+                existing.P256dhKey = cleanP256dh;
+                existing.AuthKey = cleanAuth;
                 existing.DeviceLabel = !string.IsNullOrWhiteSpace(request.DeviceLabel) ? request.DeviceLabel : existing.DeviceLabel;
                 existing.IsActive = true;
                 existing.LastUsedAt = DateTime.UtcNow;
@@ -66,8 +69,8 @@ namespace Quanlycongviec.Application.Features.PushNotifications.Commands.Subscri
                 Id = Guid.NewGuid(),
                 UserId = request.UserId,
                 Endpoint = request.Endpoint,
-                P256dhKey = request.P256dhKey,
-                AuthKey = request.AuthKey,
+                P256dhKey = cleanP256dh,
+                AuthKey = cleanAuth,
                 DeviceLabel = request.DeviceLabel ?? "Thiết bị cá nhân",
                 CreatedAt = DateTime.UtcNow,
                 LastUsedAt = DateTime.UtcNow,
@@ -87,6 +90,12 @@ namespace Quanlycongviec.Application.Features.PushNotifications.Commands.Subscri
                 LastUsedAt = newSub.LastUsedAt,
                 IsActive = newSub.IsActive
             };
+        }
+
+        private static string NormalizeKey(string? key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return string.Empty;
+            return key.Trim().TrimEnd('=').Replace('+', '-').Replace('/', '_').Replace(" ", "");
         }
     }
 }
