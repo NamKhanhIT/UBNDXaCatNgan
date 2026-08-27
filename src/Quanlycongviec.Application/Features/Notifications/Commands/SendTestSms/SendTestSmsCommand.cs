@@ -53,16 +53,17 @@ namespace Quanlycongviec.Application.Features.Notifications.Commands.SendTestSms
                 return new SendTestSmsResult(false, "Vui lòng cập nhật số điện thoại cá nhân trong hồ sơ trước khi gửi thử nghiệm tin nhắn SMS.", null, null);
             }
 
-            string testMessage = $"[UBND CAP XA] Thu nghiem he thong SMS thong bao cong vu thanh cong cho dong chi {user.FullName}.";
+            string maskedPhone = targetPhone.Length >= 7 ? targetPhone[..3] + "****" + targetPhone[^3..] : "***";
+            string testMessage = "[UBND CAP XA] Thu nghiem he thong SMS thong bao cong vu thanh cong.";
             bool sent = await _smsService.SendSmsAsync(targetPhone, testMessage, cancellationToken);
             string gatewayStatus = _smsService.GetGatewayStatus();
 
-            _logger.LogInformation("Gửi SMS thử nghiệm tới {Phone}: {Sent} ({GatewayStatus})", targetPhone, sent, gatewayStatus);
+            _logger.LogInformation("Gửi SMS thử nghiệm tới {Phone}: {Sent} ({GatewayStatus})", maskedPhone, sent, gatewayStatus);
 
             return new SendTestSmsResult(
                 true,
                 null,
-                $"Đã phát tin nhắn SMS thử nghiệm thành công tới số '{targetPhone}'!",
+                $"Đã phát tin nhắn SMS thử nghiệm thành công tới số điện thoại của đồng chí ({maskedPhone})!",
                 gatewayStatus
             );
         }
