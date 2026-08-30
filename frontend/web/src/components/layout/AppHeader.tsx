@@ -269,18 +269,17 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
           >
             <optgroup label="── Lãnh đạo UBND ──">
               <option value="ChuTichUBND">🏛️ Chủ tịch UBND xã</option>
-              <option value="PhoChuTichUBND_ChanhVP">📋 Phó CT kiêm Chánh VP</option>
-              <option value="PhoChuTichUBND_TTPHCC">🏢 Phó CT kiêm GĐ Hành chính công</option>
+              <option value="PhoChuTichUBND">📋 Phó Chủ tịch UBND xã</option>
             </optgroup>
-            <optgroup label="── Phòng ban chuyên môn ──">
-              <option value="TruongPhong">🏗️ Trưởng phòng</option>
+            <optgroup label="── Cơ quan tham mưu & Chuyên môn ──">
+              <option value="ChanhVanPhong">🏢 Chánh Văn phòng HĐND & UBND</option>
+              <option value="TruongPhong">🏗️ Trưởng phòng chuyên môn</option>
               <option value="PhoPhong">👔 Phó Trưởng phòng</option>
               <option value="ChuyenVien">👤 Chuyên viên</option>
             </optgroup>
             <optgroup label="── Khối Đảng - Đoàn thể ──">
               <option value="BiThuDU">⭐ Bí thư Đảng ủy</option>
               <option value="ChuTichHDND">📜 Chủ tịch HĐND xã</option>
-              <option value="PhoChuTichHDND">⚖️ Phó CT HĐND chuyên trách</option>
             </optgroup>
           </select>
         </div>

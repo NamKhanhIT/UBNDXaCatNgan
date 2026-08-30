@@ -42,6 +42,8 @@ namespace Quanlycongviec.Infrastructure
             services.AddScoped<IWebPushNotificationService, WebPushNotificationService>();
             services.AddScoped<IRefreshTokenService, RefreshTokenService>();
             services.AddScoped<IEmailService, SmtpEmailService>();
+            services.AddScoped<ITaskAuthorizationService, TaskAuthorizationService>();
+            services.AddScoped<INotificationDispatcher, NotificationDispatcherService>();
 
             // ── Dịch vụ SMS Miễn Phí (Android Gateway / GSM Modem / Simulator) ──
             services.Configure<Quanlycongviec.Application.Common.Options.SmsOptions>(

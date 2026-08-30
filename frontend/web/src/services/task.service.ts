@@ -266,13 +266,13 @@ export function validateTaskTransfer(
 
   if (!checkTransferPermission(currentRole, fromStaffDept, toStaffDept, fromStaffName)) {
     const roleConfig = ROLE_HIERARCHY[currentRole];
-    if (roleConfig.scopeLevel >= 2.5) {
+    if (roleConfig.rankLevel >= 3) {
       return {
         valid: false,
         error: 'Bạn không thể điều chuyển công việc của cấp bằng hoặc cao hơn mình, hoặc điều chuyển ngoài phạm vi quản lý. (Quy tắc: cấp trên vẫn hơn cấp dưới).',
       };
     }
-    if (roleConfig.scopeLevel === 2.0) {
+    if (roleConfig.rankLevel === 2) {
       return {
         valid: false,
         error: 'Phó Chủ tịch chỉ được điều chuyển trong phạm vi được phân công phụ trách. Liên hệ Chủ tịch UBND để điều chuyển ngoài phạm vi.',

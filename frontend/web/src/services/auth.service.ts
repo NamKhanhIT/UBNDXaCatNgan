@@ -1,14 +1,11 @@
 import { apiFetch, ApiResponse, storeToken, storeRefreshToken, getStoredRefreshToken, clearToken, needsBearerAuth } from './api.config';
 
 export type RoleCode =
-  | 'BiThu'
   | 'BiThuDU'
   | 'ChuTichUBND'
   | 'ChuTichHDND'
   | 'PhoChuTichUBND'
-  | 'PhoChuTichUBND_ChanhVP'
-  | 'PhoChuTichUBND_TTPHCC'
-  | 'PhoChuTichHDND'
+  | 'ChanhVanPhong'
   | 'TruongPhong'
   | 'PhoPhong'
   | 'ChuyenVien';

@@ -15,7 +15,6 @@ using Quanlycongviec.Api.Middleware;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 
-// Bắt buộc cấu hình Console UTF-8 để hiển thị tiếng Việt chính xác trên mọi môi trường
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 Console.InputEncoding = System.Text.Encoding.UTF8;
 

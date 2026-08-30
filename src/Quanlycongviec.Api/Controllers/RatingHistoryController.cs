@@ -130,5 +130,15 @@ namespace Quanlycongviec.Api.Controllers
                 return BadRequest(new { error = ex.Message });
             }
         }
+
+        /// <summary>
+        /// Lấy chu kỳ đánh giá cán bộ đang hoạt động
+        /// </summary>
+        [HttpGet("RatingPeriods/active")]
+        public async Task<ActionResult<Quanlycongviec.Application.Features.RatingHistory.Queries.GetActiveRatingPeriod.RatingPeriodDto?>> GetActiveRatingPeriod()
+        {
+            var result = await _mediator.Send(new Quanlycongviec.Application.Features.RatingHistory.Queries.GetActiveRatingPeriod.GetActiveRatingPeriodQuery());
+            return Ok(result);
+        }
     }
 }

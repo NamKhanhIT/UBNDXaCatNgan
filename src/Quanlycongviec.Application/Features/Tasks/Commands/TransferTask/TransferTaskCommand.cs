@@ -28,10 +28,17 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.TransferTask
     public class TransferTaskCommandHandler : IRequestHandler<TransferTaskCommand, bool>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService? _authService;
+        private readonly INotificationDispatcher? _notificationDispatcher;
 
-        public TransferTaskCommandHandler(IApplicationDbContext context)
+        public TransferTaskCommandHandler(
+            IApplicationDbContext context,
+            ITaskAuthorizationService? authService = null,
+            INotificationDispatcher? notificationDispatcher = null)
         {
             _context = context;
+            _authService = authService;
+            _notificationDispatcher = notificationDispatcher;
         }
 
         public async Task<bool> Handle(TransferTaskCommand request, CancellationToken cancellationToken)
@@ -39,9 +46,20 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.TransferTask
             var task = await _context.TaskItems.FirstOrDefaultAsync(t => t.Id == request.TaskId, cancellationToken);
             if (task == null) return false;
 
-            var oldAssigneeId = task.AssigneeId;
             var targetUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == request.TargetUserId, cancellationToken);
             if (targetUser == null) return false;
+
+            // Kiểm tra thẩm quyền điều chuyển
+            if (_authService != null)
+            {
+                var canTransfer = await _authService.CanTransferTaskAsync(request.CurrentUserId, request.TaskId, request.TargetUserId, cancellationToken);
+                if (!canTransfer)
+                {
+                    throw new UnauthorizedAccessException("Bạn không có thẩm quyền điều chuyển công việc này.");
+                }
+            }
+
+            var oldAssigneeId = task.AssigneeId;
 
             // Update Assignee
             task.AssigneeId = request.TargetUserId;
@@ -72,7 +90,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.TransferTask
             });
 
             // Gửi Notification cho cán bộ mới
-            _context.Notifications.Add(new Notification
+            var notification = new Notification
             {
                 UserId = request.TargetUserId,
                 TaskItemId = task.Id,
@@ -82,9 +100,19 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.TransferTask
                 Message = $"Đồng chí được điều chuyển đảm nhận nhiệm vụ [{task.Title}]. Lý do: {request.Reason}",
                 SentAt = DateTime.UtcNow,
                 IsRead = false
-            });
+            };
 
-            await _context.SaveChangesAsync(cancellationToken);
+            if (_notificationDispatcher != null)
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+                await _notificationDispatcher.DispatchAsync(notification, cancellationToken);
+            }
+            else
+            {
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
             return true;
         }
     }

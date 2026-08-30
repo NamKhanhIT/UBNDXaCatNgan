@@ -4,6 +4,8 @@ namespace Quanlycongviec.Domain.Enums
     {
         InApp,
         Email,
-        ZaloZNS
+        ZaloZNS,
+        WebPush,
+        SMS
     }
 }

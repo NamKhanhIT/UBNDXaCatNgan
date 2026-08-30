@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 
 namespace Quanlycongviec.Application.Common.Security
 {
-    // BẢO MẬT: Quy chuẩn độ phức tạp của mật khẩu cho hệ thống UBND Cấp Xã
+    //Quy chuẩn độ phức tạp của mật khẩu cho hệ thống UBND Cấp Xã
     public static class PasswordPolicy
     {
         public const int MinimumLength = 8;
