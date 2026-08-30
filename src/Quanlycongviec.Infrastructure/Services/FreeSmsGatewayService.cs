@@ -11,9 +11,7 @@ using Quanlycongviec.Application.Common.Options;
 
 namespace Quanlycongviec.Infrastructure.Services
 {
-    /// <summary>
-    /// Triển khai dịch vụ gửi tin nhắn SMS Miễn phí 100% qua Android Gateway / GSM Modem / Trình mô phỏng cục bộ
-    /// </summary>
+    // Triển khai dịch vụ gửi tin nhắn SMS Miễn phí 100% qua Android Gateway / GSM Modem / Trình mô phỏng cục bộ
     public class FreeSmsGatewayService : ISmsNotificationService
     {
         private readonly HttpClient _httpClient;

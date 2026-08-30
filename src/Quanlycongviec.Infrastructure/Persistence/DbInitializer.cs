@@ -48,24 +48,6 @@ namespace Quanlycongviec.Infrastructure.Persistence
                     await context.Database.EnsureCreatedAsync();
                 }
 
-                // Chuyển đổi dữ liệu đánh giá cũ theo thang 1-10 (nếu có) sang thang 100
-                var legacyTasks = await context.TaskItems
-                    .Where(t => t.RatingScore.HasValue && t.RatingScore.Value <= 10.0)
-                    .ToListAsync();
-                if (legacyTasks.Count > 0)
-                {
-                    foreach (var lt in legacyTasks)
-                    {
-                        if (lt.RatingScore.HasValue)
-                        {
-                            lt.RatingScore = lt.RatingScore.Value * 10.0;
-                        }
-                        lt.SystemScore = null;
-                        lt.EvaluatorScore = null;
-                    }
-                    await context.SaveChangesAsync();
-                    logger.LogInformation("Đã quy đổi {Count} nhiệm vụ có điểm thang 10 cũ sang thang 100.", legacyTasks.Count);
-                }
 
                 // Kiểm tra xem database đã được seed chưa (nếu không force)
                 if (!force && await context.Users.AnyAsync(u => u.Email == "admin@ubnd.gov.vn" || u.Username == "admin"))

@@ -27,17 +27,28 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.SubmitRatin
     {
         private readonly IApplicationDbContext _context;
         private readonly RatingRevisionOptions _options;
+        private readonly ITaskAuthorizationService? _authService;
 
         public SubmitRatingRevisionCommandHandler(
             IApplicationDbContext context,
-            IOptions<RatingRevisionOptions> options)
+            IOptions<RatingRevisionOptions> options,
+            ITaskAuthorizationService? authService = null)
         {
             _context = context;
             _options = options.Value;
+            _authService = authService;
         }
 
         public async Task<RatingHistoryDto> Handle(SubmitRatingRevisionCommand request, CancellationToken cancellationToken)
         {
+            if (_authService != null)
+            {
+                var canScore = await _authService.CanScoreTaskAsync(request.CurrentUserId, request.TaskItemId, cancellationToken);
+                if (!canScore)
+                {
+                    throw new UnauthorizedAccessException("Bạn không có thẩm quyền sửa đánh giá cho công việc này.");
+                }
+            }
             var taskItem = await _context.TaskItems
                 .Include(t => t.Assigner)
                 .Include(t => t.Assignee)
@@ -148,8 +159,8 @@ namespace Quanlycongviec.Application.Features.RatingHistory.Commands.SubmitRatin
                 EntityName = "TaskItem",
                 EntityId = taskItem.Id.ToString(),
                 Details = approvalStatus == RatingApprovalStatusEnum.Applied
-                    ? $"Đã điều chỉnh điểm đánh giá việc \"{taskItem.Title}\" từ {(oldScore.HasValue ? oldScore.Value.ToString("F1") : "Chưa chấm")} thành {request.NewScore:F1}/100 (Áp dụng ngay)."
-                    : $"Đề xuất điều chỉnh điểm việc \"{taskItem.Title}\" từ {(oldScore.HasValue ? oldScore.Value.ToString("F1") : "Chưa chấm")} thành {request.NewScore:F1}/100 (Chờ cấp trên duyệt do chênh lệch > {_options.ApprovalThreshold:F1} điểm).",
+                    ? $"Đã điều chỉnh điểm đánh giá việc \"{taskItem.Title}\" từ {(oldScore.HasValue ? oldScore.Value.ToString("F1") : "Chưa chấm")} thành {request.NewScore:F1}/10 (Áp dụng ngay)."
+                    : $"Đề xuất điều chỉnh điểm việc \"{taskItem.Title}\" từ {(oldScore.HasValue ? oldScore.Value.ToString("F1") : "Chưa chấm")} thành {request.NewScore:F1}/10 (Chờ cấp trên duyệt do chênh lệch > {_options.ApprovalThreshold:F1} điểm).",
                 IpAddress = "127.0.0.1"
             };
             _context.AuditLogs.Add(auditLog);

@@ -12,14 +12,31 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
     public class CreateTaskCommandHandler : IRequestHandler<CreateTaskCommand, Guid>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService? _authService;
+        private readonly INotificationDispatcher? _notificationDispatcher;
 
-        public CreateTaskCommandHandler(IApplicationDbContext context)
+        public CreateTaskCommandHandler(
+            IApplicationDbContext context,
+            ITaskAuthorizationService? authService = null,
+            INotificationDispatcher? notificationDispatcher = null)
         {
             _context = context;
+            _authService = authService;
+            _notificationDispatcher = notificationDispatcher;
         }
 
         public async Task<Guid> Handle(CreateTaskCommand request, CancellationToken cancellationToken)
         {
+            // Enforcement phân quyền giao việc nếu có AuthService
+            if (_authService != null)
+            {
+                var canAssign = await _authService.CanAssignTaskAsync(request.AssignerId, request.AssigneeId, request.DepartmentId, cancellationToken);
+                if (!canAssign)
+                {
+                    throw new UnauthorizedAccessException("Bạn không có thẩm quyền giao công việc này cho cán bộ được chọn theo phân cấp chức danh.");
+                }
+            }
+
             DateTime? utcStartDate = request.StartDate.HasValue
                 ? (request.StartDate.Value.Kind == DateTimeKind.Utc ? request.StartDate.Value : DateTime.SpecifyKind(request.StartDate.Value, DateTimeKind.Utc))
                 : null;
@@ -73,7 +90,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
             });
 
             // Tạo thông báo cho người thực hiện (Assignee)
-            _context.Notifications.Add(new Notification
+            var notification = new Notification
             {
                 UserId = request.AssigneeId,
                 TaskItemId = task.Id,
@@ -83,9 +100,18 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
                 Message = $"Đồng chí được giao nhiệm vụ [{task.Title}]. Hạn chót: {(task.DueDate.HasValue ? task.DueDate.Value.ToString("dd/MM/yyyy HH:mm") : "Không có")}.",
                 SentAt = DateTime.UtcNow,
                 IsRead = false
-            });
+            };
 
-            await _context.SaveChangesAsync(cancellationToken);
+            if (_notificationDispatcher != null)
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+                await _notificationDispatcher.DispatchAsync(notification, cancellationToken);
+            }
+            else
+            {
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
 
             return task.Id;
         }

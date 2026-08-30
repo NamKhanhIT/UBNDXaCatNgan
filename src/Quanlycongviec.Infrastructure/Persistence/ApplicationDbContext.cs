@@ -38,6 +38,7 @@ namespace Quanlycongviec.Infrastructure.Persistence
         public DbSet<TaskReviewAnnotation> TaskReviewAnnotations => Set<TaskReviewAnnotation>();
         public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+        public DbSet<RatingPeriod> RatingPeriods => Set<RatingPeriod>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

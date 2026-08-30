@@ -33,6 +33,7 @@ namespace Quanlycongviec.Application.Common.Interfaces
         DbSet<TaskReviewAnnotation> TaskReviewAnnotations { get; }
         DbSet<PushSubscription> PushSubscriptions { get; }
         DbSet<RefreshToken> RefreshTokens { get; }
+        DbSet<RatingPeriod> RatingPeriods { get; }
 
         Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     }

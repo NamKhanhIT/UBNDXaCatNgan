@@ -128,7 +128,7 @@ namespace Quanlycongviec.Api.Controllers
         }
 
         /// <summary>
-        /// Cập nhật trạng thái công việc (Hoàn thành, Từ chối, Đang xử lý, Chờ duyệt) kèm đánh giá 100 điểm
+        /// Cập nhật trạng thái công việc (Hoàn thành, Từ chối, Đang xử lý, Chờ duyệt) kèm đánh giá thang 10 điểm
         /// </summary>
         [HttpPatch("{id:guid}/status")]
         public async Task<IActionResult> UpdateStatus([FromRoute] Guid id, [FromBody] UpdateTaskStatusRequest request)

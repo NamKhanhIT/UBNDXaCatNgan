@@ -51,13 +51,19 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
     {
         private readonly IApplicationDbContext _context;
         private readonly ISystemScoreCalculator _calculator;
+        private readonly ITaskAuthorizationService? _authService;
+        private readonly INotificationDispatcher? _notificationDispatcher;
 
         public UpdateTaskStatusCommandHandler(
             IApplicationDbContext context,
-            ISystemScoreCalculator calculator)
+            ISystemScoreCalculator calculator,
+            ITaskAuthorizationService? authService = null,
+            INotificationDispatcher? notificationDispatcher = null)
         {
             _context = context;
             _calculator = calculator;
+            _authService = authService;
+            _notificationDispatcher = notificationDispatcher;
         }
 
         public async Task<bool> Handle(UpdateTaskStatusCommand request, CancellationToken cancellationToken)
@@ -70,6 +76,16 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
 
             var newStatus = MapStatus(request.Status);
             var oldStatus = task.Status;
+
+            // Kiểm tra phân quyền cập nhật trạng thái
+            if (_authService != null)
+            {
+                var canUpdate = await _authService.CanUpdateTaskStatusAsync(request.CurrentUserId, request.TaskId, newStatus, cancellationToken);
+                if (!canUpdate)
+                {
+                    throw new UnauthorizedAccessException("Bạn không có quyền chuyển công việc sang trạng thái này.");
+                }
+            }
 
             // Lưu submission note nếu có
             if (!string.IsNullOrWhiteSpace(request.SubmissionNote))
@@ -95,7 +111,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                     Summary = $"Nhiệm vụ Dự án \"{task.Title}\" chuyển sang Chờ phản biện UBMTTQ (bắt buộc theo Luật 72/2025)"
                 });
 
-                _context.Notifications.Add(new Notification
+                var mttqNotification = new Notification
                 {
                     UserId = task.AssignerId,
                     TaskItemId = task.Id,
@@ -105,9 +121,19 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                     Message = $"Nhiệm vụ Dự án \"{task.Title}\" cần phản biện UBMTTQ trước khi trình duyệt.",
                     SentAt = DateTime.UtcNow,
                     IsRead = false
-                });
+                };
 
-                await _context.SaveChangesAsync(cancellationToken);
+                if (_notificationDispatcher != null)
+                {
+                    await _context.SaveChangesAsync(cancellationToken);
+                    await _notificationDispatcher.DispatchAsync(mttqNotification, cancellationToken);
+                }
+                else
+                {
+                    _context.Notifications.Add(mttqNotification);
+                    await _context.SaveChangesAsync(cancellationToken);
+                }
+
                 return true;
             }
 
@@ -118,7 +144,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 task.ProgressPercentage = 100;
                 task.CompletedAt = DateTime.UtcNow;
 
-                // Tính điểm đánh giá (Thang 100 = 30đ hệ thống + 70đ người chấm)
+                // Tính điểm đánh giá (Thang 10 = 3.0đ hệ thống + 7.0đ người chấm = 10.0đ tổng)
                 if (request.EvaluatorScore.HasValue || request.SystemScore.HasValue || request.RatingScore.HasValue)
                 {
                     double systemScore;
@@ -174,7 +200,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
 
             // Notification
             var recipientId = request.CurrentUserId == task.AssigneeId ? task.AssignerId : task.AssigneeId;
-            _context.Notifications.Add(new Notification
+            var notification = new Notification
             {
                 UserId = recipientId,
                 TaskItemId = task.Id,
@@ -184,7 +210,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 Message = $"Nhiệm vụ [{task.Title}] đã chuyển sang trạng thái [{newStatus}].",
                 SentAt = DateTime.UtcNow,
                 IsRead = false
-            });
+            };
 
             // Activity Log
             _context.ActivityLogs.Add(new Domain.Entities.ActivityLog
@@ -196,7 +222,17 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 Summary = $"Chuyển trạng thái [{task.Title}] từ {oldStatus} → {newStatus}" + (newStatus == TaskStatusEnum.Cancelled ? $" (Lý do: {request.RejectionReason})" : "")
             });
 
-            await _context.SaveChangesAsync(cancellationToken);
+            if (_notificationDispatcher != null)
+            {
+                await _context.SaveChangesAsync(cancellationToken);
+                await _notificationDispatcher.DispatchAsync(notification, cancellationToken);
+            }
+            else
+            {
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+
             return true;
         }
 

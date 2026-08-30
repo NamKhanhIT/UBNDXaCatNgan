@@ -29,22 +29,6 @@ export interface UserContext {
  */
 export const ROLE_PERMISSIONS: Record<RoleCode, { scope: Scope[]; permissions: Permission[] }> = {
   // ── 1. BÍ THƯ ĐẢNG ỦY (Toàn diện hệ thống chính trị xã) ──
-  BiThu: {
-    scope: ['Organization', 'Department', 'Personal'],
-    permissions: [
-      'ViewExecutiveDashboard',
-      'ViewDepartmentDashboard',
-      'ViewOwnDashboard',
-      'ViewDocuments',
-      'UploadDocument',
-      'ApproveDocument',
-      'AssignTask',
-      'TransferTask',
-      'EvaluateOfficer',
-      'ManageDepartments',
-      'ManageUsers',
-    ],
-  },
   BiThuDU: {
     scope: ['Organization', 'Department', 'Personal'],
     permissions: [
@@ -96,7 +80,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, { scope: Scope[]; permissions: P
     ],
   },
 
-  // ── 3. PHÓ CHỦ TỊCH UBND / HĐND (Lãnh đạo phụ trách khối / Chánh VP / GĐ TTPHCC) ──
+  // ── 3. PHÓ CHỦ TỊCH UBND (Lãnh đạo phụ trách khối / Thường trực UBND) ──
   PhoChuTichUBND: {
     scope: ['Organization', 'Department', 'Personal'],
     permissions: [
@@ -113,40 +97,10 @@ export const ROLE_PERMISSIONS: Record<RoleCode, { scope: Scope[]; permissions: P
       'ManageUsers',
     ],
   },
-  PhoChuTichUBND_ChanhVP: {
-    scope: ['Organization', 'Department', 'Personal'],
-    permissions: [
-      'ViewExecutiveDashboard',
-      'ViewDepartmentDashboard',
-      'ViewOwnDashboard',
-      'ViewDocuments',
-      'UploadDocument',
-      'ApproveDocument',
-      'AssignTask',
-      'TransferTask',
-      'EvaluateOfficer',
-      'ManageDepartments',
-      'ManageUsers',
-    ],
-  },
-  PhoChuTichUBND_TTPHCC: {
-    scope: ['Organization', 'Department', 'Personal'],
-    permissions: [
-      'ViewExecutiveDashboard',
-      'ViewDepartmentDashboard',
-      'ViewOwnDashboard',
-      'ViewDocuments',
-      'UploadDocument',
-      'ApproveDocument',
-      'AssignTask',
-      'TransferTask',
-      'EvaluateOfficer',
-      'ManageDepartments',
-      'ManageUsers',
-    ],
-  },
-  PhoChuTichHDND: {
-    scope: ['Organization', 'Department', 'Personal'],
+
+  // ── 4. CHÁNH VĂN PHÒNG HĐND & UBND (Tham mưu tổng hợp / một cửa / điều phối) ──
+  ChanhVanPhong: {
+    scope: ['Department', 'Personal'],
     permissions: [
       'ViewExecutiveDashboard',
       'ViewDepartmentDashboard',
@@ -241,17 +195,17 @@ export function createPermissionChecker(roleOrUser?: RoleCode | UserContext | nu
     isLeader: () => {
       const r = typeof roleOrUser === 'string' ? roleOrUser : roleOrUser?.activeRole;
       if (!r) return false;
-      return ROLE_HIERARCHY[r]?.scopeLevel <= 2.0;
+      return ROLE_HIERARCHY[r]?.rankLevel <= 2;
     },
     isManagerPlus: () => {
       const r = typeof roleOrUser === 'string' ? roleOrUser : roleOrUser?.activeRole;
       if (!r) return false;
-      return ROLE_HIERARCHY[r]?.scopeLevel <= 3.0;
+      return ROLE_HIERARCHY[r]?.rankLevel <= 4;
     },
     isOfficerOnly: () => {
       const r = typeof roleOrUser === 'string' ? roleOrUser : roleOrUser?.activeRole;
       if (!r) return true;
-      return ROLE_HIERARCHY[r]?.scopeLevel >= 4.0;
+      return ROLE_HIERARCHY[r]?.rankLevel >= 5;
     },
   };
 }

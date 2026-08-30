@@ -104,13 +104,11 @@ namespace Quanlycongviec.Application.Tests.Auth
             result.Token.Should().NotBeNullOrWhiteSpace();
             result.RefreshToken.Should().Be("fresh-refresh-token");
 
-            var revokeCalls = 0;
             _refresh.Verify(r => r.RevokeAllForUserAsync(user.Id, It.IsAny<CancellationToken>()),
                 Times.Once, "phải thu hồi toàn bộ phiên cũ theo pattern H6");
 
             // Thứ tự an toàn: revoke TRƯỚC rồi mới cấp token mới
             _refresh.Invocations.Count(i => i.Method.Name == "CreateAsync").Should().Be(1);
-            revokeCalls = 0; // giữ biến cho đọc rõ ràng
 
             var stored = await _context.Users.AsNoTracking().FirstAsync(u => u.Id == user.Id);
             stored.PasswordHash.Should().Be("new-hash-from-test");

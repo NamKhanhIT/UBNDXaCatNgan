@@ -73,7 +73,7 @@ export interface ProgressReport {
   taskTitle: string;
   submittedBy: string;
   submittedByRole: string;
-  submitterScopeLevel: number;
+  submitterRankLevel: number;
   progressStatus: TaskProgressStatus;
   description: string;
   attachments: string[];
@@ -127,7 +127,7 @@ export function createReport(
     taskTitle,
     submittedBy,
     submittedByRole,
-    submitterScopeLevel: ROLE_HIERARCHY[currentRole].scopeLevel,
+    submitterRankLevel: ROLE_HIERARCHY[currentRole].rankLevel,
     progressStatus,
     description,
     attachments,
@@ -155,9 +155,9 @@ export function reviewReport(
   const reviewerConfig = ROLE_HIERARCHY[reviewerRole];
 
   // Validate quyền duyệt
-  if (!canApproveReport(reviewerRole, report.submitterScopeLevel)) {
+  if (!canApproveReport(reviewerRole, report.submitterRankLevel)) {
     // Nếu report đã được TP duyệt (level1), CT cần xem xét
-    if (report.status === 'approved_level1' && reviewerConfig.scopeLevel <= 1) {
+    if (report.status === 'approved_level1' && reviewerConfig.rankLevel <= 1) {
       // OK - CT duyệt báo cáo đã qua TP
     } else {
       return {
@@ -179,14 +179,14 @@ export function reviewReport(
   let newStatus: ReportStatus = report.status;
 
   if (action === 'approve') {
-    if (report.status === 'submitted' && reviewerConfig.scopeLevel === 2) {
-      // Trưởng phòng duyệt → chuyển lên cấp 1
+    if (report.status === 'submitted' && reviewerConfig.rankLevel === 3) {
+      // Trưởng phòng (Rank 3) duyệt → chuyển lên cấp 1
       newStatus = 'approved_level1';
     } else if (
       (report.status === 'approved_level1' || report.status === 'submitted') &&
-      reviewerConfig.scopeLevel <= 1
+      reviewerConfig.rankLevel <= 1
     ) {
-      // Chủ tịch duyệt → hoàn tất
+      // Chủ tịch (Rank 1) duyệt → hoàn tất
       newStatus = 'approved_final';
     }
   } else if (action === 'reject') {
@@ -213,15 +213,15 @@ export function getPendingReports(
   allReports: ProgressReport[],
   currentRole: RoleCode,
 ): ProgressReport[] {
-  const currentScopeLevel = ROLE_HIERARCHY[currentRole].scopeLevel;
+  const currentRankLevel = ROLE_HIERARCHY[currentRole].rankLevel;
 
   return allReports.filter(report => {
-    if (currentScopeLevel === 2) {
-      // Trưởng phòng duyệt báo cáo submitted của chuyên viên
-      return report.status === 'submitted' && report.submitterScopeLevel > currentScopeLevel;
+    if (currentRankLevel === 3) {
+      // Trưởng phòng (Rank 3) duyệt báo cáo submitted của chuyên viên
+      return report.status === 'submitted' && report.submitterRankLevel > currentRankLevel;
     }
-    if (currentScopeLevel <= 1) {
-      // Cấp 1 duyệt báo cáo đã qua TP
+    if (currentRankLevel <= 1) {
+      // Cấp 1 (CT/Bí thư) duyệt báo cáo đã qua TP
       return report.status === 'approved_level1';
     }
     return false;
