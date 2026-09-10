@@ -26,6 +26,7 @@ namespace Quanlycongviec.Api.Controllers
         private readonly IApplicationDbContext _context;
         private readonly IOcrService _ocrService;
         private readonly IDocumentAiService _aiService;
+        private readonly IDocumentAccessService _documentAccessService;
         private readonly FileUploadOptions _uploadOptions;
         private readonly ILogger<FilesController> _logger;
 
@@ -34,11 +35,13 @@ namespace Quanlycongviec.Api.Controllers
             IOcrService ocrService,
             IDocumentAiService aiService,
             IOptions<FileUploadOptions> uploadOptions,
-            ILogger<FilesController> logger)
+            ILogger<FilesController> logger,
+            IDocumentAccessService documentAccessService)
         {
             _context = context;
             _ocrService = ocrService;
             _aiService = aiService;
+            _documentAccessService = documentAccessService;
             _uploadOptions = uploadOptions.Value;
             _logger = logger;
         }
@@ -48,10 +51,20 @@ namespace Quanlycongviec.Api.Controllers
 
         // Lấy danh sách file đính kèm liên kết với 1 văn bản
         [HttpGet("document/{documentId:guid}")]
-        public async Task<IActionResult> GetDocumentAttachments([FromRoute] Guid documentId)
+        public async Task<IActionResult> GetDocumentAttachments(
+            [FromRoute] Guid documentId,
+            [FromQuery] string targetType = "Inbox")
         {
+            if (!await _documentAccessService.CanAccessDocumentAsync(
+                    CurrentUserId, documentId, targetType, HttpContext.RequestAborted))
+            {
+                return NotFound();
+            }
+
             var attachments = await _context.DocumentAttachments
-                .Where(a => a.DocumentId == documentId && !a.IsDeleted)
+                .Where(a => a.DocumentId == documentId
+                            && a.TargetType == targetType
+                            && !a.IsDeleted)
                 .OrderByDescending(a => a.IsMainDocument)
                 .ThenBy(a => a.UploadedAt)
                 .Select(a => new
@@ -84,6 +97,12 @@ namespace Quanlycongviec.Api.Controllers
                 return NotFound(new { success = false, error = "Không tìm thấy file đính kèm." });
             }
 
+            if (!await _documentAccessService.CanAccessAttachmentAsync(
+                    CurrentUserId, att, HttpContext.RequestAborted))
+            {
+                return NotFound();
+            }
+
             string contentType = GetContentType(att.FileType, att.OriginalFileName);
 
             // Chỉ trả file nếu tồn tại trên đĩa — KHÔNG fallback file giả
@@ -108,6 +127,12 @@ namespace Quanlycongviec.Api.Controllers
         {
             var att = await _context.DocumentAttachments
                 .FirstOrDefaultAsync(a => a.Id == id && !a.IsDeleted);
+
+            if (att != null && !await _documentAccessService.CanAccessAttachmentAsync(
+                    CurrentUserId, att, HttpContext.RequestAborted))
+            {
+                return NotFound();
+            }
 
             if (att == null)
             {
@@ -140,6 +165,15 @@ namespace Quanlycongviec.Api.Controllers
         {
             var validation = ValidateFile(file);
             if (validation != null) return validation;
+
+            var magicValidation = await ValidateMagicBytesAsync(file);
+            if (magicValidation != null) return magicValidation;
+
+            if (!await _documentAccessService.CanAccessDocumentAsync(
+                    CurrentUserId, documentId, targetType, HttpContext.RequestAborted))
+            {
+                return NotFound();
+            }
 
             string ext = Path.GetExtension(file!.FileName).TrimStart('.').ToLower();
             string storageDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "documents");
@@ -191,6 +225,15 @@ namespace Quanlycongviec.Api.Controllers
             // 1. Validate file
             var validation = ValidateFile(file);
             if (validation != null) return validation;
+
+            var magicValidation = await ValidateMagicBytesAsync(file);
+            if (magicValidation != null) return magicValidation;
+
+            if (!await _documentAccessService.CanAccessDocumentAsync(
+                    CurrentUserId, documentId, "Inbox", ct))
+            {
+                return NotFound();
+            }
 
             // 2. Lưu file vào đĩa
             string ext = Path.GetExtension(file!.FileName).TrimStart('.').ToLower();
@@ -312,6 +355,60 @@ namespace Quanlycongviec.Api.Controllers
         }
 
         #region Validation
+
+        private static async Task<IActionResult?> ValidateMagicBytesAsync(IFormFile file)
+        {
+            try
+            {
+                await using var stream = file.OpenReadStream();
+                var header = new byte[8];
+                var read = 0;
+                while (read < header.Length)
+                {
+                    var count = await stream.ReadAsync(header.AsMemory(read, header.Length - read));
+                    if (count == 0) break;
+                    read += count;
+                }
+
+                var extension = Path.GetExtension(file.FileName).TrimStart('.').ToLowerInvariant();
+                var valid = extension switch
+                {
+                    "pdf" => read >= 5
+                             && header[0] == 0x25 && header[1] == 0x50
+                             && header[2] == 0x44 && header[3] == 0x46 && header[4] == 0x2D,
+                    "png" => read >= 8
+                             && header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E
+                             && header[3] == 0x47 && header[4] == 0x0D && header[5] == 0x0A
+                             && header[6] == 0x1A && header[7] == 0x0A,
+                    "jpg" or "jpeg" => read >= 3
+                             && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF,
+                    "doc" => read >= 8 &&
+                             ((header[0] == 0xD0 && header[1] == 0xCF && header[2] == 0x11 && header[3] == 0xE0
+                               && header[4] == 0xA1 && header[5] == 0xB1 && header[6] == 0x1A && header[7] == 0xE1)
+                              || (header[0] == 0x50 && header[1] == 0x4B && header[2] == 0x03 && header[3] == 0x04)),
+                    "docx" or "xlsx" => read >= 4
+                             && header[0] == 0x50 && header[1] == 0x4B
+                             && header[2] == 0x03 && header[3] == 0x04,
+                    _ => false
+                };
+
+                return valid
+                    ? null
+                    : new BadRequestObjectResult(new
+                    {
+                        success = false,
+                        error = "Nội dung file không khớp với phần mở rộng đã khai báo."
+                    });
+            }
+            catch (Exception)
+            {
+                return new BadRequestObjectResult(new
+                {
+                    success = false,
+                    error = "Không thể kiểm tra định dạng file tải lên."
+                });
+            }
+        }
 
         private IActionResult? ValidateFile(IFormFile? file)
         {

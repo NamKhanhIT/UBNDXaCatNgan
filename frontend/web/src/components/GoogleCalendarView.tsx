@@ -11,6 +11,9 @@ import {
 } from '../services/calendar-event.service';
 import { UserDto } from '../services/task.service';
 import { useSignalREvent } from '../hooks/use-signalr';
+// Audit 04-09-2026: dùng helper chuẩn VN (DD-MM-YYYY, HH:mm DD-MM-YYYY) thay cho raw ISO/VN-locale.
+import { formatDateShort, formatDateTimeShort, formatTimeShort, formatAdministrativeDate } from '../lib/formatters';
+import { VnDateTimeInput } from './VnDateTimeInput';
 
 interface TaskCalendarItem {
   id: string;
@@ -85,9 +88,10 @@ export function GoogleCalendarView({
       try {
         setEventsLoading(true);
         const res = await getCalendarEventsApi();
-        if (res.success && res.data) {
-          setEventsList(res.data);
-        }
+        // Bugfix 06-09-2026: same raw-body issue — read array directly from r or r.data.
+        const r: any = res;
+        const list = Array.isArray(r) ? r : (Array.isArray(r?.data) ? r.data : []);
+        setEventsList(list);
       } catch (err) {
         console.warn('Lỗi khi nạp danh sách sự kiện lịch:', err);
       } finally {
@@ -142,15 +146,31 @@ export function GoogleCalendarView({
   const [formTitle, setFormTitle] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [formType, setFormType] = useState<EventTypeEnum>('Meeting');
-  const [formStartDate, setFormStartDate] = useState(new Date().toISOString().split('T')[0]);
-  const [formStartTime, setFormStartTime] = useState('08:00');
-  const [formEndDate, setFormEndDate] = useState(new Date().toISOString().split('T')[0]);
-  const [formEndTime, setFormEndTime] = useState('11:00');
+  // Bugfix 10-09-2026: Đổi từ 4 state tách rời (formStartDate/formStartTime) sang 2 state ISO string.
+  // Lý do: VnDateTimeInput cần một nguồn truth duy nhất là ISO UTC instant để đảm bảo
+  // không bị bug timezone "pick 15:12 → +7h → 22:12" do làm tròn sai ở state tách rời.
+  const makeLocalIso = (y: number, m: number, d: number, hh: number, mm: number) =>
+    new Date(y, m - 1, d, hh, mm, 0, 0).toISOString();
+
+  const [formStart, setFormStart] = useState<string>(() => {
+    const now = new Date();
+    return makeLocalIso(now.getFullYear(), now.getMonth() + 1, now.getDate(), 8, 0);
+  });
+  const [formEnd, setFormEnd] = useState<string>(() => {
+    const now = new Date();
+    return makeLocalIso(now.getFullYear(), now.getMonth() + 1, now.getDate(), 11, 0);
+  });
   const [formIsAllDay, setFormIsAllDay] = useState(false);
   const [formLocation, setFormLocation] = useState('');
   const [formParticipants, setFormParticipants] = useState<string[]>([]);
   const [formReminders, setFormReminders] = useState<number[]>([30]);
   const [participantSearch, setParticipantSearch] = useState('');
+  // 06-09-2026: 3-mode invite scope — all agency / leadership only / per department
+  const [inviteScope, setInviteScope] = useState<'all' | 'leadership' | 'department'>('all');
+  // department-level selected IDs (map: deptId -> boolean for "all selected")
+  const [inviteDeptSelected, setInviteDeptSelected] = useState<Record<string, boolean>>({});
+  // explicit per-user IDs for leadership scope
+  const [inviteLeadershipIds, setInviteLeadershipIds] = useState<string[]>([]);
 
   // Touch Swipe Gesture Handling
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -207,14 +227,22 @@ export function GoogleCalendarView({
 
   const fetchEvents = async () => {
     setEventsLoading(true);
-    const res = await getCalendarEventsApi({
-      from: dateRange.from,
-      to: dateRange.to,
-    });
-    if (res.success && res.data) {
-      setEventsList(res.data);
+    try {
+      const res = await getCalendarEventsApi({
+        from: dateRange.from,
+        to: dateRange.to,
+      });
+      // Bugfix 06-09-2026: apiFetch returns raw array body on 2xx (not ApiResponse),
+      // so res.success is undefined. Read directly from the body or from r.data fallback.
+      const r: any = res;
+      const list = Array.isArray(r) ? r : (Array.isArray(r?.data) ? r.data : []);
+      setEventsList(list);
+    } catch (err) {
+      console.warn('[GoogleCalendarView] fetchEvents error:', err);
+      setEventsList([]);
+    } finally {
+      setEventsLoading(false);
     }
-    setEventsLoading(false);
   };
 
   useEffect(() => {
@@ -313,21 +341,36 @@ export function GoogleCalendarView({
   };
 
   // Reset Create/Edit Event Form
+  // Bugfix 10-09-2026: formStartDate/formStartTime bị bỏ — dùng formStart/formEnd ISO UTC thay thế.
+  // prefillTime/prefillDate (input là local string) chỉ để khởi tạo LOCAL time rồi build ISO.
   const resetEventForm = (prefillDate?: string, prefillTime?: string) => {
-    const d = prefillDate || new Date().toISOString().split('T')[0];
+    const localYmd = prefillDate
+      ? (() => {
+          const [py, pm, pd] = prefillDate.split('-').map(Number);
+          return { y: py, m: pm, d: pd };
+        })()
+      : (() => {
+          const n = new Date();
+          return { y: n.getFullYear(), m: n.getMonth() + 1, d: n.getDate() };
+        })();
+    const startHm = (prefillTime || '08:00').split(':').map(Number);
+    const endHm = prefillTime === '14:00' ? [16, 30] : [11, 0];
+
     setEditingEventId(null);
     setFormTitle('');
     setFormDesc('');
     setFormType('Meeting');
-    setFormStartDate(d);
-    setFormStartTime(prefillTime || '08:00');
-    setFormEndDate(d);
-    setFormEndTime(prefillTime === '14:00' ? '16:30' : '11:00');
+    setFormStart(makeLocalIso(localYmd.y, localYmd.m, localYmd.d, startHm[0], startHm[1]));
+    setFormEnd(makeLocalIso(localYmd.y, localYmd.m, localYmd.d, endHm[0], endHm[1]));
     setFormIsAllDay(false);
     setFormLocation('');
     setFormParticipants([]);
     setFormReminders([30]);
     setParticipantSearch('');
+    // 06-09-2026: also reset 3-mode invite scope state to avoid stale selection on reopen.
+    setInviteScope('all');
+    setInviteLeadershipIds([]);
+    setInviteDeptSelected({});
   };
 
   // Load Event for Editing
@@ -336,14 +379,11 @@ export function GoogleCalendarView({
     setFormTitle(event.title);
     setFormDesc(event.description || '');
     setFormType(event.eventType);
-    const sDate = event.startDateTime ? event.startDateTime.split('T')[0] : new Date().toISOString().split('T')[0];
-    const sTime = event.startDateTime && event.startDateTime.includes('T') ? event.startDateTime.split('T')[1].substring(0, 5) : '08:00';
-    const eDate = event.endDateTime ? event.endDateTime.split('T')[0] : sDate;
-    const eTime = event.endDateTime && event.endDateTime.includes('T') ? event.endDateTime.split('T')[1].substring(0, 5) : '11:00';
-    setFormStartDate(sDate);
-    setFormStartTime(sTime);
-    setFormEndDate(eDate);
-    setFormEndTime(eTime);
+    // Bugfix 10-09-2026: Backend stores all dates as UTC (Kind=Utc). VnDateTimeInput nhận đầu vào
+    // là ISO UTC string và sẽ tự convert sang LOCAL time để hiển thị DD-MM-YYYY HH:mm
+    // (vd UTC 01:12 = Việt Nam 08:12). Không cần tách date/time thủ công.
+    setFormStart(event.startDateTime || makeLocalIso(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate(), 8, 0));
+    setFormEnd(event.endDateTime || makeLocalIso(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate(), 11, 0));
     setFormIsAllDay(event.isAllDay);
     setFormLocation(event.location || '');
     setFormParticipants(event.participants?.map((p) => p.userId) || []);
@@ -950,7 +990,7 @@ export function GoogleCalendarView({
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
                               <span style={{ fontWeight: 800, color: badge.color, fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 3 }}>
-                                <i className="fa-solid fa-clock" /> {new Date(item.startDateTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                <i className="fa-solid fa-clock" /> {formatDateTimeShort(item.startDateTime)}
                               </span>
                               <span className="badge" style={{ background: badge.bg, color: badge.color, fontSize: '0.62rem', padding: '1px 4px' }}>
                                 <i className={`fa-solid ${badge.icon}`} style={{ marginRight: 3 }} />
@@ -1105,7 +1145,7 @@ export function GoogleCalendarView({
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
                               <span style={{ fontWeight: 800, color: badge.color, fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: 3 }}>
-                                <i className="fa-solid fa-clock" /> {new Date(item.startDateTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                                <i className="fa-solid fa-clock" /> {formatDateTimeShort(item.startDateTime)}
                               </span>
                               <span className="badge" style={{ background: badge.bg, color: badge.color, fontSize: '0.62rem', padding: '1px 4px' }}>
                                 <i className={`fa-solid ${badge.icon}`} style={{ marginRight: 3 }} />
@@ -1169,7 +1209,7 @@ export function GoogleCalendarView({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <i className="fa-solid fa-calendar-day" style={{ color: '#2563eb' }} />
             <span>
-              Lịch trình {currentDate.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
+              Lịch trình {formatAdministrativeDate(currentDate)}
             </span>
           </div>
 
@@ -1254,7 +1294,7 @@ export function GoogleCalendarView({
                             </span>
                             <span className="badge" style={{ background: badge.bg, color: badge.color, fontWeight: 700, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 3 }}>
                               <i className="fa-solid fa-clock" />
-                              {new Date(item.startDateTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} - {new Date(item.endDateTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                              {formatTimeShort(item.startDateTime)} - {formatTimeShort(item.endDateTime)}
                             </span>
                           </div>
                           <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1330,7 +1370,7 @@ export function GoogleCalendarView({
                             </span>
                             <span className="badge" style={{ background: badge.bg, color: badge.color, fontWeight: 700, fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 3 }}>
                               <i className="fa-solid fa-clock" />
-                              {new Date(item.startDateTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} - {new Date(item.endDateTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                              {formatTimeShort(item.startDateTime)} - {formatTimeShort(item.endDateTime)}
                             </span>
                           </div>
                           <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1544,9 +1584,9 @@ export function GoogleCalendarView({
                 whiteSpace: 'nowrap',
               }}
             >
-              {viewMode === 'month' && currentDate.toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' })}
-              {viewMode === 'week' && `Lịch tuần (${currentDate.toLocaleDateString('vi-VN', { month: 'numeric', year: 'numeric' })})`}
-              {viewMode === 'day' && currentDate.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+              {viewMode === 'month' && formatDateShort(currentDate)}
+              {viewMode === 'week' && `Lịch tuần (tháng ${new Date(currentDate).getMonth() + 1}/${new Date(currentDate).getFullYear()})`}
+              {viewMode === 'day' && formatDateShort(currentDate)}
             </h2>
 
             {/* Mobile Filter Button */}
@@ -1694,7 +1734,7 @@ export function GoogleCalendarView({
               <div>
                 <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: 0, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <i className="fa-solid fa-calendar-day" style={{ color: '#2563eb' }} />
-                  {selectedDayDate.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  {formatAdministrativeDate(selectedDayDate)}
                 </h3>
                 <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 2 }}>
                   Tổng cộng: {selectedDayItems.length} mục
@@ -1826,7 +1866,7 @@ export function GoogleCalendarView({
                             }}
                           >
                             <i className="fa-solid fa-clock" />
-                            {new Date(item.startDateTime).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                            {formatTimeShort(item.startDateTime)}
                           </span>
                         </div>
                         <div style={{ fontSize: '0.78rem', color: '#475569', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2019,7 +2059,7 @@ export function GoogleCalendarView({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {/* Tiêu đề */}
-              <div className="form-group" style={{ margin: 0 }}>
+              <div className="form-group form-group-card" style={{ margin: 0 }}>
                 <label className="form-label" style={{ fontSize: '0.82rem' }}>
                   Tiêu đề cuộc họp / sự kiện <span style={{ color: '#dc2626' }}>*</span>
                 </label>
@@ -2035,7 +2075,7 @@ export function GoogleCalendarView({
 
               {/* Loại sự kiện & Địa điểm */}
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
-                <div className="form-group" style={{ margin: 0 }}>
+                <div className="form-group form-group-card" style={{ margin: 0 }}>
                   <label className="form-label" style={{ fontSize: '0.82rem' }}>Loại sự kiện</label>
                   <select
                     className="form-select"
@@ -2050,7 +2090,7 @@ export function GoogleCalendarView({
                   </select>
                 </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
+                <div className="form-group form-group-card" style={{ margin: 0 }}>
                   <label className="form-label" style={{ fontSize: '0.82rem' }}>Địa điểm</label>
                   <input
                     type="text"
@@ -2076,51 +2116,44 @@ export function GoogleCalendarView({
                 </label>
               </div>
 
-              {/* Bắt đầu & Kết thúc */}
+              {/* Bắt đầu & Kết thúc — Bugfix 10-09-2026: thay 4 input (date + time) bằng 2 VnDateTimeInput */}
               <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
-                <div className="form-group" style={{ margin: 0 }}>
+                <div className="form-group form-group-card" style={{ margin: 0 }}>
                   <label className="form-label" style={{ fontSize: '0.82rem' }}>Thời gian bắt đầu</label>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input
-                      type="date"
-                      className="form-control"
-                      value={formStartDate}
-                      onChange={(e) => setFormStartDate(e.target.value)}
+                  {formIsAllDay ? (
+                    <VnDateTimeInput
+                      value={(() => {
+                        // VnDateTimeInput cần ISO; với all-day hiển thị ngày local → fake giờ = 00:00 LOCAL
+                        const dStr = formStart.split('T')[0];
+                        const [y, m, dd] = dStr.split('-').map(Number);
+                        return makeLocalIso(y, m, dd, 0, 0);
+                      })()}
+                      onChange={(iso) => setFormStart(iso)}
                     />
-                    {!formIsAllDay && (
-                      <input
-                        type="time"
-                        className="form-control"
-                        value={formStartTime}
-                        onChange={(e) => setFormStartTime(e.target.value)}
-                      />
-                    )}
-                  </div>
+                  ) : (
+                    <VnDateTimeInput value={formStart} onChange={setFormStart} />
+                  )}
                 </div>
 
-                <div className="form-group" style={{ margin: 0 }}>
+                <div className="form-group form-group-card" style={{ margin: 0 }}>
                   <label className="form-label" style={{ fontSize: '0.82rem' }}>Thời gian kết thúc</label>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input
-                      type="date"
-                      className="form-control"
-                      value={formEndDate}
-                      onChange={(e) => setFormEndDate(e.target.value)}
+                  {formIsAllDay ? (
+                    <VnDateTimeInput
+                      value={(() => {
+                        const dStr = formEnd.split('T')[0];
+                        const [y, m, dd] = dStr.split('-').map(Number);
+                        return makeLocalIso(y, m, dd, 23, 59);
+                      })()}
+                      onChange={(iso) => setFormEnd(iso)}
                     />
-                    {!formIsAllDay && (
-                      <input
-                        type="time"
-                        className="form-control"
-                        value={formEndTime}
-                        onChange={(e) => setFormEndTime(e.target.value)}
-                      />
-                    )}
-                  </div>
+                  ) : (
+                    <VnDateTimeInput value={formEnd} onChange={setFormEnd} />
+                  )}
                 </div>
               </div>
 
               {/* Mô tả chi tiết */}
-              <div className="form-group" style={{ margin: 0 }}>
+              <div className="form-group form-group-card" style={{ margin: 0 }}>
                 <label className="form-label" style={{ fontSize: '0.82rem' }}>Nội dung chương trình / Ghi chú</label>
                 <textarea
                   className="form-control"
@@ -2131,98 +2164,261 @@ export function GoogleCalendarView({
                 />
               </div>
 
-              {/* Người tham dự (Multi-Select Participants) */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <label className="form-label" style={{ fontSize: '0.82rem', margin: 0 }}>
-                    Thành phần tham dự ({formParticipants.length} người đã chọn)
-                  </label>
-                  {formParticipants.length > 0 && (
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-xs"
-                      onClick={() => setFormParticipants([])}
-                      style={{ fontSize: '0.72rem', color: '#dc2626' }}
+              {/* ── 06-09-2026: 3-mode invite scope (Toàn cơ quan / Lãnh đạo / Phòng ban) ── */}
+              <div className="form-group form-group-card" style={{ margin: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.82rem', marginBottom: 4 }}>Mời tham dự</label>
+
+                {/* Radio toggle: 3 modes */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {[
+                    { value: 'all' as const,       icon: 'fa-users',        label: 'Toàn cơ quan' },
+                    { value: 'leadership' as const, icon: 'fa-user-tie',     label: 'Lãnh đạo' },
+                    { value: 'department' as const, icon: 'fa-building-user', label: 'Từng phòng ban' },
+                  ].map(({ value, icon, label }) => (
+                    <label
+                      key={value}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5,
+                        padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+                        fontSize: '0.8rem', fontWeight: inviteScope === value ? 700 : 500,
+                        background: inviteScope === value ? '#dbeafe' : '#f1f5f9',
+                        color: inviteScope === value ? '#1d4ed8' : '#475569',
+                        border: `1px solid ${inviteScope === value ? '#93c5fd' : '#cbd5e1'}`,
+                        transition: 'all 0.15s',
+                      }}
                     >
-                      Bỏ chọn tất cả
-                    </button>
-                  )}
+                      <input
+                        type="radio"
+                        name="inviteScope"
+                        value={value}
+                        checked={inviteScope === value}
+                        onChange={() => {
+                          setInviteScope(value);
+                          if (value === 'all') {
+                            setFormParticipants([]);
+                            setInviteLeadershipIds([]);
+                            setInviteDeptSelected({});
+                          } else if (value === 'leadership') {
+                            // Pre-select all leadership (rankLevel <= 2) if none yet
+                            const leadership = users.filter((u: any) => (u.rankLevel ?? 3) <= 2);
+                            setInviteLeadershipIds(leadership.map((u: any) => u.id));
+                            setFormParticipants(leadership.map((u: any) => u.id));
+                            setInviteDeptSelected({});
+                          } else {
+                            setInviteLeadershipIds([]);
+                            setFormParticipants([]);
+                            setInviteDeptSelected({});
+                          }
+                        }}
+                        style={{ display: 'none' }}
+                      />
+                      <i className={`fa-solid ${icon}`} style={{ fontSize: '0.75rem' }} />
+                      {label}
+                    </label>
+                  ))}
                 </div>
 
-                <input
-                  type="text"
-                  className="form-control"
-                  placeholder="Tìm kiếm cán bộ theo tên, chức vụ..."
-                  value={participantSearch}
-                  onChange={(e) => setParticipantSearch(e.target.value)}
-                  style={{ fontSize: '0.82rem', marginBottom: 6 }}
-                />
+                {/* Scope: All — no further selection needed */}
+                {inviteScope === 'all' && (
+                  <div style={{ fontSize: '0.78rem', color: '#64748b', padding: '4px 8px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0', textAlign: 'center' }}>
+                    <i className="fa-solid fa-circle-info" style={{ marginRight: 4 }} />
+                    Toàn bộ cán bộ trong cơ quan sẽ nhận thông báo.
+                  </div>
+                )}
 
-                <div
-                  style={{
-                    maxHeight: 120,
-                    overflowY: 'auto',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 6,
-                    padding: 6,
-                    background: '#f8fafc',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 4,
-                  }}
-                >
-                  {filteredUsers.length === 0 ? (
-                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', textAlign: 'center', padding: 6 }}>
-                      Không tìm thấy cán bộ phù hợp.
-                    </div>
-                  ) : (
-                    filteredUsers.map((u: any) => {
-                      const uId = u.id || u.userId;
-                      const uName = u.fullName || u.name;
-                      const uRole = u.role || u.rankLabel || u.departmentName;
-                      const isChecked = formParticipants.includes(uId);
+                {/* Scope: Leadership — checkboxes grouped by rank level */}
+                {inviteScope === 'leadership' && (
+                  <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6, padding: 6, background: '#f8fafc' }}>
+                    {(() => {
+                      const leadership = users.filter((u: any) => (u.rankLevel ?? 3) <= 2);
+                      if (!leadership.length) {
+                        return <div style={{ fontSize: '0.78rem', color: '#94a3b8', textAlign: 'center' }}>Không có lãnh đạo nào.</div>;
+                      }
+                      const byLevel = leadership.reduce((acc: Record<number, any[]>, u: any) => {
+                        const lvl = u.rankLevel ?? 3;
+                        if (!acc[lvl]) acc[lvl] = [];
+                        acc[lvl].push(u);
+                        return acc;
+                      }, {});
+                      const levelLabels: Record<number, string> = { 1: 'Chủ tịch / PCT', 2: 'CV phó / Trưởng phòng' };
+                      return Object.keys(byLevel).sort().map((lvl) => (
+                        <div key={lvl} style={{ marginBottom: 6 }}>
+                          <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', marginBottom: 3, paddingLeft: 2 }}>
+                            {levelLabels[Number(lvl)] ?? `Cấp ${lvl}`}
+                          </div>
+                          {byLevel[Number(lvl)].map((u: any) => {
+                            const uid = u.id;
+                            const checked = inviteLeadershipIds.includes(uid);
+                            return (
+                              <label key={uid} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 4px', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setInviteLeadershipIds((prev) => [...prev, uid]);
+                                      setFormParticipants((prev) => prev.includes(uid) ? prev : [...prev, uid]);
+                                    } else {
+                                      setInviteLeadershipIds((prev) => prev.filter((id) => id !== uid));
+                                      setFormParticipants((prev) => prev.filter((id) => id !== uid));
+                                    }
+                                  }}
+                                />
+                                <span style={{ fontSize: '0.82rem', fontWeight: checked ? 700 : 400, color: checked ? '#1d4ed8' : '#1e293b' }}>
+                                  {u.fullName || u.name}
+                                </span>
+                                {u.roleName && <span style={{ fontSize: '0.72rem', color: '#64748b' }}>({u.roleName})</span>}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
 
-                      return (
-                        <label
-                          key={uId}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '4px 6px',
-                            background: isChecked ? '#eff6ff' : '#ffffff',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                            fontSize: '0.82rem',
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormParticipants((prev) => [...prev, uId]);
-                              } else {
-                                setFormParticipants((prev) => prev.filter((id) => id !== uId));
-                              }
-                            }}
-                          />
-                          <span style={{ fontWeight: isChecked ? 700 : 500, color: isChecked ? '#1d4ed8' : '#1e293b' }}>
-                            {uName}
-                          </span>
-                          {uRole && <span style={{ fontSize: '0.72rem', color: '#64748b' }}>({uRole})</span>}
-                        </label>
-                      );
-                    })
-                  )}
-                </div>
+                {/* Scope: Department — checkboxes grouped by department */}
+                {inviteScope === 'department' && (
+                  <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 6, padding: 6, background: '#f8fafc' }}>
+                    {(() => {
+                      // Group users by primaryDepartmentId
+                      const deptMap: Record<string, any[]> = {};
+                      users.forEach((u: any) => {
+                        const deptId = u.primaryDepartmentId || 'no-dept';
+                        if (!deptMap[deptId]) deptMap[deptId] = [];
+                        deptMap[deptId].push(u);
+                      });
+                      const deptIds = Object.keys(deptMap).sort();
+                      if (!deptIds.length) {
+                        return <div style={{ fontSize: '0.78rem', color: '#94a3b8', textAlign: 'center' }}>Không có phòng ban nào.</div>;
+                      }
+                      return deptIds.map((deptId) => {
+                        const members = deptMap[deptId];
+                        const deptName = members[0]?.departmentName || (deptId === 'no-dept' ? 'Chưa phân phòng' : `Phòng ${deptId}`);
+                        const allSelected = members.every((u: any) => formParticipants.includes(u.id));
+                        const someSelected = members.some((u: any) => formParticipants.includes(u.id));
+                        return (
+                          <div key={deptId} style={{ marginBottom: 6 }}>
+                            {/* Dept header row with "select all in dept" toggle */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                              <input
+                                type="checkbox"
+                                id={`dept-${deptId}`}
+                                checked={allSelected}
+                                ref={(el) => { if (el) el.indeterminate = someSelected && !allSelected; }}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    const ids = members.map((u: any) => u.id);
+                                    setFormParticipants((prev) => [...new Set([...prev, ...ids])]);
+                                    setInviteDeptSelected((prev) => ({ ...prev, [deptId]: true }));
+                                  } else {
+                                    const ids = members.map((u: any) => u.id);
+                                    setFormParticipants((prev) => prev.filter((id) => !ids.includes(id)));
+                                    setInviteDeptSelected((prev) => ({ ...prev, [deptId]: false }));
+                                  }
+                                }}
+                              />
+                              <label htmlFor={`dept-${deptId}`} style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', cursor: 'pointer' }}>
+                                {deptName}
+                              </label>
+                              <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>({members.length})</span>
+                            </div>
+                            {/* Individual members */}
+                            {members.map((u: any) => {
+                              const uid = u.id;
+                              const checked = formParticipants.includes(uid);
+                              return (
+                                <label key={uid} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 4px 2px 22px', cursor: 'pointer' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setFormParticipants((prev) => [...prev, uid]);
+                                      } else {
+                                        setFormParticipants((prev) => prev.filter((id) => id !== uid));
+                                      }
+                                    }}
+                                  />
+                                  <span style={{ fontSize: '0.8rem', color: checked ? '#1d4ed8' : '#475569' }}>
+                                    {u.fullName || u.name}
+                                  </span>
+                                  {u.roleName && <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>({u.roleName})</span>}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
+
+                {/* Summary badge */}
+                {inviteScope !== 'all' && formParticipants.length > 0 && (
+                  <div style={{ fontSize: '0.75rem', color: '#1d4ed8', marginTop: 4, fontWeight: 600 }}>
+                    <i className="fa-solid fa-check-circle" /> {formParticipants.length} người được chọn
+                  </div>
+                )}
               </div>
 
               {/* Mốc nhắc trước */}
-              <div className="form-group" style={{ margin: 0 }}>
-                <label className="form-label" style={{ fontSize: '0.82rem', marginBottom: 4 }}>
-                  Mốc nhắc việc tự động (SignalR)
-                </label>
+              <div className="form-group form-group-card" style={{ margin: 0 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label className="form-label" style={{ fontSize: '0.82rem', margin: 0 }}>
+                    Mốc nhắc việc tự động (SignalR)
+                  </label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormReminders(REMINDER_OPTIONS.map((o) => o.value))
+                      }
+                      disabled={formReminders.length === REMINDER_OPTIONS.length}
+                      title="Chọn tất cả các mốc nhắc"
+                      style={{
+                        background: formReminders.length === REMINDER_OPTIONS.length ? '#f1f5f9' : '#eff6ff',
+                        border: `1px solid ${formReminders.length === REMINDER_OPTIONS.length ? '#cbd5e1' : '#2563eb'}`,
+                        color: formReminders.length === REMINDER_OPTIONS.length ? '#94a3b8' : '#1d4ed8',
+                        fontWeight: 600,
+                        fontSize: '0.72rem',
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        cursor: formReminders.length === REMINDER_OPTIONS.length ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        opacity: formReminders.length === REMINDER_OPTIONS.length ? 0.7 : 1,
+                      }}
+                    >
+                      <i className="fa-solid fa-check-double" style={{ fontSize: '0.7rem' }} />
+                      <span>Chọn tất cả</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormReminders([])}
+                      disabled={formReminders.length === 0}
+                      title="Bỏ chọn tất cả các mốc nhắc"
+                      style={{
+                        background: formReminders.length === 0 ? '#f1f5f9' : '#ffffff',
+                        border: `1px solid ${formReminders.length === 0 ? '#cbd5e1' : '#94a3b8'}`,
+                        color: formReminders.length === 0 ? '#94a3b8' : '#475569',
+                        fontWeight: 600,
+                        fontSize: '0.72rem',
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        cursor: formReminders.length === 0 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        opacity: formReminders.length === 0 ? 0.7 : 1,
+                      }}
+                    >
+                      <i className="fa-solid fa-xmark" style={{ fontSize: '0.7rem' }} />
+                      <span>Bỏ chọn tất cả</span>
+                    </button>
+                  </div>
+                </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {REMINDER_OPTIONS.map((opt) => {
                     const isSelected = formReminders.includes(opt.value);
@@ -2274,65 +2470,92 @@ export function GoogleCalendarView({
                     return;
                   }
 
-                  let startIso: string;
-                  let endIso: string;
+                  // Bugfix 10-09-2026 (final): formStart/formEnd đã là ISO UTC string từ VnDateTimeInput
+                  // (VnDateTimeInput tự convert LOCAL → UTC instant qua `new Date(y,m,d,hh,mm).toISOString()`
+                  // — không có phép cộng/trừ timezone offset thủ công nào nên không còn bug +7h).
+                  // Vì vậy KHÔNG cần toLocalIso() nữa — chỉ normalize cho all-day:
+                  //   - isAllDay=true → start snap về 00:00 LOCAL của ngày đó, end snap về 23:59 LOCAL.
+                  //   - isAllDay=false → giữ nguyên user pick.
+                  const snapAllDay = (iso: string, endOfDay: boolean): string => {
+                    const d = new Date(iso);
+                    if (endOfDay) d.setHours(23, 59, 0, 0);
+                    else d.setHours(0, 0, 0, 0);
+                    return d.toISOString();
+                  };
+                  let startIso: string = formIsAllDay ? snapAllDay(formStart, false) : formStart;
+                  let endIso: string = formIsAllDay ? snapAllDay(formEnd, true) : formEnd;
 
-                  try {
-                    const startStr = `${formStartDate}T${formIsAllDay ? '00:00:00' : formStartTime}:00`;
-                    const endStr = `${formEndDate}T${formIsAllDay ? '23:59:59' : formEndTime}:00`;
-                    startIso = new Date(startStr).toISOString();
-                    endIso = new Date(endStr).toISOString();
-
-                    if (new Date(endIso) < new Date(startIso)) {
-                      endIso = new Date(new Date(startIso).getTime() + 60 * 60 * 1000).toISOString();
-                    }
-                  } catch (err) {
-                    addToast('Lỗi định dạng ngày', 'Vui lòng kiểm tra lại thời gian bắt đầu và kết thúc.', 'danger');
-                    return;
+                  if (new Date(endIso) < new Date(startIso)) {
+                    // End nhỏ hơn Start → đẩy end lên +1 giờ (giữ nguyên LOCAL intent)
+                    const d = new Date(startIso);
+                    d.setHours(d.getHours() + 1);
+                    endIso = d.toISOString();
                   }
 
                   if (editingEventId) {
-                    const res = await updateCalendarEventApi(editingEventId, {
-                      id: editingEventId,
-                      title: formTitle.trim(),
-                      description: formDesc,
-                      eventType: formType,
-                      startDateTime: startIso,
-                      endDateTime: endIso,
-                      isAllDay: formIsAllDay,
-                      location: formLocation,
-                      participantUserIds: formParticipants,
-                      reminderOffsetsMinutes: formReminders.length ? formReminders : [30],
-                    });
+                    // Bugfix 06-09-2026: apiFetch returns raw `true` on success for update.
+                    try {
+                      const res = await updateCalendarEventApi(editingEventId, {
+                        id: editingEventId,
+                        title: formTitle.trim(),
+                        description: formDesc,
+                        eventType: formType,
+                        startDateTime: startIso,
+                        endDateTime: endIso,
+                        isAllDay: formIsAllDay,
+                        location: formLocation,
+                        participantUserIds: formParticipants,
+                        reminderOffsetsMinutes: (formReminders as number[]).length ? formReminders : [30],
+                      });
 
-                    if (res.success) {
-                      addToast('Thành công', 'Đã cập nhật sự kiện lịch!', 'success');
-                      setShowCreateEventModal(false);
-                      setEditingEventId(null);
-                      fetchEvents();
-                    } else {
-                      addToast('Lỗi', res.error || 'Không thể cập nhật sự kiện.', 'danger');
+                      const r: any = res;
+                      const isErr = r?.success === false || r?.error;
+                      if (!isErr) {
+                        addToast('Thành công', 'Đã cập nhật sự kiện lịch!', 'success');
+                        setShowCreateEventModal(false);
+                        setEditingEventId(null);
+                        fetchEvents();
+                      } else {
+                        addToast('Lỗi', r?.error || 'Không thể cập nhật sự kiện.', 'danger');
+                      }
+                    } catch (err: any) {
+                      addToast('Lỗi kết nối', err?.message || 'Không thể kết nối máy chủ. Vui lòng thử lại.', 'danger');
                     }
                   } else {
-                    const res = await createCalendarEventApi({
-                      title: formTitle.trim(),
-                      description: formDesc,
-                      eventType: formType,
-                      startDateTime: startIso,
-                      endDateTime: endIso,
-                      isAllDay: formIsAllDay,
-                      location: formLocation,
-                      participantUserIds: formParticipants,
-                      reminderOffsetsMinutes: formReminders.length ? formReminders : [30],
-                    });
+                    // Bugfix 06-09-2026: apiFetch returns bare Guid (not ApiResponse), so res.success is always undefined.
+                    // Wrapped in try/catch to also catch network/5xx errors that were previously silent.
+                    try {
+                      const res = await createCalendarEventApi({
+                        title: formTitle.trim(),
+                        description: formDesc,
+                        eventType: formType,
+                        startDateTime: startIso,
+                        endDateTime: endIso,
+                        isAllDay: formIsAllDay,
+                        location: formLocation,
+                        participantUserIds: formParticipants,
+                        reminderOffsetsMinutes: (formReminders as number[]).length ? formReminders : [30],
+                      });
 
-                    if (res.success) {
-                      addToast('Thành công', 'Đã khởi tạo sự kiện mới!', 'success');
-                      setShowCreateEventModal(false);
-                      resetEventForm();
-                      fetchEvents();
-                    } else {
-                      addToast('Lỗi', res.error || 'Không thể tạo sự kiện.', 'danger');
+                      // Bugfix 06-09-2026: apiFetch returns raw body on 2xx (bare Guid here),
+                      // {success:false,error} on error. Cast to any to bypass TS narrowing.
+                      const r: any = res;
+                      const isErr = r?.success === false || r?.error;
+                      const isOk =
+                        !isErr &&
+                        (typeof r === 'string'
+                          ? r.length > 0
+                          : r === undefined || r === null || r.id !== undefined || r.data !== undefined);
+                      if (isOk) {
+                        addToast('Thành công', 'Đã khởi tạo sự kiện mới!', 'success');
+                        setShowCreateEventModal(false);
+                        resetEventForm();
+                        fetchEvents();
+                      } else {
+                        addToast('Lỗi', r?.error || 'Không thể tạo sự kiện.', 'danger');
+                      }
+                    } catch (err: any) {
+                      addToast('Lỗi kết nối', err?.message || 'Không thể kết nối máy chủ. Vui lòng thử lại.', 'danger');
                     }
                   }
                 }}
@@ -2365,7 +2588,7 @@ export function GoogleCalendarView({
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.88rem', color: '#475569' }}>
               <div>
-                <strong>Thời gian:</strong> {new Date(selectedEvent.startDateTime).toLocaleString('vi-VN')} — {new Date(selectedEvent.endDateTime).toLocaleString('vi-VN')}
+                <strong>Thời gian:</strong> {formatDateTimeShort(selectedEvent.startDateTime)} — {formatDateTimeShort(selectedEvent.endDateTime)}
                 {selectedEvent.isAllDay && <span className="badge badge-secondary" style={{ marginLeft: 6 }}>Cả ngày</span>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -2426,11 +2649,20 @@ export function GoogleCalendarView({
                 style={{ color: '#dc2626' }}
                 onClick={async () => {
                   if (confirm(`Bạn có chắc chắn muốn xóa sự kiện: "${selectedEvent.title}"?`)) {
-                    const res = await deleteCalendarEventApi(selectedEvent.id);
-                    if (res.success) {
-                      addToast('Đã xóa', 'Sự kiện đã được xóa thành công.', 'success');
-                      setShowEventDetailModal(false);
-                      fetchEvents();
+                    try {
+                      const res = await deleteCalendarEventApi(selectedEvent.id);
+                      // Bugfix 06-09-2026: apiFetch returns raw `true`/`false` or `{success:false,...}` on error.
+                      const r: any = res;
+                      const isErr = r?.success === false || r?.error;
+                      if (!isErr) {
+                        addToast('Đã xóa', 'Sự kiện đã được xóa thành công.', 'success');
+                        setShowEventDetailModal(false);
+                        fetchEvents();
+                      } else {
+                        addToast('Lỗi', r?.error || 'Không thể xóa sự kiện.', 'danger');
+                      }
+                    } catch (err: any) {
+                      addToast('Lỗi kết nối', err?.message || 'Không thể kết nối máy chủ.', 'danger');
                     }
                   }
                 }}
@@ -2454,6 +2686,16 @@ export function GoogleCalendarView({
           </div>
         </div>
       )}
+      {/* 06-09-2026: Card-outline for form groups in event modal */}
+      <style>{`
+        .form-group-card {
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          padding: 12px 14px;
+          background: #ffffff;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        }
+      `}</style>
     </div>
   );
 }

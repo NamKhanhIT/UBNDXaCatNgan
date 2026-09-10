@@ -30,16 +30,35 @@ namespace Quanlycongviec.Application.Features.Inbox.Commands.ScheduleDocument
     public class ScheduleInboxDocumentCommandHandler : IRequestHandler<ScheduleInboxDocumentCommand, Guid>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService _taskAuthorization;
+        private readonly INotificationDispatcher? _notificationDispatcher;
 
-        public ScheduleInboxDocumentCommandHandler(IApplicationDbContext context)
+        public ScheduleInboxDocumentCommandHandler(
+            IApplicationDbContext context,
+            ITaskAuthorizationService taskAuthorization,
+            INotificationDispatcher? notificationDispatcher = null)
         {
             _context = context;
+            _taskAuthorization = taskAuthorization;
+            _notificationDispatcher = notificationDispatcher;
         }
 
         public async Task<Guid> Handle(ScheduleInboxDocumentCommand request, CancellationToken cancellationToken)
         {
-            var doc = await _context.InboxDocuments.FirstOrDefaultAsync(d => d.Id == request.DocumentId, cancellationToken);
+            var doc = await _context.InboxDocuments.FirstOrDefaultAsync(
+                d => d.Id == request.DocumentId && !d.IsDeleted,
+                cancellationToken);
             if (doc == null) throw new InvalidOperationException("Không tìm thấy công văn.");
+
+            var canAssign = await _taskAuthorization.CanAssignTaskAsync(
+                request.AssignerId,
+                request.AssigneeId,
+                doc.AiSuggestedDepartmentId,
+                cancellationToken);
+            if (!canAssign)
+            {
+                throw new UnauthorizedAccessException("Bạn không có thẩm quyền giao nhiệm vụ từ văn bản này.");
+            }
 
             var utcScheduledDate = request.ScheduledDate.Kind == DateTimeKind.Utc
                 ? request.ScheduledDate
@@ -55,7 +74,8 @@ namespace Quanlycongviec.Application.Features.Inbox.Commands.ScheduleDocument
                 Priority = doc.IsUrgent ? TaskPriority.Urgent : TaskPriority.Medium,
                 Status = TaskStatusEnum.Todo,
                 Type = TaskType.BAU,
-                EstimatedEffortHours = 8.0,
+                EstimatedEffortHours = 0.0,
+                Requirements = doc.AiObjectives,
                 DueDate = utcScheduledDate,
                 OCRText = $"VĂN BẢN CHỈ ĐẠO SỐ {doc.DocumentNumber}: {doc.Subject}"
             };
@@ -80,20 +100,25 @@ namespace Quanlycongviec.Application.Features.Inbox.Commands.ScheduleDocument
                 Details = $"Xếp lịch xử lý công văn số [{doc.DocumentNumber}] thành nhiệm vụ [{task.Title}]"
             });
 
-            // Notification cho Assignee
-            _context.Notifications.Add(new Notification
-            {
-                UserId = request.AssigneeId,
-                TaskItemId = task.Id,
-                Type = NotificationType.Assigned,
-                Channel = NotificationChannel.InApp,
-                Title = $"📅 Công văn mới đã được xếp lịch: {task.Title}",
-                Message = $"Công văn số [{doc.DocumentNumber}] đã được xếp lịch xử lý ngày {utcScheduledDate:dd/MM/yyyy}.",
-                SentAt = DateTime.UtcNow,
-                IsRead = false
-            });
-
             await _context.SaveChangesAsync(cancellationToken);
+
+            // Notification cho Assignee
+            if (_notificationDispatcher != null)
+            {
+                await _notificationDispatcher.DispatchAsync(new Notification
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = request.AssigneeId,
+                    TaskItemId = task.Id,
+                    Type = NotificationType.Assigned,
+                    Channel = NotificationChannel.InApp,
+                    Title = $"📅 Công văn mới đã được xếp lịch: {task.Title}",
+                    Message = $"Công văn số [{doc.DocumentNumber}] đã được xếp lịch xử lý ngày {utcScheduledDate:dd/MM/yyyy}.",
+                    SentAt = DateTime.UtcNow,
+                    IsRead = false
+                }, cancellationToken);
+            }
+
             return task.Id;
         }
     }

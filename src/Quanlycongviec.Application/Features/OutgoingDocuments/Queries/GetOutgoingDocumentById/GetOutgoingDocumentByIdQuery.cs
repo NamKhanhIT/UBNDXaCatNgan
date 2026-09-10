@@ -12,20 +12,33 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
     public class GetOutgoingDocumentByIdQuery : IRequest<OutgoingDocumentDto?>
     {
         public Guid Id { get; set; }
+        public Guid CurrentUserId { get; set; }
     }
 
     public class GetOutgoingDocumentByIdQueryHandler : IRequestHandler<GetOutgoingDocumentByIdQuery, OutgoingDocumentDto?>
     {
         private readonly IApplicationDbContext _context;
+        private readonly IDocumentAccessService _documentAccess;
 
-        public GetOutgoingDocumentByIdQueryHandler(IApplicationDbContext context)
+        public GetOutgoingDocumentByIdQueryHandler(
+            IApplicationDbContext context,
+            IDocumentAccessService documentAccess)
         {
             _context = context;
+            _documentAccess = documentAccess;
         }
 
         public async Task<OutgoingDocumentDto?> Handle(GetOutgoingDocumentByIdQuery request, CancellationToken cancellationToken)
         {
-            var doc = await _context.OutgoingDocuments.FirstOrDefaultAsync(o => o.Id == request.Id, cancellationToken);
+            if (!await _documentAccess.CanAccessDocumentAsync(
+                    request.CurrentUserId, request.Id, "Outgoing", cancellationToken))
+            {
+                return null;
+            }
+
+            var doc = await _context.OutgoingDocuments
+                .AsNoTracking()
+                .FirstOrDefaultAsync(o => o.Id == request.Id && !o.IsDeleted, cancellationToken);
             if (doc == null) return null;
 
             var draftedUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == doc.DraftedByUserId, cancellationToken);

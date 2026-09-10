@@ -50,15 +50,29 @@ namespace Quanlycongviec.Infrastructure.AI
             CancellationToken ct)
         {
             var departments = availableDepartments.ToList();
-            var departmentList = string.Join("\n", departments.Select(d => $"  - Id: \"{d.Id}\", Name: \"{d.Name}\""));
+            try
+            {
+                var departmentList = string.Join("\n", departments.Select(d => $"  - Id: \"{d.Id}\", Name: \"{d.Name}\""));
 
-            var systemPrompt = BuildAnalysisSystemPrompt(departmentList);
-            var userPrompt = $"Phân tích văn bản hành chính sau và trả về JSON:\n\n{extractedText}";
+                var systemPrompt = BuildAnalysisSystemPrompt(departmentList);
+                var userPrompt = $"Phân tích văn bản hành chính sau và trả về JSON:\n\n{extractedText}";
 
-            var responseJson = await CallApiAsync(systemPrompt, userPrompt, ct);
-            var result = ParseAnalysisResult(responseJson, departments);
-            ValidateAnalysisResult(result);
-            return result;
+                var responseJson = await CallApiAsync(systemPrompt, userPrompt, ct);
+                var result = ParseAnalysisResult(responseJson, departments);
+                ValidateAnalysisResult(result);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "API AI bên thứ ba không khả dụng ({Message}). Kích hoạt bộ phân tích dự phòng.", ex.Message);
+                return new DocumentAnalysisResult
+                {
+                    Category = DocumentCategory.Other,
+                    Title = (extractedText ?? "").Length > 120 ? (extractedText ?? "").Substring(0, 120) + "..." : extractedText,
+                    Summary = (extractedText ?? "").Length > 300 ? (extractedText ?? "").Substring(0, 300) + "..." : extractedText,
+                    Confidence = 0.5
+                };
+            }
         }
 
         public async Task<AssignmentSuggestion> SuggestAssignmentAsync(
@@ -67,31 +81,63 @@ namespace Quanlycongviec.Infrastructure.AI
             CancellationToken ct)
         {
             var candidateList = candidates.ToList();
-            var candidateInfo = string.Join("\n", candidateList.Select(c =>
+            if (!candidateList.Any())
             {
-                var expertise = string.IsNullOrWhiteSpace(c.Expertise) ? "chưa cập nhật" : c.Expertise;
-                var years = c.YearsOfExperience > 0 ? $"{c.YearsOfExperience} năm" : "chưa cập nhật";
-                return $"  - UserId: \"{c.UserId}\", Tên: \"{c.FullName}\", Phòng: \"{c.DepartmentName}\", " +
-                       $"Chuyên môn: {expertise}, Kinh nghiệm: {years}, " +
-                       $"Số việc đang làm: {c.ActiveTasksCount}, Tải việc: {c.WorkloadPercentage:F0}%";
-            }));
+                return new AssignmentSuggestion
+                {
+                    SuggestedUserId = Guid.Empty,
+                    SuggestedUserName = "Không có cán bộ",
+                    Reason = "Không tìm thấy cán bộ nào trong hệ thống để phân công.",
+                    Confidence = 0.0
+                };
+            }
 
-            var systemPrompt = BuildAssignmentSystemPrompt(candidateInfo);
-            var userPrompt = $"Mô tả công việc cần giao:\n\n{taskDescription}";
+            try
+            {
+                var candidateInfo = string.Join("\n", candidateList.Select(c =>
+                {
+                    var expertise = string.IsNullOrWhiteSpace(c.Expertise) ? "chưa cập nhật" : c.Expertise;
+                    var years = c.YearsOfExperience > 0 ? $"{c.YearsOfExperience} năm" : "chưa cập nhật";
+                    return $"  - UserId: \"{c.UserId}\", Tên: \"{c.FullName}\", Phòng: \"{c.DepartmentName}\", " +
+                           $"Chuyên môn: {expertise}, Kinh nghiệm: {years}, " +
+                           $"Số việc đang làm: {c.ActiveTasksCount}, Tải việc: {c.WorkloadPercentage:F0}%";
+                }));
 
-            var responseJson = await CallApiAsync(systemPrompt, userPrompt, ct);
-            return ParseAssignmentResult(responseJson, candidateList);
+                var systemPrompt = BuildAssignmentSystemPrompt(candidateInfo);
+                var userPrompt = $"Mô tả công việc cần giao:\n\n{taskDescription}";
+
+                var responseJson = await CallApiAsync(systemPrompt, userPrompt, ct);
+                return ParseAssignmentResult(responseJson, candidateList);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "API AI bên thứ ba không khả dụng ({Message}). Kích hoạt thuật toán dự phòng thông minh (Heuristic Fallback).", ex.Message);
+                return OllamaDocumentAiService.GenerateHeuristicAssignmentFallback(candidateList, taskDescription);
+            }
         }
 
         public async Task<List<ProgressChecklistItem>> SuggestProgressChecklistAsync(
             string taskDescription,
             CancellationToken ct)
         {
-            var systemPrompt = BuildChecklistSystemPrompt();
-            var userPrompt = $"Mô tả công việc:\n\n{taskDescription}";
+            try
+            {
+                var systemPrompt = BuildChecklistSystemPrompt();
+                var userPrompt = $"Mô tả công việc:\n\n{taskDescription}";
 
-            var responseJson = await CallApiAsync(systemPrompt, userPrompt, ct);
-            return ParseChecklistResult(responseJson);
+                var responseJson = await CallApiAsync(systemPrompt, userPrompt, ct);
+                return ParseChecklistResult(responseJson);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "API AI bên thứ ba không khả dụng ({Message}). Sử dụng checklist hành chính mặc định.", ex.Message);
+                return new List<ProgressChecklistItem>
+                {
+                    new() { Title = "Tiếp nhận hồ sơ / văn bản và nghiên cứu quy định hiện hành", Order = 1 },
+                    new() { Title = "Xử lý nghiệp vụ, soạn thảo văn bản hoặc phương án thực hiện", Order = 2 },
+                    new() { Title = "Trình lãnh đạo UBND xã phê duyệt kết quả thực hiện", Order = 3 }
+                };
+            }
         }
 
         #region OpenAI-Compatible HTTP

@@ -11,20 +11,30 @@ interface AiRoutingActionModalProps {
 }
 
 export function AiRoutingActionModal({ report, routeType, onConfirm, onClose }: AiRoutingActionModalProps) {
+  const startDt = report.eventDetails?.value?.startDateTime || '';
+  const endDt = report.eventDetails?.value?.endDateTime || '';
+  const initialDate = startDt.includes('T') ? startDt.split('T')[0] : '';
+  const initialStartTime = startDt.includes('T') ? startDt.split('T')[1].substring(0, 5) : '';
+  const initialEndTime = endDt.includes('T') ? endDt.split('T')[1].substring(0, 5) : '';
+
   // Meeting form state
-  const [meetingTitle, setMeetingTitle] = useState(report.summary.value || 'Họp triển khai công tác');
-  const [meetingDate, setMeetingDate] = useState('2026-08-23');
-  const [meetingStartTime, setMeetingStartTime] = useState('08:00');
-  const [meetingEndTime, setMeetingEndTime] = useState('11:30');
+  const [meetingTitle, setMeetingTitle] = useState(report.summary.value || '');
+  const [meetingDate, setMeetingDate] = useState(initialDate);
+  const [meetingStartTime, setMeetingStartTime] = useState(initialStartTime);
+  const [meetingEndTime, setMeetingEndTime] = useState(initialEndTime);
   const [meetingLocation, setMeetingLocation] = useState(
-    report.eventDetails?.value?.location || 'Hội trường UBND Cấp Xã'
+    report.eventDetails?.value?.location || ''
   );
   const [meetingAttendees, setMeetingAttendees] = useState(
-    report.eventDetails?.value?.attendees || 'Chủ tịch UBND xã, Công chức Địa chính, Văn phòng'
+    report.eventDetails?.value?.attendees || ''
   );
 
   // Report submission form state
-  const [reportNote, setReportNote] = useState('Kính trình Lãnh đạo UBND xã xem xét báo cáo công tác.');
+  const [reportNote, setReportNote] = useState(
+    report.summary.value
+      ? `Kính trình Lãnh đạo UBND xã xem xét: ${report.summary.value}`
+      : 'Kính trình Lãnh đạo UBND xã xem xét báo cáo công tác.'
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

@@ -76,7 +76,11 @@ namespace Quanlycongviec.Api.Controllers
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(Guid id)
         {
-            var doc = await _mediator.Send(new GetOutgoingDocumentByIdQuery { Id = id });
+            var doc = await _mediator.Send(new GetOutgoingDocumentByIdQuery
+            {
+                Id = id,
+                CurrentUserId = GetCurrentUserId()
+            });
             if (doc == null) return NotFound(new { success = false, error = "Không tìm thấy văn bản đi." });
             return Ok(new { success = true, data = doc });
         }
@@ -87,9 +91,10 @@ namespace Quanlycongviec.Api.Controllers
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateOutgoingDocumentCommand command)
         {
+            command.DraftedByUserId = GetCurrentUserId();
             if (command.DraftedByUserId == Guid.Empty)
             {
-                command.DraftedByUserId = GetCurrentUserId();
+                return Unauthorized(new { success = false, message = "Phiên làm việc không hợp lệ." });
             }
 
             var docId = await _mediator.Send(command);

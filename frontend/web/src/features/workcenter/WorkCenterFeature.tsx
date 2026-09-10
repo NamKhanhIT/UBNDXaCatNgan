@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '../auth/AuthContext';
 import { usePermission } from '../../hooks/use-permission';
-import { getTasksApi, TaskItemDto } from '../../services/task.service';
+import { getTasksApi, getTaskDetailApi, TaskItemDto } from '../../services/task.service';
 import { getInboxDocumentsApi, InboxDocumentDto } from '../../services/inbox.service';
 import { getOutgoingDocumentsApi, OutgoingDocumentDto } from '../../services/outgoing-document.service';
 import { useToast } from '../../components/ui/ToastContext';
@@ -12,10 +12,11 @@ import { formatDateShort } from '../../lib/formatters';
 import { useSignalREvent } from '../../hooks/use-signalr';
 import { TaskDetailDrawer } from './components/TaskDetailDrawer';
 import { CreateTaskModal } from './components/CreateTaskModal';
+import { Pagination } from '../../components/common/Pagination';
+import { useDebounce } from '../../hooks/useDebounce';
 
 export type WorkCenterTab =
-  | 'all'
-  | 'tasks'
+  | 'today'
   | 'documents'
   | 'action_needed'
   | 'pending_review'
@@ -30,17 +31,28 @@ export function WorkCenterFeature() {
   const { can } = usePermission();
   const { addToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<WorkCenterTab>('all');
+  const [activeTab, setActiveTab] = useState<WorkCenterTab>('today');
   const [tasks, setTasks] = useState<TaskItemDto[]>([]);
   const [inboxDocs, setInboxDocs] = useState<InboxDocumentDto[]>([]);
   const [outgoingDocs, setOutgoingDocs] = useState<OutgoingDocumentDto[]>([]);
+  const [taskTotalCount, setTaskTotalCount] = useState(0);
+  const [inboxTotalCount, setInboxTotalCount] = useState(0);
+  const [outgoingTotalCount, setOutgoingTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Filter, Search & Pagination
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const debouncedSearch = useDebounce(searchQuery, 300);
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  // Audit 04-09-2026: Nâng cấp search — chọn trường nào trong DB sẽ được khớp.
+  const [searchField, setSearchField] = useState<'all' | 'title' | 'description' | 'assignee' | 'documentNumber'>('all');
+  // Audit 04-09-2026: Phạm vi dữ liệu (Hệ thống / Phòng ban tôi / Chỉ tôi). Mặc định 'mine'.
+  const [scope, setScope] = useState<'system' | 'department' | 'mine'>('mine');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
+
+  // Bộ nhớ đệm Client cho danh sách nhiệm vụ
+  const taskCacheRef = React.useRef<Map<string, { items: TaskItemDto[]; totalCount: number }>>(new Map());
 
   // Modals & Drawer State
   const [selectedTask, setSelectedTask] = useState<TaskItemDto | null>(null);
@@ -48,35 +60,109 @@ export function WorkCenterFeature() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [activeTab, searchQuery, priorityFilter]);
+  }, [activeTab, debouncedSearch, priorityFilter, searchField, scope]);
 
   useEffect(() => {
     if (urlTab) {
-      if (urlTab === 'today' || urlTab === 'tasks') setActiveTab('tasks');
+      // Audit 04-09-2026: "today" thay thế "all"/"tasks" là tab mặc định.
+      if (urlTab === 'today' || urlTab === 'tasks' || urlTab === 'all') setActiveTab('today');
       else if (urlTab === 'incoming' || urlTab === 'scheduled' || urlTab === 'documents') setActiveTab('documents');
       else if (urlTab === 'pending_review') setActiveTab('pending_review');
       else if (urlTab === 'completed') setActiveTab('completed');
+      else if (urlTab === 'action_needed') setActiveTab('action_needed');
+      else if (urlTab === 'sent') setActiveTab('sent');
     }
   }, [urlTab]);
+
+  const serverStatus =
+    activeTab === 'action_needed' ? 'InProgress'
+    : activeTab === 'pending_review' ? 'InReview'
+    : activeTab === 'completed' ? 'Completed'
+    : undefined;
+
+  const [tabCounts, setTabCounts] = useState<{
+    today: number;
+    actionNeeded: number;
+    pendingReview: number;
+    completed: number;
+  }>({
+    today: 0,
+    actionNeeded: 0,
+    pendingReview: 0,
+    completed: 0,
+  });
+
+  const loadTabCounts = useCallback(async () => {
+    try {
+      // Audit 04-09-2026: "Hôm Nay" thay thế "Tất Cả" + "Công Việc".
+      const [todayRes, actionRes, reviewRes, doneRes] = await Promise.all([
+        getTasksApi({ pageSize: 1, todayOnly: true }),
+        getTasksApi({ pageSize: 1, status: 'InProgress' }),
+        getTasksApi({ pageSize: 1, status: 'InReview' }),
+        getTasksApi({ pageSize: 1, status: 'Completed' }),
+      ]);
+      setTabCounts({
+        today: todayRes.success ? todayRes.data?.totalCount ?? 0 : 0,
+        actionNeeded: actionRes.success ? actionRes.data?.totalCount ?? 0 : 0,
+        pendingReview: reviewRes.success ? reviewRes.data?.totalCount ?? 0 : 0,
+        completed: doneRes.success ? doneRes.data?.totalCount ?? 0 : 0,
+      });
+    } catch (err) {
+      console.warn('Lỗi tải số lượng tab:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTabCounts();
+  }, [loadTabCounts, activeRole]);
 
   useEffect(() => {
     async function loadWorkspaceData() {
       try {
         setIsLoading(true);
-        const [taskRes, inboxRes, outRes] = await Promise.all([
-          getTasksApi({ page: 1, pageSize: 100 }),
-          getInboxDocumentsApi({ page: 1, pageSize: 100 }),
-          getOutgoingDocumentsApi({ page: 1, pageSize: 100 }),
-        ]);
 
-        if (taskRes.success && taskRes.data?.items) {
-          setTasks(taskRes.data.items);
-        }
-        if (inboxRes.success && inboxRes.data?.items) {
-          setInboxDocs(inboxRes.data.items);
-        }
-        if (outRes.success && outRes.data?.items) {
-          setOutgoingDocs(outRes.data.items);
+        if (activeTab === 'documents') {
+          const [inboxRes, outRes] = await Promise.all([
+            getInboxDocumentsApi({ page: currentPage, pageSize, search: debouncedSearch.trim() || undefined }),
+            getOutgoingDocumentsApi({ page: currentPage, pageSize, search: debouncedSearch.trim() || undefined }),
+          ]);
+
+          if (inboxRes.success && inboxRes.data?.items) {
+            setInboxDocs(inboxRes.data.items);
+            setInboxTotalCount(inboxRes.data.totalCount);
+          }
+          if (outRes.success && outRes.data?.items) {
+            setOutgoingDocs(outRes.data.items);
+            setOutgoingTotalCount(outRes.data.totalCount);
+          }
+        } else {
+          const isToday = activeTab === 'today';
+          const cacheKey = `${activeRole}_${activeTab}_${serverStatus}_${debouncedSearch}_${priorityFilter}_${searchField}_${scope}_${currentPage}_${pageSize}_${isToday}`;
+          if (taskCacheRef.current.has(cacheKey)) {
+            const cached = taskCacheRef.current.get(cacheKey)!;
+            setTasks(cached.items);
+            setTaskTotalCount(cached.totalCount);
+          }
+
+          const taskRes = await getTasksApi({
+            page: currentPage,
+            pageSize,
+            status: serverStatus,
+            q: debouncedSearch.trim() || undefined,
+            priority: priorityFilter !== 'all' ? priorityFilter : undefined,
+            todayOnly: isToday,
+            searchField: searchField === 'all' ? undefined : searchField,
+            scope,
+          });
+
+          if (taskRes.success && taskRes.data?.items) {
+            setTasks(taskRes.data.items);
+            setTaskTotalCount(taskRes.data.totalCount);
+            taskCacheRef.current.set(cacheKey, {
+              items: taskRes.data.items,
+              totalCount: taskRes.data.totalCount,
+            });
+          }
         }
       } catch (err) {
         console.warn('Lỗi tải dữ liệu WorkCenter:', err);
@@ -86,7 +172,7 @@ export function WorkCenterFeature() {
     }
 
     loadWorkspaceData();
-  }, [activeRole]);
+  }, [activeRole, activeTab, currentPage, pageSize, debouncedSearch, priorityFilter, serverStatus]);
 
   // Lắng nghe sự kiện SignalR Realtime
   useSignalREvent('TaskAssigned', (data: any) => {
@@ -106,10 +192,10 @@ export function WorkCenterFeature() {
           assigneeName: data.assigneeName || 'Chuyên viên',
           departmentName: data.departmentName || 'UBND Xã',
           type: data.type || 'Administrative',
-          estimatedEffortHours: data.estimatedEffortHours || 8,
+          estimatedEffortHours: data.estimatedEffortHours ?? 0,
           dueDate: data.dueDate || new Date().toISOString(),
-          priority: data.priority || 'Cao',
-          status: 'Dang_Xu_Ly',
+          priority: data.priority || 'Medium',
+          status: 'InProgress',
           progressPercentage: 0,
           isEscalated: false,
           createdAt: new Date().toISOString(),
@@ -147,7 +233,7 @@ export function WorkCenterFeature() {
           t.id === data.taskId
             ? {
                 ...t,
-                status: 'Hoan_Thanh',
+                status: 'Completed',
                 ratingScore: data.ratingScore ?? t.ratingScore,
                 progressPercentage: 100,
               }
@@ -161,76 +247,55 @@ export function WorkCenterFeature() {
   useSignalREvent('ReportRejected', (data: any) => {
     if (data?.taskId) {
       setTasks(prev =>
-        prev.map(t => (t.id === data.taskId ? { ...t, status: 'Tu_Choi' } : t))
+        prev.map(t => (t.id === data.taskId ? { ...t, status: 'InProgress' } : t))
       );
       addToast('Yêu cầu chỉnh sửa', `Báo cáo nhiệm vụ cần được bổ sung theo ý kiến lãnh đạo.`, 'warning');
     }
   });
 
   // Tab counts
-  const tasksCount = tasks.length;
-  const docsCount = inboxDocs.length + outgoingDocs.length;
-  const actionNeededCount = tasks.filter(t => t.status === 'Dang_Xu_Ly' || t.status === 'Chua_Lam').length;
-  const pendingReviewCount = tasks.filter(t => t.status === 'Cho_Duyet').length + outgoingDocs.filter(d => d.status === 'PendingSignature').length;
-  const sentCount = outgoingDocs.filter(d => d.status === 'Issued' || d.status === 'Sent').length;
-  const completedCount = tasks.filter(t => t.status === 'Hoan_Thanh').length;
+  const tasksCount = tabCounts.today;
+  const docsCount = inboxTotalCount + outgoingTotalCount;
+  const actionNeededCount = tabCounts.actionNeeded;
+  const pendingReviewCount = tabCounts.pendingReview;
+  const sentCount = outgoingTotalCount;
+  const completedCount = tabCounts.completed;
 
   // Filtered lists
-  const filteredTasks = useMemo(() => {
-    return tasks.filter(t => {
-      if (activeTab === 'action_needed' && t.status !== 'Dang_Xu_Ly' && t.status !== 'Chua_Lam' && t.status !== 'Tu_Choi') return false;
-      if (activeTab === 'pending_review' && t.status !== 'Cho_Duyet') return false;
-      if (activeTab === 'completed' && t.status !== 'Hoan_Thanh') return false;
-      if (priorityFilter !== 'all' && t.priority !== priorityFilter) return false;
+  const filteredTasks = useMemo(() => tasks, [tasks]);
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        return (
-          t.title.toLowerCase().includes(q) ||
-          (t.description && t.description.toLowerCase().includes(q)) ||
-          (t.assigneeName && t.assigneeName.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
-  }, [tasks, activeTab, priorityFilter, searchQuery]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredTasks.length / pageSize));
-
-  const paginatedTasks = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filteredTasks.slice(start, start + pageSize);
-  }, [filteredTasks, currentPage, pageSize]);
+  const paginatedTasks = filteredTasks;
 
   const handleTaskUpdated = (updated: TaskItemDto) => {
     setTasks(prev => prev.map(t => (t.id === updated.id ? updated : t)));
     setSelectedTask(updated);
   };
 
+  const handleOpenTask = async (task: TaskItemDto) => {
+    try {
+      const response = await getTaskDetailApi(task.id);
+      if (response.success && response.data) {
+        setSelectedTask(response.data);
+      } else {
+        addToast('Không thể mở nhiệm vụ', response.error || 'Nhiệm vụ không còn trong phạm vi truy cập.', 'warning');
+      }
+    } catch (error: any) {
+      addToast('Không thể mở nhiệm vụ', error?.message || 'Đã xảy ra lỗi khi tải chi tiết nhiệm vụ.', 'danger');
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* ── 1. UNIFIED WORKSPACE 7 TABS ── */}
       <div className="dept-sub-tabs" role="tablist" aria-label="Trung tâm điều hành tác nghiệp">
         <button
           type="button"
           role="tab"
-          aria-selected={activeTab === 'all'}
-          className={`dept-sub-tab ${activeTab === 'all' ? 'active' : ''}`}
-          onClick={() => setActiveTab('all')}
+          aria-selected={activeTab === 'today'}
+          className={`dept-sub-tab ${activeTab === 'today' ? 'active' : ''}`}
+          onClick={() => setActiveTab('today')}
         >
-          <i className="fa-solid fa-layer-group" style={{ fontSize: 13 }} aria-hidden="true" />
-          <span>Tất Cả ({tasksCount + docsCount})</span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'tasks'}
-          className={`dept-sub-tab ${activeTab === 'tasks' ? 'active' : ''}`}
-          onClick={() => setActiveTab('tasks')}
-        >
-          <i className="fa-solid fa-list-check" style={{ fontSize: 13 }} aria-hidden="true" />
-          <span>Công Việc ({tasksCount})</span>
+          <i className="fa-solid fa-calendar-day" style={{ fontSize: 13, color: '#2563eb' }} aria-hidden="true" />
+          <span>Hôm Nay ({tasksCount})</span>
         </button>
 
         <button
@@ -328,6 +393,7 @@ export function WorkCenterFeature() {
             style={{ width: 'auto', fontSize: '0.82rem', height: 36 }}
             value={priorityFilter}
             onChange={e => setPriorityFilter(e.target.value)}
+            aria-label="Lọc theo độ ưu tiên"
           >
             <option value="all">Mọi độ ưu tiên</option>
             <option value="Khan">🔴 Khẩn cấp</option>
@@ -335,13 +401,47 @@ export function WorkCenterFeature() {
             <option value="Binh_Thuong">🔵 Thường</option>
           </select>
 
-          {(searchQuery.trim() !== '' || priorityFilter !== 'all') && (
+          {/* Audit 04-09-2026: chọn trường để tìm kiếm */}
+          <select
+            className="form-select"
+            style={{ width: 'auto', fontSize: '0.82rem', height: 36 }}
+            value={searchField}
+            onChange={e => setSearchField(e.target.value as typeof searchField)}
+            aria-label="Trường tìm kiếm"
+            title="Trường dữ liệu được tìm"
+          >
+            <option value="all">Tìm: Tất cả</option>
+            <option value="title">Tìm: Tiêu đề</option>
+            <option value="description">Tìm: Trích yếu</option>
+            <option value="assignee">Tìm: Cán bộ</option>
+            <option value="documentNumber">Tìm: Số hiệu</option>
+          </select>
+
+          {/* Audit 04-09-2026: Lãnh đạo có thể mở rộng phạm vi — chỉ khi user có quyền ViewDepartmentDashboard */}
+          {can('ViewDepartmentDashboard') && (
+            <select
+              className="form-select"
+              style={{ width: 'auto', fontSize: '0.82rem', height: 36 }}
+              value={scope}
+              onChange={e => setScope(e.target.value as typeof scope)}
+              aria-label="Phạm vi dữ liệu"
+              title="Phạm vi dữ liệu (Hệ thống / Phòng ban tôi / Chỉ tôi)"
+            >
+              <option value="mine">Chỉ tôi</option>
+              <option value="department">Phòng ban tôi</option>
+              <option value="system">Toàn hệ thống</option>
+            </select>
+          )}
+
+          {(searchQuery.trim() !== '' || priorityFilter !== 'all' || searchField !== 'all' || (can('ViewDepartmentDashboard') && scope !== 'mine')) && (
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={() => {
                 setSearchQuery('');
                 setPriorityFilter('all');
+                setSearchField('all');
+                if (can('ViewDepartmentDashboard')) setScope('mine');
                 addToast('Đã xóa bộ lọc', 'Danh sách đã được đặt lại về trạng thái mặc định.', 'info');
               }}
               style={{ color: '#dc2626', fontWeight: 700, height: 36, display: 'flex', alignItems: 'center', gap: 6 }}
@@ -371,10 +471,8 @@ export function WorkCenterFeature() {
           <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             <i className="fa-solid fa-table-list" style={{ color: '#2563eb' }} aria-hidden="true" />
             <span>
-              {activeTab === 'all'
-                ? 'Không Gian Làm Việc Hợp Nhất'
-                : activeTab === 'tasks'
-                ? 'Danh Sách Nhiệm Vụ Công Vụ'
+              {activeTab === 'today'
+                ? 'Hôm Nay — nhiệm vụ hết hạn hoặc do bạn giao/nhận'
                 : activeTab === 'documents'
                 ? 'Sổ Văn Bản Đến & Văn Bản Đi'
                 : activeTab === 'pending_review'
@@ -386,11 +484,11 @@ export function WorkCenterFeature() {
                 : 'Lưu Trữ Nhiệm Vụ Đã Nghiệm Thu Hoàn Thành'}
             </span>
           </h2>
-          <span className="badge badge-blue">{filteredTasks.length} mục</span>
+          <span className="badge badge-blue">{activeTab === 'documents' ? (inboxTotalCount + outgoingTotalCount) : taskTotalCount} mục</span>
         </div>
 
         <div className="card-body" style={{ padding: 0 }}>
-          {filteredTasks.length === 0 && activeTab !== 'documents' ? (
+          {paginatedTasks.length === 0 && activeTab !== 'documents' ? (
             <div style={{ padding: 36, textAlign: 'center', color: '#94a3b8', fontSize: '0.88rem' }}>
               Không có dữ liệu phù hợp với tab và bộ lọc hiện tại.
             </div>
@@ -409,8 +507,8 @@ export function WorkCenterFeature() {
                 </thead>
                 <tbody>
                   {paginatedTasks.map(task => {
-                    const isDone = task.status === 'Hoan_Thanh';
-                    const isPending = task.status === 'Cho_Duyet';
+                    const isDone = task.status === 'Completed' || task.status === 'Hoan_Thanh';
+                    const isPending = task.status === 'InReview' || task.status === 'Cho_Duyet';
                     const isOver = !isDone && task.dueDate && new Date(task.dueDate).getTime() < Date.now();
                     const isUrgent = task.priority === 'Khan' || task.priority === 'Urgent';
                     const isHigh = task.priority === 'Cao' || task.priority === 'High';
@@ -419,7 +517,7 @@ export function WorkCenterFeature() {
                       <tr
                         key={task.id}
                         style={{ cursor: 'pointer', transition: 'background 0.15s' }}
-                        onClick={() => setSelectedTask(task)}
+                        onClick={() => { void handleOpenTask(task); }}
                       >
                         <td>
                           <div style={{ fontWeight: 800, color: '#0f172a', marginBottom: 2 }}>{task.title}</div>
@@ -490,77 +588,16 @@ export function WorkCenterFeature() {
           )}
 
           {/* ── Phân trang WorkCenter ── */}
-          {filteredTasks.length > 0 && (
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '12px 16px',
-                borderTop: '1px solid #e2e8f0',
-                gap: 10,
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: '0.82rem', color: '#64748b' }}>
-                <span>
-                  Hiển thị <strong>{(currentPage - 1) * pageSize + 1}</strong> - <strong>{Math.min(currentPage * pageSize, filteredTasks.length)}</strong> trong tổng số <strong>{filteredTasks.length}</strong> mục
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>Số dòng:</span>
-                  <select
-                    className="form-select"
-                    style={{ width: 'auto', padding: '2px 8px', height: 30, fontSize: '0.8rem' }}
-                    value={pageSize}
-                    onChange={e => {
-                      setPageSize(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                  >
-                    <option value={5}>5 / trang</option>
-                    <option value={10}>10 / trang</option>
-                    <option value={20}>20 / trang</option>
-                    <option value={50}>50 / trang</option>
-                  </select>
-                </div>
-              </div>
-
-              {totalPages > 1 && (
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    style={{ height: 32, padding: '0 10px', fontSize: '0.8rem', fontWeight: 600 }}
-                  >
-                    <i className="fa-solid fa-chevron-left" style={{ marginRight: 4 }} />
-                    Trước
-                  </button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                    <button
-                      key={p}
-                      type="button"
-                      className={`btn btn-sm ${p === currentPage ? 'btn-primary' : 'btn-ghost'}`}
-                      onClick={() => setCurrentPage(p)}
-                      style={{ height: 32, minWidth: 32, padding: '0 8px', fontSize: '0.8rem', fontWeight: p === currentPage ? 800 : 600 }}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                    style={{ height: 32, padding: '0 10px', fontSize: '0.8rem', fontWeight: 600 }}
-                  >
-                    Sau
-                    <i className="fa-solid fa-chevron-right" style={{ marginLeft: 4 }} />
-                  </button>
-                </div>
-              )}
-            </div>
+          {(activeTab === 'documents' ? inboxTotalCount + outgoingTotalCount : taskTotalCount) > 0 && (
+            <Pagination
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalCount={activeTab === 'documents' ? inboxTotalCount + outgoingTotalCount : taskTotalCount}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+              pageSizeOptions={[5, 10, 20, 50]}
+              itemName={activeTab === 'documents' ? 'văn bản' : 'nhiệm vụ'}
+            />
           )}
         </div>
       </div>

@@ -1,7 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TaskItemDto, updateTaskStatusApi } from '../../../services/task.service';
+import {
+  uploadFileApi,
+  getDocumentAttachmentsApi,
+  getFileViewUrl,
+  getFileDownloadUrl,
+  DocumentAttachmentDto,
+} from '../../../services/files.service';
 import { useAuth } from '../../auth/AuthContext';
 import { usePermission } from '../../../hooks/use-permission';
 import { useToast } from '../../../components/ui/ToastContext';
@@ -18,16 +25,41 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
   const { can } = usePermission();
   const { addToast } = useToast();
 
+  // Attachments State
+  const [attachments, setAttachments] = useState<DocumentAttachmentDto[]>([]);
+  const [isLoadingAttachments, setIsLoadingAttachments] = useState<boolean>(false);
+
   // Submission Form State
   const [submissionNote, setSubmissionNote] = useState<string>(task?.submissionNote || '');
   const [attachmentFileName, setAttachmentFileName] = useState<string>('');
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Approval Form State
-  const [evaluatorScore, setEvaluatorScore] = useState<number>(task?.ratingScore || 8.5);
+  const [evaluatorScore, setEvaluatorScore] = useState<number>(task?.evaluatorScore ?? 0);
   const [approvalNote, setApprovalNote] = useState<string>('');
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isRejecting, setIsRejecting] = useState<boolean>(false);
+
+  const loadAttachments = async (taskId: string) => {
+    setIsLoadingAttachments(true);
+    try {
+      const res = await getDocumentAttachmentsApi(taskId, 'Task');
+      if (res.success && res.data) {
+        setAttachments(res.data);
+      }
+    } catch {
+      // Ignore background load error
+    } finally {
+      setIsLoadingAttachments(false);
+    }
+  };
+
+  useEffect(() => {
+    if (task?.id) {
+      loadAttachments(task.id);
+    }
+  }, [task?.id]);
 
   if (!task) return null;
 
@@ -44,18 +76,27 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
 
     try {
       setIsSubmitting(true);
+      if (attachmentFile) {
+        const upload = await uploadFileApi(attachmentFile, task.id, 'Task', 'Result');
+        if (!upload.success) {
+          throw new Error(upload.error || 'Không thể tải tệp kết quả lên máy chủ.');
+        }
+      }
       const res = await updateTaskStatusApi(task.id, {
-        status: 'Cho_Duyet',
+        status: 'InReview',
         submissionNote: submissionNote.trim(),
       });
 
       if (res.success) {
         addToast('Nộp thành công', 'Báo cáo kết quả đã được chuyển tới Lãnh đạo phê duyệt', 'success');
+        setAttachmentFile(null);
+        setAttachmentFileName('');
+        await loadAttachments(task.id);
         onTaskUpdated({
           ...task,
-          status: 'Cho_Duyet',
+          status: 'InReview',
           submissionNote: submissionNote.trim(),
-          progressPercentage: 90,
+          progressPercentage: task.progressPercentage,
         });
       } else {
         addToast('Lỗi', res.error || 'Không thể nộp báo cáo kết quả', 'danger');
@@ -69,20 +110,26 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
 
   // Xử lý phê duyệt kết quả & chấm điểm ngay trong task
   const handleApproveWork = async () => {
+    if (!Number.isFinite(evaluatorScore) || evaluatorScore < 0 || evaluatorScore > 7) {
+      addToast('Invalid score', 'Evaluator score must be between 0 and 7.', 'warning');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const res = await updateTaskStatusApi(task.id, {
-        status: 'Hoan_Thanh',
-        ratingScore: evaluatorScore,
-        submissionNote: approvalNote.trim() ? `${task.submissionNote || ''}\n[Lãnh đạo phê duyệt]: ${approvalNote.trim()}` : task.submissionNote,
+        status: 'Completed',
+        evaluatorScore,
+        submissionNote: task.submissionNote,
       });
 
       if (res.success) {
         addToast('Phê duyệt thành công', `Đã nghiệm thu nhiệm vụ với điểm đánh giá: ${evaluatorScore}/10.0`, 'success');
         onTaskUpdated({
           ...task,
-          status: 'Hoan_Thanh',
-          ratingScore: evaluatorScore,
+          status: 'Completed',
+          evaluatorScore,
+          ratingScore: undefined,
           progressPercentage: 100,
           completedAt: new Date().toISOString(),
         });
@@ -106,7 +153,7 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
     try {
       setIsSubmitting(true);
       const res = await updateTaskStatusApi(task.id, {
-        status: 'Tu_Choi',
+        status: 'InProgress',
         rejectionReason: rejectionReason.trim(),
       });
 
@@ -114,7 +161,7 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
         addToast('Đã trả lại', 'Đã chuyển yêu cầu chỉnh sửa cho cán bộ thực hiện', 'info');
         onTaskUpdated({
           ...task,
-          status: 'Tu_Choi',
+          status: 'InProgress',
           rejectionReason: rejectionReason.trim(),
           progressPercentage: 50,
         });
@@ -172,23 +219,23 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span
               className={`badge ${
-                task.status === 'Hoan_Thanh'
+                task.status === 'Completed' || task.status === 'Hoan_Thanh'
                   ? 'badge-success'
-                  : task.status === 'Cho_Duyet'
+                  : task.status === 'InReview' || task.status === 'Cho_Duyet'
                   ? 'badge-warning'
-                  : task.status === 'Tu_Choi'
+                  : task.status === 'Cancelled' || task.status === 'Tu_Choi'
                   ? 'badge-danger'
                   : 'badge-blue'
               }`}
               style={{ fontSize: '0.76rem', padding: '3px 8px' }}
             >
-              {task.status === 'Hoan_Thanh'
+              {task.status === 'Completed' || task.status === 'Hoan_Thanh'
                 ? '✓ Đã hoàn thành'
-                : task.status === 'Cho_Duyet'
+                : task.status === 'InReview' || task.status === 'Cho_Duyet'
                 ? '⏳ Chờ phê duyệt'
-                : task.status === 'Tu_Choi'
+                : task.status === 'Cancelled' || task.status === 'Tu_Choi'
                 ? '⚠️ Cần sửa đổi'
-                : task.status === 'Dang_Xu_Ly'
+                : task.status === 'InProgress' || task.status === 'Dang_Xu_Ly'
                 ? '▶ Đang thực hiện'
                 : '○ Chưa bắt đầu'}
             </span>
@@ -217,6 +264,16 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
             <p style={{ fontSize: '0.88rem', color: '#334155', lineHeight: 1.5, margin: 0 }}>
               {task.description || 'Không có mô tả chi tiết.'}
             </p>
+            {task.requirements && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#64748b', marginBottom: 4 }}>
+                  Yêu cầu / kết quả cần đạt
+                </div>
+                <div style={{ fontSize: '0.88rem', color: '#1e293b', lineHeight: 1.5 }}>
+                  {task.requirements}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Bảng Metadata nhiệm vụ */}
@@ -253,9 +310,93 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
           </div>
 
           {/* ══════════════════════════════════════════════════════════════
-              1. KHỐI NỘP BÁO CÁO KẾT QUẢ (INLINE SUBMISSION — QUY TẮC 1)
+              TỆP ĐÍNH KÈM & HỒ SƠ KẾT QUẢ (TASK ATTACHMENTS)
               ══════════════════════════════════════════════════════════════ */}
-          {(task.status === 'Chua_Lam' || task.status === 'Dang_Xu_Ly' || task.status === 'Tu_Choi') && (
+          <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <i className="fa-solid fa-paperclip" style={{ color: '#2563eb', fontSize: 15 }} aria-hidden="true" />
+                <h4 style={{ fontSize: '0.88rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
+                  Tệp đính kèm & Hồ sơ kết quả ({attachments.length})
+                </h4>
+              </div>
+              {isLoadingAttachments && (
+                <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Đang tải...</span>
+              )}
+            </div>
+
+            {attachments.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {attachments.map(att => (
+                  <div
+                    key={att.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: '#ffffff',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      border: '1px solid #e2e8f0',
+                      fontSize: '0.82rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                      <i
+                        className={
+                          att.fileType.toLowerCase() === 'pdf'
+                            ? 'fa-solid fa-file-pdf text-red-600'
+                            : ['doc', 'docx'].includes(att.fileType.toLowerCase())
+                            ? 'fa-solid fa-file-word text-blue-600'
+                            : 'fa-solid fa-file text-slate-500'
+                        }
+                        style={{ fontSize: 16 }}
+                        aria-hidden="true"
+                      />
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontWeight: 600, color: '#0f172a' }}>{att.originalFileName}</div>
+                        <div style={{ fontSize: '0.72rem', color: '#64748b' }}>
+                          {Math.round(att.fileSize / 1024)} KB • {formatDateTimeShort(att.uploadedAt)}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <a
+                        href={getFileViewUrl(att.id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn-outline btn-sm"
+                        style={{ padding: '2px 8px', fontSize: '0.74rem' }}
+                      >
+                        <i className="fa-solid fa-eye" style={{ marginRight: 4 }} aria-hidden="true" />
+                        Xem
+                      </a>
+                      <a
+                        href={getFileDownloadUrl(att.id)}
+                        download
+                        className="btn btn-outline btn-sm"
+                        style={{ padding: '2px 8px', fontSize: '0.74rem' }}
+                      >
+                        <i className="fa-solid fa-download" style={{ marginRight: 4 }} aria-hidden="true" />
+                        Tải
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>
+                Chưa có tệp tài liệu nào được đính kèm vào nhiệm vụ này.
+              </div>
+            )}
+          </div>
+
+          {/* ══════════════════════════════════════════════════════════════
+1. KHỐI NỘP BÁO CÁO KẾT QUẢ (INLINE SUBMISSION — QUY TẮC 1)
+               Audit 04-09-2026: KHỐI này chỉ hiển thị cho assignee — nếu caller là
+               assigner / leader không thực hiện thì ẩn hoàn toàn để không gây nhầm lẫn.
+               ══════════════════════════════════════════════════════════════ */}
+          {isAssignee && (['Todo', 'InProgress', 'Cancelled', 'Chua_Lam', 'Dang_Xu_Ly', 'Tu_Choi'].includes(task.status)) && (
             <div style={{ border: '1.5px solid #93c5fd', borderRadius: 10, padding: 16, background: '#eff6ff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <i className="fa-solid fa-paper-plane" style={{ color: '#2563eb', fontSize: 16 }} aria-hidden="true" />
@@ -297,7 +438,10 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
                       style={{ display: 'none' }}
                       onChange={e => {
                         const file = e.target.files?.[0];
-                        if (file) setAttachmentFileName(file.name);
+                        if (file) {
+                          setAttachmentFile(file);
+                          setAttachmentFileName(file.name);
+                        }
                       }}
                     />
                     <label
@@ -332,7 +476,7 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
           {/* ══════════════════════════════════════════════════════════════
               2. KHỐI PHÊ DUYỆT & CHẤM ĐIỂM (INLINE APPROVAL — QUY TẮC 2)
               ══════════════════════════════════════════════════════════════ */}
-          {task.status === 'Cho_Duyet' && (
+          {(task.status === 'InReview' || task.status === 'Cho_Duyet') && (
             <div style={{ border: '1.5px solid #c4b5fd', borderRadius: 10, padding: 16, background: '#f5f3ff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <i className="fa-solid fa-stamp" style={{ color: '#7c3aed', fontSize: 16 }} aria-hidden="true" />
@@ -361,7 +505,7 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
                       <input
                         type="range"
                         min="5.0"
-                        max="10.0"
+                        max="7.0"
                         step="0.5"
                         value={evaluatorScore}
                         onChange={e => setEvaluatorScore(parseFloat(e.target.value))}
@@ -506,7 +650,7 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
               )}
 
               {/* Event 3: Hoàn thành & Chấm điểm (nếu có) */}
-              {task.status === 'Hoan_Thanh' && (
+              {(task.status === 'Completed' || task.status === 'Hoan_Thanh') && (
                 <div style={{ position: 'relative' }}>
                   <span
                     style={{
@@ -521,7 +665,7 @@ export function TaskDetailDrawer({ task, onClose, onTaskUpdated }: TaskDetailDra
                     }}
                   />
                   <div style={{ fontWeight: 700, fontSize: '0.84rem', color: '#166534' }}>
-                    Lãnh đạo nghiệm thu hoàn thành — Điểm: {task.ratingScore?.toFixed(1) || '8.5'}/10.0
+                    Lãnh đạo nghiệm thu hoàn thành{task.ratingScore != null ? ` - Điểm: ${task.ratingScore.toFixed(1)}/10.0` : ''}
                   </div>
                   <div style={{ fontSize: '0.74rem', color: '#64748b' }}>
                     Thời gian: {formatDateTimeShort(task.completedAt || task.createdAt)}

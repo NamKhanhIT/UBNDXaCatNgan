@@ -11,6 +11,8 @@ namespace Quanlycongviec.Domain.Entities
         public string Category { get; set; } = string.Empty; // Chỉ đạo / Tờ trình / Công văn
         public string Sender { get; set; } = string.Empty; // Đơn vị gửi
         public DateTime ReceivedDate { get; set; } = DateTime.UtcNow;
+        public Guid? ReceivedByUserId { get; set; }
+        public User? ReceivedByUser { get; set; }
         public bool IsUrgent { get; set; } = false; // Thượng khẩn / Khẩn
         
         /// <summary>
@@ -56,4 +58,3 @@ namespace Quanlycongviec.Domain.Entities
         public string? AiProcessingStatus { get; set; }      // "Pending" | "Analyzed" | "Reviewed" | "Confirmed"
     }
 }
-

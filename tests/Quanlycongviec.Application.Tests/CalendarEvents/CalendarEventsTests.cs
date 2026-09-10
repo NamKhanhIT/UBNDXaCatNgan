@@ -230,5 +230,43 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             Assert.NotNull(deletedEvt);
             Assert.True(deletedEvt.IsDeleted);
         }
+
+        // 06-09-2026: 3-mode invite scope — Test that when scope = "all" (empty ParticipantUserIds),
+        // the event is created with no explicit participant rows (upstream dispatches to all active users).
+        [Fact]
+        public async Task CreateCalendarEvent_WithEmptyParticipants_ShouldPersistWithNoParticipantRows()
+        {
+            // Arrange
+            using var context = GetInMemoryDbContext();
+            var organizer = new User { Id = Guid.NewGuid(), FullName = "Trần Văn Test", Username = "user_test", PasswordHash = "hash" };
+            context.Users.Add(organizer);
+            await context.SaveChangesAsync();
+
+            var handler = new CreateCalendarEventCommandHandler(context);
+            var command = new CreateCalendarEventCommand
+            {
+                Title = "Họp giao ban toàn cơ quan",
+                EventType = EventTypeEnum.Meeting,
+                StartDateTime = DateTime.UtcNow.AddDays(3),
+                EndDateTime = DateTime.UtcNow.AddDays(3).AddHours(2),
+                OrganizerId = organizer.Id,
+                ParticipantUserIds = new List<Guid>(), // empty = "Toàn cơ quan" scope
+                ReminderOffsetsMinutes = new List<int> { 30, 1440 }
+            };
+
+            // Act
+            var eventId = await handler.Handle(command, CancellationToken.None);
+
+            // Assert
+            var createdEvt = await context.CalendarEvents
+                .Include(e => e.Participants)
+                .Include(e => e.ReminderOffsets)
+                .FirstOrDefaultAsync(e => e.Id == eventId);
+
+            Assert.NotNull(createdEvt);
+            Assert.Equal("Họp giao ban toàn cơ quan", createdEvt.Title);
+            Assert.Empty(createdEvt.Participants); // no explicit rows = invite all downstream
+            Assert.Equal(2, createdEvt.ReminderOffsets.Count);
+        }
     }
 }

@@ -18,31 +18,34 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
         public int TotalTasksAssigned { get; set; }
         public int CompletedTasksCount { get; set; }
         public int OverdueTasksCount { get; set; }
-        
+
         /// <summary>
         /// Điểm hệ thống tự động ghi nhận (Tối đa 3.0 điểm: 1.5đ đúng hạn + 1.0đ checklist + 0.5đ không từ chối)
         /// </summary>
-        public double SystemAutoScore30 { get; set; }
+        public double SystemScore { get; set; }
 
         /// <summary>
         /// Điểm Lãnh đạo thẩm định chất lượng (Tối đa 7.0 điểm)
         /// </summary>
-        public double LeaderEvaluationScore70 { get; set; }
+        public double LeaderScore { get; set; }
 
         /// <summary>
         /// Tổng điểm đánh giá thi đua (Thang 10 điểm)
         /// </summary>
-        public double FinalScore100 { get; set; }
+        public double FinalScore { get; set; }
 
         /// <summary>
         /// Xếp loại thi đua cán bộ, công chức theo quy chế công vụ
         /// </summary>
         public string TierGrade { get; set; } = string.Empty;
 
-        // ── Thuộc tính tương thích ngược ──
-        public double ChecklistProgressScore40 { get => SystemAutoScore30; set => SystemAutoScore30 = value; }
-        public double LeaderQualityScore60 { get => LeaderEvaluationScore70; set => LeaderEvaluationScore70 = value; }
-        public double FinalGRADScore { get => FinalScore100; set => FinalScore100 = value; }
+        // ── Thuộc tính tương thích ngược (frontend đã có FE-side alias) ──
+        public double SystemAutoScore30 { get => SystemScore; set => SystemScore = value; }
+        public double LeaderEvaluationScore70 { get => LeaderScore; set => LeaderScore = value; }
+        public double FinalScore100 { get => FinalScore; set => FinalScore = value; }
+        public double ChecklistProgressScore40 { get => SystemScore; set => SystemScore = value; }
+        public double LeaderQualityScore60 { get => LeaderScore; set => LeaderScore = value; }
+        public double FinalGRADScore { get => FinalScore; set => FinalScore = value; }
     }
 
     public class DepartmentGRADSummaryDto
@@ -64,6 +67,9 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
 
     public class GetGRADReportQuery : IRequest<GRADReportResultDto>
     {
+        public Guid? CurrentUserId { get; set; }
+        public int UserRankLevel { get; set; } = 1;
+        public Guid? DepartmentId { get; set; }
     }
 
     public class GetGRADReportQueryHandler : IRequestHandler<GetGRADReportQuery, GRADReportResultDto>
@@ -77,10 +83,24 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
 
         public async Task<GRADReportResultDto> Handle(GetGRADReportQuery request, CancellationToken cancellationToken)
         {
-            var users = await _context.Users
+            var usersQuery = _context.Users
+                .AsNoTracking()
                 .Include(u => u.PrimaryDepartment)
-                .Where(u => !u.IsDeleted)
-                .ToListAsync(cancellationToken);
+                .Where(u => !u.IsDeleted);
+
+            // Phân quyền phạm vi báo cáo theo caller rank
+            if (request.UserRankLevel is 3 or 4 && request.DepartmentId.HasValue)
+            {
+                // Trưởng/Phó phòng chỉ xem cán bộ phòng mình
+                usersQuery = usersQuery.Where(u => u.PrimaryDepartmentId == request.DepartmentId.Value);
+            }
+            else if (request.UserRankLevel > 4 && request.CurrentUserId.HasValue)
+            {
+                // Cán bộ chuyên viên chỉ xem chính mình
+                usersQuery = usersQuery.Where(u => u.Id == request.CurrentUserId.Value);
+            }
+
+            var users = await usersQuery.ToListAsync(cancellationToken);
 
             var tasks = await _context.TaskItems
                 .Include(t => t.SubTasks)
@@ -158,9 +178,9 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
                     TotalTasksAssigned = totalAssigned,
                     CompletedTasksCount = completed,
                     OverdueTasksCount = overdue,
-                    SystemAutoScore30 = systemScore,
-                    LeaderEvaluationScore70 = leaderScore,
-                    FinalScore100 = finalScore,
+                    SystemScore = systemScore,
+                    LeaderScore = leaderScore,
+                    FinalScore = finalScore,
                     TierGrade = grade
                 });
             }
@@ -172,8 +192,8 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
             foreach (var dept in depts)
             {
                 var deptOfficers = officerScores.Where(o => o.DepartmentName == dept.Name).ToList();
-                var avgDeptScore = deptOfficers.Count > 0 ? Math.Round(deptOfficers.Average(o => o.FinalScore100), 1) : 8.5;
-                
+                var avgDeptScore = deptOfficers.Count > 0 ? Math.Round(deptOfficers.Average(o => o.FinalScore), 1) : 8.5;
+
                 deptSummaries.Add(new DepartmentGRADSummaryDto
                 {
                     DepartmentId = dept.Id,
@@ -185,7 +205,7 @@ namespace Quanlycongviec.Application.Features.Reports.Queries.GetGRADReport
                 });
             }
 
-            var overallAvg = officerScores.Count > 0 ? Math.Round(officerScores.Average(o => o.FinalScore100), 1) : 8.8;
+            var overallAvg = officerScores.Count > 0 ? Math.Round(officerScores.Average(o => o.FinalScore), 1) : 8.8;
 
             return new GRADReportResultDto
             {

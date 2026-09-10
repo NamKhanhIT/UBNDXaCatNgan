@@ -1,15 +1,22 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { usePermission } from '../../hooks/use-permission';
-import { getGRADReportApi, OfficerGRADScoreDto } from '../../services/report.service';
+import {
+  getGRADReportApi,
+  OfficerGRADScoreDto,
+  exportEvaluationExcelApi,
+  RatingPeriodType,
+} from '../../services/report.service';
 import { useToast } from '../../components/ui/ToastContext';
 import { EvaluateOfficerModal } from './components/EvaluateOfficerModal';
 import { EvaluationTimelineModal } from './components/EvaluationTimelineModal';
+import { ViewOfficerDetailModal } from './components/ViewOfficerDetailModal';
+import { DeleteOfficerRatingModal } from './components/DeleteOfficerRatingModal';
 
 export function EvaluationFeature() {
-  const { activeRole } = useAuth();
+  const { activeRole, user } = useAuth();
   const { can } = usePermission();
   const { addToast } = useToast();
 
@@ -17,6 +24,7 @@ export function EvaluationFeature() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Search, Filter & Pagination State
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterGrade, setFilterGrade] = useState('all');
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -25,34 +33,76 @@ export function EvaluationFeature() {
   // Modals
   const [gradingOfficer, setGradingOfficer] = useState<OfficerGRADScoreDto | null>(null);
   const [timelineOfficer, setTimelineOfficer] = useState<OfficerGRADScoreDto | null>(null);
+  const [detailOfficer, setDetailOfficer] = useState<OfficerGRADScoreDto | null>(null);
+  const [deleteOfficer, setDeleteOfficer] = useState<OfficerGRADScoreDto | null>(null);
+
+  // Tab chấm điểm theo period
+  const [activePeriodTab, setActivePeriodTab] = useState<RatingPeriodType>('week');
+
+  // Excel export
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
+
+  const handleExport = async (format: 'csv' | 'xlsx') => {
+    setShowExportMenu(false);
+    try {
+      setIsExporting(true);
+      const blob = await exportEvaluationExcelApi(activePeriodTab, undefined, undefined, format);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `DanhGiaThiDua_${activePeriodTab}_${new Date().toISOString().slice(0, 10)}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      addToast(
+        'Xuất báo cáo thành công',
+        `Đã tải báo cáo thi đua theo ${activePeriodTab === 'week' ? 'tuần' : activePeriodTab === 'month' ? 'tháng' : activePeriodTab === 'quarter' ? 'quý' : activePeriodTab === 'halfyear' ? '6 tháng' : 'năm'} (${format === 'xlsx' ? 'Excel .xlsx chuẩn' : 'CSV mở được bằng Excel'}).`,
+        'success'
+      );
+    } catch (err: any) {
+      addToast('Lỗi xuất báo cáo', err?.message || 'Không thể xuất báo cáo.', 'danger');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const currentUserId = user?.userId ?? '';
+
+  // Load GRAD scores — extracted thành function để có thể reload sau delete/edit
+  const loadGradScores = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await getGRADReportApi();
+      if (res.success && res.data?.officers) {
+        setOfficers(res.data.officers);
+      }
+    } catch (err) {
+      console.warn('Lỗi tải bảng điểm GRAD:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, filterGrade]);
 
   useEffect(() => {
-    async function loadGradScores() {
-      try {
-        setIsLoading(true);
-        const res = await getGRADReportApi();
-        if (res.success && res.data?.officers) {
-          setOfficers(res.data.officers);
-        }
-      } catch (err) {
-        console.warn('Lỗi tải bảng điểm GRAD:', err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
     loadGradScores();
-  }, [activeRole]);
+  }, [activeRole, loadGradScores]);
 
-  // Dashboard Stats Calculations
+  // Dashboard Stats Calculations — thống nhất thang 10
   const totalOfficers = officers.length;
-  const gradeACount = officers.filter(o => (o.finalScore100 || 0) >= 90).length;
-  const gradeBCount = officers.filter(o => (o.finalScore100 || 0) >= 75 && (o.finalScore100 || 0) < 90).length;
-  const avgScore = totalOfficers > 0 ? (officers.reduce((acc, o) => acc + (o.finalScore100 || 85) / 10, 0) / totalOfficers).toFixed(1) : '8.5';
+  const gradeACount = officers.filter(o => (o.finalScore ?? o.finalGRADScore ?? 0) >= 9.0).length;
+  const gradeBCount = officers.filter(o => {
+    const s = o.finalScore ?? o.finalGRADScore ?? 0;
+    return s >= 7.5 && s < 9.0;
+  }).length;
+  const avgScore = totalOfficers > 0
+    ? (officers.reduce((acc, o) => acc + (o.finalScore ?? o.finalGRADScore ?? 0), 0) / totalOfficers).toFixed(1)
+    : '0.0';
 
   const handleOfficerGraded = (updated: OfficerGRADScoreDto) => {
     setOfficers(prev => prev.map(o => (o.userId === updated.userId ? updated : o)));
@@ -144,16 +194,23 @@ export function EvaluationFeature() {
           <div style={{ position: 'relative', width: '100%', maxWidth: 340 }}>
             <input
               className="form-input"
-              style={{ paddingLeft: 32, paddingRight: searchQuery ? 30 : 10, fontSize: '0.85rem', height: 36 }}
+              style={{ paddingLeft: 32, paddingRight: searchInput ? 30 : 10, fontSize: '0.85rem', height: 36 }}
               placeholder="Tìm theo tên cán bộ, chức vụ..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              value={searchInput}
+              onChange={e => setSearchInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  setSearchQuery(searchInput);
+                  setCurrentPage(1);
+                }
+              }}
             />
             <i className="fa-solid fa-magnifying-glass" style={{ position: 'absolute', left: 10, top: 11, color: '#94a3b8', fontSize: 13 }} aria-hidden="true" />
-            {searchQuery && (
+            {searchInput && (
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
+                onClick={() => setSearchInput('')}
                 style={{
                   position: 'absolute',
                   right: 8,
@@ -176,7 +233,10 @@ export function EvaluationFeature() {
             className="form-select"
             style={{ width: 'auto', fontSize: '0.82rem', height: 36 }}
             value={filterGrade}
-            onChange={e => setFilterGrade(e.target.value)}
+            onChange={e => {
+              setFilterGrade(e.target.value);
+              setCurrentPage(1);
+            }}
           >
             <option value="all">Tất cả xếp loại</option>
             <option value="A">Loại A (Xuất sắc ≥ 9.0)</option>
@@ -184,13 +244,30 @@ export function EvaluationFeature() {
             <option value="C">Loại C (Hoàn thành 6.0 - 7.4)</option>
           </select>
 
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={searchInput === searchQuery}
+            onClick={() => {
+              setSearchQuery(searchInput);
+              setCurrentPage(1);
+            }}
+            style={{ height: 36, display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+            title="Áp dụng từ khóa tìm kiếm"
+          >
+            <i className="fa-solid fa-check" />
+            <span>Xác nhận tìm kiếm</span>
+          </button>
+
           {(searchQuery.trim() !== '' || filterGrade !== 'all') && (
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={() => {
+                setSearchInput('');
                 setSearchQuery('');
                 setFilterGrade('all');
+                setCurrentPage(1);
                 addToast('Đã xóa bộ lọc', 'Bảng điểm thi đua đã được đặt lại về trạng thái mặc định.', 'info');
               }}
               style={{ color: '#dc2626', fontWeight: 700, height: 36, display: 'flex', alignItems: 'center', gap: 6 }}
@@ -204,14 +281,85 @@ export function EvaluationFeature() {
 
       {/* ── 4. BẢNG ĐÁNH GIÁ CÔNG VỤ (CĂN GIỮA CỘT SỐ 100%) ── */}
       <div className="card">
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
             <i className="fa-solid fa-trophy" style={{ color: '#dc2626' }} aria-hidden="true" />
-            <span>Bảng Tổng Hợp Đánh Giá Thi Đua & Xếp Loại Công Vụ (GRAD) ({filteredOfficers.length})</span>
+            <span>Bảng Tổng Hợp Đánh Giá Thi Đua & Xếp Loại Công Vụ ({filteredOfficers.length})</span>
           </h2>
-          <span className="badge badge-blue" style={{ fontWeight: 700 }}>
-            Thang 10: 3.0đ Tự động + 7.0đ Lãnh đạo
-          </span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Tabs period — chấm tuần/tháng/quý/6tháng/năm */}
+            <div style={{ display: 'inline-flex', border: '1px solid #e2e8f0', borderRadius: 6, overflow: 'hidden' }}>
+              {(['week', 'month', 'quarter', 'halfyear', 'year'] as RatingPeriodType[]).map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  className={`btn btn-sm ${activePeriodTab === p ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setActivePeriodTab(p)}
+                  style={{ borderRadius: 0, height: 32, fontSize: '0.78rem', fontWeight: 600 }}
+                >
+                  {p === 'week' ? 'Tuần' : p === 'month' ? 'Tháng' : p === 'quarter' ? 'Quý' : p === 'halfyear' ? '6 tháng' : 'Năm'}
+                </button>
+              ))}
+            </div>
+
+            <span className="badge badge-blue" style={{ fontWeight: 700 }}>
+              Thang 10: 3.0đ Tự động + 7.0đ Lãnh đạo
+            </span>
+
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="btn btn-success btn-sm"
+                disabled={isExporting}
+                onClick={() => setShowExportMenu(v => !v)}
+                style={{ fontWeight: 700, height: 32 }}
+                title="Xuất báo cáo thi đua (chọn định dạng)"
+              >
+                {isExporting ? (
+                  <><i className="fa-solid fa-spinner fa-spin" /> <span>Đang xuất...</span></>
+                ) : (
+                  <><i className="fa-solid fa-file-export" /> <span>Xuất báo cáo</span> <i className="fa-solid fa-caret-down" style={{ marginLeft: 4 }} /></>
+                )}
+              </button>
+              {showExportMenu && !isExporting && (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: 4,
+                    background: '#ffffff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+                    zIndex: 100,
+                    minWidth: 240,
+                    overflow: 'hidden'
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ display: 'flex', width: '100%', justifyContent: 'flex-start', padding: '10px 14px', borderRadius: 0, fontWeight: 600 }}
+                    onClick={() => handleExport('csv')}
+                  >
+                    <i className="fa-solid fa-file-csv" style={{ marginRight: 8, color: '#16a34a' }} />
+                    <span>CSV (mở được bằng Excel)</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ display: 'flex', width: '100%', justifyContent: 'flex-start', padding: '10px 14px', borderRadius: 0, fontWeight: 600, borderTop: '1px solid #f1f5f9' }}
+                    onClick={() => handleExport('xlsx')}
+                  >
+                    <i className="fa-solid fa-file-excel" style={{ marginRight: 8, color: '#16a34a' }} />
+                    <span>Excel .xlsx (chuẩn nhiều sheet)</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="card-body" style={{ padding: 0 }}>
@@ -219,46 +367,50 @@ export function EvaluationFeature() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th scope="col" style={{ width: '22%' }}>Cán bộ, công chức</th>
-                  <th scope="col" style={{ width: '20%' }}>Chức danh & Phòng ban</th>
-                  <th scope="col" style={{ width: '12%', textAlign: 'center' }}>Số việc HT/Giao</th>
-                  <th scope="col" style={{ width: '12%', textAlign: 'center' }}>Điểm TĐ (3.0đ)</th>
-                  <th scope="col" style={{ width: '12%', textAlign: 'center' }}>Lãnh đạo (7.0đ)</th>
-                  <th scope="col" style={{ width: '11%', textAlign: 'center' }}>Tổng điểm (10đ)</th>
-                  <th scope="col" style={{ width: '11%', textAlign: 'center' }}>Xếp loại</th>
-                  <th scope="col" style={{ width: '10%', textAlign: 'center' }}>Thao tác</th>
+                  <th scope="col" style={{ width: '8%', textAlign: 'center' }}>STT</th>
+                  <th scope="col" style={{ width: '28%' }}>Cán bộ, công chức</th>
+                  <th scope="col" style={{ width: '25%' }}>Chức danh & Phòng ban</th>
+                  <th scope="col" style={{ width: '14%', textAlign: 'center' }}>Tổng điểm (10đ)</th>
+                  <th scope="col" style={{ width: '12%', textAlign: 'center' }}>Xếp loại</th>
+                  <th scope="col" style={{ width: '13%', textAlign: 'center' }}>Thao tác</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: '#64748b' }}>
                       <i className="fa-solid fa-spinner fa-spin" style={{ fontSize: 24, color: '#2563eb', display: 'block', marginBottom: 10 }} aria-hidden="true" />
-                      <span style={{ fontWeight: 600 }}>Đang nạp bảng điểm thi đua GRAD từ hệ thống máy chủ...</span>
+                      <span style={{ fontWeight: 600 }}>Đang nạp bảng điểm thi đua từ hệ thống máy chủ...</span>
                     </td>
                   </tr>
                 ) : filteredOfficers.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>
+                    <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: '#94a3b8' }}>
                       Không tìm thấy cán bộ nào phù hợp với điều kiện tìm kiếm.
                     </td>
                   </tr>
                 ) : (
-                  paginatedOfficers.map(officer => {
-                    const sysScore = Math.min(3.0, officer.systemAutoScore30 ?? (officer.checklistProgressScore40 ? (officer.checklistProgressScore40 / 40) * 3 : 2.7));
-                    const leadScore = Math.min(7.0, officer.leaderEvaluationScore70 ?? (officer.leaderQualityScore60 ? (officer.leaderQualityScore60 / 60) * 7 : 6.2));
-                    const totalScore = officer.finalGRADScore != null && officer.finalGRADScore > 0
-                      ? Math.min(10.0, officer.finalGRADScore)
+                  paginatedOfficers.map((officer, idx) => {
+                    const sysScore = Math.min(3.0, officer.systemScore ?? officer.systemAutoScore30 ?? 2.7);
+                    const leadScore = Math.min(7.0, officer.leaderScore ?? officer.leaderEvaluationScore70 ?? 6.2);
+                    const totalScore = officer.finalScore != null
+                      ? Math.min(10.0, officer.finalScore)
                       : officer.finalScore100 != null && officer.finalScore100 > 10
                       ? Math.min(10.0, officer.finalScore100 / 10.0)
-                      : Math.min(10.0, sysScore + leadScore);
+                      : Math.min(10.0, officer.finalGRADScore || sysScore + leadScore);
 
                     const isExc = totalScore >= 9.0;
                     const isGood = totalScore >= 7.5;
                     const isFair = totalScore >= 6.0;
+                    const isSelf = currentUserId !== '' && officer.userId === currentUserId;
 
                     return (
                       <tr key={officer.userId}>
+                        {/* STT */}
+                        <td style={{ textAlign: 'center', color: '#64748b', fontWeight: 700 }}>
+                          {(currentPage - 1) * pageSize + idx + 1}
+                        </td>
+
                         {/* Cán bộ */}
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -289,27 +441,7 @@ export function EvaluationFeature() {
                           <div style={{ fontSize: '0.74rem', color: '#64748b' }}>{officer.departmentName}</div>
                         </td>
 
-                        {/* Số việc hoàn thành/giao (CĂN GIỮA) */}
-                        <td style={{ textAlign: 'center' }}>
-                          <span style={{ fontWeight: 800, color: '#0f172a' }}>{officer.completedTasksCount}</span>
-                          <span style={{ color: '#64748b' }}>/{officer.totalTasksAssigned}</span>
-                        </td>
-
-                        {/* Điểm tự động (CĂN GIỮA) */}
-                        <td style={{ textAlign: 'center' }}>
-                          <span style={{ fontWeight: 800, color: '#2563eb', background: '#eff6ff', padding: '3px 8px', borderRadius: 4, fontSize: '0.82rem' }}>
-                            {sysScore.toFixed(1)}/3.0
-                          </span>
-                        </td>
-
-                        {/* Điểm lãnh đạo (CĂN GIỮA) */}
-                        <td style={{ textAlign: 'center' }}>
-                          <span style={{ fontWeight: 800, color: '#7c3aed', background: '#f5f3ff', padding: '3px 8px', borderRadius: 4, fontSize: '0.82rem' }}>
-                            {leadScore.toFixed(1)}/7.0
-                          </span>
-                        </td>
-
-                        {/* Tổng điểm thang 10 (CĂN GIỮA) */}
+                        {/* Tổng điểm thang 10 */}
                         <td style={{ textAlign: 'center' }}>
                           <span
                             style={{
@@ -326,7 +458,7 @@ export function EvaluationFeature() {
                           </span>
                         </td>
 
-                        {/* Xếp loại thi đua (CĂN GIỮA) */}
+                        {/* Xếp loại thi đua */}
                         <td style={{ textAlign: 'center' }}>
                           <span
                             className={`badge ${isExc ? 'badge-success' : isGood ? 'badge-blue' : isFair ? 'badge-warning' : 'badge-danger'}`}
@@ -336,18 +468,29 @@ export function EvaluationFeature() {
                           </span>
                         </td>
 
-                        {/* Thao tác (CĂN GIỮA) */}
+                        {/* Thao tác */}
                         <td style={{ textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                             <button
                               type="button"
                               className="btn btn-outline btn-xs"
-                              style={{ fontWeight: 700 }}
-                              title="Lãnh đạo chấm điểm"
-                              onClick={() => setGradingOfficer(officer)}
+                              style={{ fontWeight: 700, color: '#0ea5e9', borderColor: '#0ea5e9' }}
+                              title="Xem chi tiết"
+                              onClick={() => setDetailOfficer(officer)}
                             >
-                              <i className="fa-solid fa-pen-to-square" aria-hidden="true" />
+                              <i className="fa-solid fa-eye" aria-hidden="true" />
                             </button>
+                            {!isSelf && (
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-xs"
+                                style={{ fontWeight: 700 }}
+                                title="Lãnh đạo chấm điểm"
+                                onClick={() => setGradingOfficer(officer)}
+                              >
+                                <i className="fa-solid fa-pen-to-square" aria-hidden="true" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="btn btn-ghost btn-xs"
@@ -357,6 +500,17 @@ export function EvaluationFeature() {
                             >
                               <i className="fa-solid fa-clock-rotate-left" aria-hidden="true" />
                             </button>
+                            {!isSelf && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-xs"
+                                style={{ color: '#dc2626' }}
+                                title="Xóa điểm (chỉ lãnh đạo cấp cao)"
+                                onClick={() => setDeleteOfficer(officer)}
+                              >
+                                <i className="fa-solid fa-trash" aria-hidden="true" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -447,6 +601,7 @@ export function EvaluationFeature() {
       {gradingOfficer && (
         <EvaluateOfficerModal
           officer={gradingOfficer}
+          currentUserId={currentUserId}
           onClose={() => setGradingOfficer(null)}
           onGraded={handleOfficerGraded}
         />
@@ -456,6 +611,27 @@ export function EvaluationFeature() {
         <EvaluationTimelineModal
           officer={timelineOfficer}
           onClose={() => setTimelineOfficer(null)}
+        />
+      )}
+
+      {detailOfficer && (
+        <ViewOfficerDetailModal
+          officer={detailOfficer}
+          onClose={() => setDetailOfficer(null)}
+        />
+      )}
+
+      {deleteOfficer && (
+        <DeleteOfficerRatingModal
+          officer={deleteOfficer}
+          currentUserId={currentUserId}
+          evaluationPeriod={activePeriodTab === 'week' ? undefined : '2026-09'}
+          onClose={() => setDeleteOfficer(null)}
+          onDeleted={(_userId, tasksReset) => {
+            addToast('Đã xóa điểm', `Reset ${tasksReset} đầu việc cho cán bộ.`, 'success');
+            // Reload data để cập nhật lại bảng
+            loadGradScores();
+          }}
         />
       )}
     </div>

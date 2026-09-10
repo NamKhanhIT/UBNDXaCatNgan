@@ -29,7 +29,6 @@ export function TaskChecklistViewer({ initialSubTasks, onSubTasksChange }: TaskC
     const newItem: GeneratedSubTask = {
       id: `st-custom-${Date.now()}`,
       title: newTitle.trim(),
-      estimatedHours: 2,
       isCompleted: false,
     };
 

@@ -100,6 +100,13 @@ namespace Quanlycongviec.Application.Features.CalendarEvents.Commands.CreateCale
             }
 
             // Ghi Audit Log
+            // Bugfix 10-09-2026: StartDateTime/EndDateTime là UTC, cần convert sang giờ Việt Nam (UTC+7)
+            // trước khi format để log hiển thị đúng giờ local cho người Việt đọc.
+            var vietnamTzForLog = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+                ?? TimeZoneInfo.CreateCustomTimeZone("VN", TimeSpan.FromHours(7), "Vietnam", "Vietnam");
+            var startLocalLog = TimeZoneInfo.ConvertTimeFromUtc(calendarEvent.StartDateTime, vietnamTzForLog);
+            var endLocalLog = TimeZoneInfo.ConvertTimeFromUtc(calendarEvent.EndDateTime, vietnamTzForLog);
+
             _context.AuditLogs.Add(new AuditLog
             {
                 Id = Guid.NewGuid(),
@@ -107,7 +114,7 @@ namespace Quanlycongviec.Application.Features.CalendarEvents.Commands.CreateCale
                 Action = "CreateCalendarEvent",
                 EntityName = nameof(CalendarEvent),
                 EntityId = calendarEvent.Id.ToString(),
-                Details = $"Tạo sự kiện lịch: {calendarEvent.Title} ({calendarEvent.StartDateTime:dd/MM/yyyy HH:mm} - {calendarEvent.EndDateTime:dd/MM/yyyy HH:mm})"
+                Details = $"Tạo sự kiện lịch: {calendarEvent.Title} ({startLocalLog:dd/MM/yyyy HH:mm} - {endLocalLog:dd/MM/yyyy HH:mm})"
             });
 
             await _context.SaveChangesAsync(cancellationToken);

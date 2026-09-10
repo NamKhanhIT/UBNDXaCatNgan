@@ -22,10 +22,17 @@ namespace Quanlycongviec.Application.Features.TaskAnnotations.Commands.CreateTas
     public class CreateTaskReviewAnnotationCommandHandler : IRequestHandler<CreateTaskReviewAnnotationCommand, TaskReviewAnnotationDto>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService? _authorizationService;
+        private readonly INotificationDispatcher? _notificationDispatcher;
 
-        public CreateTaskReviewAnnotationCommandHandler(IApplicationDbContext context)
+        public CreateTaskReviewAnnotationCommandHandler(
+            IApplicationDbContext context,
+            ITaskAuthorizationService? authorizationService = null,
+            INotificationDispatcher? notificationDispatcher = null)
         {
             _context = context;
+            _authorizationService = authorizationService;
+            _notificationDispatcher = notificationDispatcher;
         }
 
         public async Task<TaskReviewAnnotationDto> Handle(CreateTaskReviewAnnotationCommand request, CancellationToken cancellationToken)
@@ -36,6 +43,17 @@ namespace Quanlycongviec.Application.Features.TaskAnnotations.Commands.CreateTas
             if (taskItem == null)
             {
                 throw new InvalidOperationException("Công việc không tồn tại.");
+            }
+
+            // BẢO MẬT (Audit 04-09-2026): Người dùng phải có quyền truy cập task mới được ghi chú.
+            if (_authorizationService != null)
+            {
+                var canAccess = await _authorizationService.CanAccessTaskAsync(
+                    request.CurrentUserId, request.TaskItemId, cancellationToken);
+                if (!canAccess)
+                {
+                    throw new UnauthorizedAccessException("Bạn không có quyền ghi chú trên nhiệm vụ này.");
+                }
             }
 
             var currentUser = await _context.Users
@@ -85,10 +103,12 @@ namespace Quanlycongviec.Application.Features.TaskAnnotations.Commands.CreateTas
                 IpAddress = "127.0.0.1"
             });
 
+            await _context.SaveChangesAsync(cancellationToken);
+
             // Notification cho người thực hiện nếu người tạo không phải assignee
-            if (taskItem.AssigneeId != request.CurrentUserId)
+            if (taskItem.AssigneeId != request.CurrentUserId && _notificationDispatcher != null)
             {
-                _context.Notifications.Add(new Notification
+                await _notificationDispatcher.DispatchAsync(new Notification
                 {
                     Id = Guid.NewGuid(),
                     UserId = taskItem.AssigneeId,
@@ -99,10 +119,8 @@ namespace Quanlycongviec.Application.Features.TaskAnnotations.Commands.CreateTas
                     Message = $"Lãnh đạo/Người chấm đã khoanh vùng góp ý ({GetSeverityLabel(annotation.Severity)}): \"{annotation.AnchorText}\"",
                     SentAt = DateTime.UtcNow,
                     IsRead = false
-                });
+                }, cancellationToken);
             }
-
-            await _context.SaveChangesAsync(cancellationToken);
 
             return new TaskReviewAnnotationDto
             {

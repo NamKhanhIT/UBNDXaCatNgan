@@ -140,7 +140,8 @@ namespace Quanlycongviec.Api.IntegrationTests
                 new Mock<IOcrService>().Object,
                 new Mock<IDocumentAiService>().Object,
                 options,
-                NullLogger<FilesController>.Instance);
+                NullLogger<FilesController>.Instance,
+                new AllowAllDocumentAccessService());
 
             var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
             {
@@ -159,6 +160,8 @@ namespace Quanlycongviec.Api.IntegrationTests
             fileMock.Setup(f => f.FileName).Returns(safeExtName);
             fileMock.Setup(f => f.Length).Returns(64);
             fileMock.Setup(f => f.ContentType).Returns("application/pdf");
+            fileMock.Setup(f => f.OpenReadStream())
+                    .Returns(new MemoryStream(new byte[] { 0x25, 0x50, 0x44, 0x46, 0x2D, 0x31 }));
             fileMock.Setup(f => f.CopyToAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
                     .Returns(Task.CompletedTask);
 

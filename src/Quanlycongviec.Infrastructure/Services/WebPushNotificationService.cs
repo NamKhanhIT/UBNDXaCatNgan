@@ -21,7 +21,7 @@ namespace Quanlycongviec.Infrastructure.Services
         private readonly ApplicationDbContext _context;
         private readonly WebPushOptions _options;
         private readonly ILogger<WebPushNotificationService> _logger;
-        private readonly VapidDetails _vapidDetails;
+        private readonly VapidDetails? _vapidDetails;
 
         public WebPushNotificationService(
             ApplicationDbContext context,
@@ -35,23 +35,25 @@ namespace Quanlycongviec.Infrastructure.Services
 
             // Đọc thêm từ configuration nếu options rỗng
             var pubKey = string.IsNullOrWhiteSpace(_options.PublicKey)
-                ? configuration["WebPush:PublicKey"] ?? "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U"
+                ? configuration["WebPush:PublicKey"]
                 : _options.PublicKey;
 
             var privKey = string.IsNullOrWhiteSpace(_options.PrivateKey)
-                ? configuration["WebPush:PrivateKey"] ?? "UU224Yug2No0EP8v5Y34q9_75yYc5-j_rP90xYk2-K0"
+                ? configuration["WebPush:PrivateKey"]
                 : _options.PrivateKey;
 
             var subject = string.IsNullOrWhiteSpace(_options.Subject)
                 ? configuration["WebPush:Subject"] ?? "mailto:admin@ubnd.gov.vn"
                 : _options.Subject;
 
-            _vapidDetails = new VapidDetails(subject, pubKey, privKey);
+            _vapidDetails = string.IsNullOrWhiteSpace(pubKey) || string.IsNullOrWhiteSpace(privKey)
+                ? null
+                : new VapidDetails(subject, pubKey, privKey);
         }
 
         public string GetVapidPublicKey()
         {
-            return _vapidDetails.PublicKey;
+            return _vapidDetails?.PublicKey ?? string.Empty;
         }
 
         public async Task<bool> SendNotificationAsync(
@@ -62,6 +64,8 @@ namespace Quanlycongviec.Infrastructure.Services
             object? data = null,
             CancellationToken cancellationToken = default)
         {
+            if (_vapidDetails == null) return false;
+
             var activeSubscriptions = await _context.PushSubscriptions
                 .Where(s => s.UserId == userId && s.IsActive)
                 .ToListAsync(cancellationToken);
@@ -153,6 +157,8 @@ namespace Quanlycongviec.Infrastructure.Services
             string? url = null,
             CancellationToken cancellationToken = default)
         {
+            if (_vapidDetails == null) return 0;
+
             var userIds = await _context.PushSubscriptions
                 .Where(s => s.IsActive)
                 .Select(s => s.UserId)
@@ -174,6 +180,8 @@ namespace Quanlycongviec.Infrastructure.Services
             string endpoint,
             CancellationToken cancellationToken = default)
         {
+            if (_vapidDetails == null) return false;
+
             var sub = await _context.PushSubscriptions
                 .FirstOrDefaultAsync(s => s.UserId == userId && s.Endpoint == endpoint && s.IsActive, cancellationToken);
 

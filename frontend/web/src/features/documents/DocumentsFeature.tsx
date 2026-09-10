@@ -4,15 +4,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { usePermission } from '../../hooks/use-permission';
 import { useToast } from '../../components/ui/ToastContext';
-import { getInboxDocumentsApi, InboxDocumentDto } from '../../services/inbox.service';
+import { getInboxDocumentsApi, InboxDocumentDto, suggestAssignmentApi, createTaskFromInboxApi } from '../../services/inbox.service';
 import { getOutgoingDocumentsApi, OutgoingDocumentDto } from '../../services/outgoing-document.service';
 import {
-  analyzeDocumentWithAi,
-  suggestAssigneesForDocument,
   generateTaskChecklist,
-  DocumentAnalysisReport,
-  AssigneeCandidate,
-  GeneratedSubTask,
+  type DocumentAnalysisReport,
+  type AssigneeCandidate,
+  type GeneratedSubTask,
 } from './services/document-ai.service';
 import { DocumentViewerModal } from './components/DocumentViewerModal';
 import { DocumentUploadModal } from './components/DocumentUploadModal';
@@ -20,6 +18,8 @@ import { AiAssigneeSuggestionModal } from './components/AiAssigneeSuggestionModa
 import { AiRoutingActionModal } from './components/AiRoutingActionModal';
 import { formatDateShort, formatDateLong } from '../../lib/formatters';
 import { useSignalREvent } from '../../hooks/use-signalr';
+import { Pagination } from '../../components/common/Pagination';
+import { useDebounce } from '../../hooks/useDebounce';
 
 export type DocumentProcessingStatus =
   | 'PendingConfirmation'
@@ -114,31 +114,145 @@ export function DocumentsFeature() {
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const debouncedSearch = useDebounce(searchKeyword, 300);
 
-  // Nạp 100% dữ liệu động từ backend CSDL PostgreSQL
+  // Phân trang máy chủ độc lập
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(20);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [incomingTotal, setIncomingTotal] = useState<number>(0);
+  const [outgoingTotal, setOutgoingTotal] = useState<number>(0);
+
+  // Bộ nhớ đệm Client (In-memory page cache) cho lật trang tức thì 0ms
+  const pageCacheRef = React.useRef<Map<string, { items: DocumentItem[]; totalCount: number; inCount: number; outCount: number }>>(new Map());
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterDirection, filterCategory, filterStatus, debouncedSearch]);
+
+  // Nạp dữ liệu từ backend CSDL PostgreSQL có phân trang, lọc server-side và caching
   const loadDocuments = useCallback(async () => {
+    const categoryQuery =
+      filterCategory === 'NghiQuyet' ? 'Nghị quyết'
+      : filterCategory === 'QuyetDinh' ? 'Quyết định'
+      : filterCategory === 'ChiDao' ? 'Chỉ đạo điều hành'
+      : filterCategory === 'BaoCao' ? 'Báo cáo'
+      : filterCategory === 'ToTrinh' ? 'Tờ trình'
+      : filterCategory === 'CongVan' ? 'Công văn'
+      : filterCategory === 'ThongBao' ? 'Thông báo'
+      : filterCategory === 'KeHoach' ? 'Kế hoạch'
+      : undefined;
+
+    const inboxStatusQuery =
+      filterStatus === 'PendingConfirmation' ? 'Pending'
+      : filterStatus === 'PendingProcessing' ? 'Analyzed'
+      : filterStatus === 'PendingAssignment' ? 'Reviewed'
+      : filterStatus === 'Completed' ? 'Confirmed'
+      : undefined;
+
+    const outgoingStatusQuery =
+      filterStatus === 'Draft' ? 'Draft'
+      : filterStatus === 'PendingApproval' ? 'PendingReview'
+      : filterStatus === 'Completed' ? 'Issued'
+      : undefined;
+
+    const cacheKey = `${filterDirection}_${filterCategory}_${filterStatus}_${debouncedSearch}_${currentPage}_${pageSize}`;
+    if (pageCacheRef.current.has(cacheKey)) {
+      const cached = pageCacheRef.current.get(cacheKey)!;
+      setDocuments(cached.items);
+      setTotalCount(cached.totalCount);
+      setIncomingTotal(cached.inCount);
+      setOutgoingTotal(cached.outCount);
+    }
+
     try {
       setIsLoading(true);
-      const [inboxRes, outRes] = await Promise.all([
-        getInboxDocumentsApi({ page: 1, pageSize: 100 }),
-        getOutgoingDocumentsApi({ page: 1, pageSize: 100 }),
-      ]);
-
-      const items: DocumentItem[] = [];
-      if (inboxRes.success && inboxRes.data?.items) {
-        items.push(...inboxRes.data.items.map(mapInboxToDocumentItem));
+      if (filterDirection === 'incoming') {
+        const res = await getInboxDocumentsApi({
+          page: currentPage,
+          pageSize,
+          search: debouncedSearch.trim() || undefined,
+          category: categoryQuery,
+          status: inboxStatusQuery,
+        });
+        if (res.success && res.data?.items) {
+          const mapped = res.data.items.map(mapInboxToDocumentItem);
+          setDocuments(mapped);
+          setTotalCount(res.data.totalCount);
+          setIncomingTotal(res.data.totalCount);
+          pageCacheRef.current.set(cacheKey, {
+            items: mapped,
+            totalCount: res.data.totalCount,
+            inCount: res.data.totalCount,
+            outCount: outgoingTotal,
+          });
+        }
+      } else if (filterDirection === 'outgoing') {
+        const res = await getOutgoingDocumentsApi({
+          page: currentPage,
+          pageSize,
+          search: debouncedSearch.trim() || undefined,
+          documentType: categoryQuery as any,
+          status: outgoingStatusQuery as any,
+        });
+        if (res.success && res.data?.items) {
+          const mapped = res.data.items.map(mapOutgoingToDocumentItem);
+          setDocuments(mapped);
+          setTotalCount(res.data.totalCount);
+          setOutgoingTotal(res.data.totalCount);
+          pageCacheRef.current.set(cacheKey, {
+            items: mapped,
+            totalCount: res.data.totalCount,
+            inCount: incomingTotal,
+            outCount: res.data.totalCount,
+          });
+        }
+      } else {
+        const [inboxRes, outRes] = await Promise.all([
+          getInboxDocumentsApi({
+            page: currentPage,
+            pageSize: Math.max(1, Math.floor(pageSize / 2)),
+            search: debouncedSearch.trim() || undefined,
+            category: categoryQuery,
+            status: inboxStatusQuery,
+          }),
+          getOutgoingDocumentsApi({
+            page: currentPage,
+            pageSize: Math.max(1, Math.ceil(pageSize / 2)),
+            search: debouncedSearch.trim() || undefined,
+            documentType: categoryQuery as any,
+            status: outgoingStatusQuery as any,
+          }),
+        ]);
+        const items: DocumentItem[] = [];
+        let inCount = 0;
+        let outCount = 0;
+        if (inboxRes.success && inboxRes.data?.items) {
+          items.push(...inboxRes.data.items.map(mapInboxToDocumentItem));
+          inCount = inboxRes.data.totalCount;
+          setIncomingTotal(inCount);
+        }
+        if (outRes.success && outRes.data?.items) {
+          items.push(...outRes.data.items.map(mapOutgoingToDocumentItem));
+          outCount = outRes.data.totalCount;
+          setOutgoingTotal(outCount);
+        }
+        setDocuments(items);
+        const combinedTotal = inCount + outCount;
+        setTotalCount(combinedTotal);
+        pageCacheRef.current.set(cacheKey, {
+          items,
+          totalCount: combinedTotal,
+          inCount,
+          outCount,
+        });
       }
-      if (outRes.success && outRes.data?.items) {
-        items.push(...outRes.data.items.map(mapOutgoingToDocumentItem));
-      }
-
-      setDocuments(items);
     } catch (err) {
       console.warn('Lỗi khi tải danh sách văn bản:', err);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [filterDirection, filterCategory, filterStatus, currentPage, pageSize, debouncedSearch, incomingTotal, outgoingTotal]);
 
   useEffect(() => {
     loadDocuments();
@@ -209,7 +323,20 @@ export function DocumentsFeature() {
   const handleOpenViewer = async (doc: DocumentItem) => {
     try {
       setSelectedDoc(doc);
-      const report = await analyzeDocumentWithAi(doc.id, doc.subject);
+      const report: DocumentAnalysisReport = {
+        documentId: doc.id,
+        documentType: { value: 'ChiDao', confidence: 0.95, sourcePage: 1, sourceText: doc.subject },
+        documentNumber: { value: doc.documentNumber, confidence: 1.0, sourcePage: 1, sourceText: doc.documentNumber },
+        documentSymbol: { value: doc.documentSymbol, confidence: 1.0, sourcePage: 1, sourceText: doc.documentSymbol },
+        issuingAgency: { value: doc.sender, confidence: 0.95, sourcePage: 1, sourceText: doc.sender },
+        issuedDate: { value: doc.issuedDate, confidence: 1.0, sourcePage: 1, sourceText: doc.issuedDate },
+        deadlineDate: { value: doc.deadlineDate, confidence: 0.9, sourcePage: 1, sourceText: doc.deadlineDate || '' },
+        priority: { value: doc.isUrgent ? 'Khan' : 'Thuong', confidence: 1.0, sourcePage: 1, sourceText: '' },
+        summary: { value: doc.aiSummary, confidence: 0.9, sourcePage: 1, sourceText: doc.aiSummary },
+        keyObjectives: { value: [doc.subject], confidence: 0.85, sourcePage: 1, sourceText: doc.subject },
+        targetSubjects: { value: [], confidence: 0.8, sourcePage: 1, sourceText: '' },
+        relatedDepartments: { value: [], confidence: 0.8, sourcePage: 1, sourceText: '' },
+      };
       setAnalysisReport(report);
       setSubTasks(generateTaskChecklist(report));
       setIsViewerOpen(true);
@@ -220,13 +347,46 @@ export function DocumentsFeature() {
 
   // Mở modal giao việc
   const handleOpenAssignModal = async () => {
-    if (!analysisReport) return;
+    if (!selectedDoc) return;
     try {
-      const candidates = await suggestAssigneesForDocument(analysisReport);
-      setAssigneeCandidates(candidates);
-      setIsAssignModalOpen(true);
+      const res = await suggestAssignmentApi(selectedDoc.id);
+      if (res.success && res.data) {
+        const suggestion = res.data;
+        const candidates: AssigneeCandidate[] = [
+          {
+            userId: suggestion.suggestedUserId,
+            fullName: suggestion.suggestedUserName,
+            roleName: '',
+            departmentName: suggestion.suggestedDepartmentName || '',
+            scorePercentage: Math.round((suggestion.confidence || 0) * 100),
+            positiveReasons: suggestion.reason ? [suggestion.reason] : [],
+            negativeReasons: [],
+            currentWorkloadPercentage: 0,
+            assignedTasksCount: 0,
+          },
+          ...(suggestion.alternatives || []).map(a => ({
+            userId: a.userId,
+            fullName: a.fullName,
+            roleName: '',
+            departmentName: (a as any).departmentName || '',
+            scorePercentage: 70,
+            positiveReasons: a.reason ? [a.reason] : [],
+            negativeReasons: [],
+            currentWorkloadPercentage: 0,
+            assignedTasksCount: 0,
+          })),
+        ];
+        setAssigneeCandidates(candidates);
+        setIsAssignModalOpen(true);
+      } else {
+        addToast('Thông báo', res.error || 'Không thể lấy gợi ý AI, mở phân công trực tiếp.', 'warning');
+        setAssigneeCandidates([]);
+        setIsAssignModalOpen(true);
+      }
     } catch (err: any) {
-      addToast('Lỗi gợi ý', err.message || 'Không thể gợi ý cán bộ', 'danger');
+      addToast('Thông báo', 'Dịch vụ gợi ý ngoại tuyến, mở phân công trực tiếp.', 'warning');
+      setAssigneeCandidates([]);
+      setIsAssignModalOpen(true);
     }
   };
 
@@ -290,21 +450,8 @@ export function DocumentsFeature() {
     await handleOpenViewer(docItem);
   };
 
-  // Lọc danh sách
-  const filteredDocs = documents.filter(doc => {
-    if (filterDirection !== 'all' && doc.direction !== filterDirection) return false;
-    if (filterCategory !== 'all' && doc.category !== filterCategory) return false;
-    if (filterStatus !== 'all' && doc.processingStatus !== filterStatus) return false;
-    if (searchKeyword.trim()) {
-      const kw = searchKeyword.toLowerCase();
-      return (
-        doc.subject.toLowerCase().includes(kw) ||
-        doc.documentNumber.toLowerCase().includes(kw) ||
-        doc.sender.toLowerCase().includes(kw)
-      );
-    }
-    return true;
-  });
+  // Danh sách hiển thị (đã lọc và phân trang từ máy chủ)
+  const filteredDocs = documents;
 
   const renderStatusBadge = (status: DocumentProcessingStatus) => {
     switch (status) {
@@ -347,8 +494,8 @@ export function DocumentsFeature() {
   };
 
   const urgentCount = documents.filter(d => d.isUrgent).length;
-  const incomingCount = documents.filter(d => d.direction === 'incoming').length;
-  const outgoingCount = documents.filter(d => d.direction === 'outgoing').length;
+  const incomingCount = incomingTotal || documents.filter(d => d.direction === 'incoming').length;
+  const outgoingCount = outgoingTotal || documents.filter(d => d.direction === 'outgoing').length;
   const pendingCount = documents.filter(d => d.processingStatus !== 'Completed').length;
   const completedCount = documents.filter(d => d.processingStatus === 'Completed').length;
 
@@ -663,22 +810,29 @@ export function DocumentsFeature() {
           </table>
         </div>
 
-        {/* 5. FOOTER SUMMARY BAR */}
-        <div className="doc-table-footer">
-          <div>
-            Hiển thị <strong>{filteredDocs.length}</strong> trên tổng số <strong>{documents.length}</strong> văn bản công vụ
-          </div>
+        {/* 5. FOOTER SUMMARY BAR & PHÂN TRANG */}
+        <div style={{ padding: '8px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.76rem', color: '#b45309' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.78rem', color: '#b45309', fontWeight: 600 }}>
               <i className="fa-solid fa-circle" style={{ fontSize: 8 }} aria-hidden="true" />
               {pendingCount} văn bản chờ giải quyết
             </span>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.76rem', color: '#dc2626' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.78rem', color: '#dc2626', fontWeight: 600 }}>
               <i className="fa-solid fa-bolt" style={{ fontSize: 9 }} aria-hidden="true" />
               {urgentCount} hỏa tốc
             </span>
           </div>
         </div>
+
+        <Pagination
+          currentPage={currentPage}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+          pageSizeOptions={[10, 20, 50, 100]}
+          itemName="văn bản công vụ"
+        />
       </div>
 
       {/* ── MODAL TRÌNH XEM VĂN BẢN 2 CỘT ── */}

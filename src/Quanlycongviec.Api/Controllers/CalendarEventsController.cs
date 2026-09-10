@@ -10,6 +10,9 @@ using Quanlycongviec.Application.Features.CalendarEvents.Commands.DeleteCalendar
 using Quanlycongviec.Application.Features.CalendarEvents.Commands.UpdateCalendarEvent;
 using Quanlycongviec.Application.Features.CalendarEvents.DTOs;
 using Quanlycongviec.Application.Features.CalendarEvents.Queries.GetCalendarEvents;
+using Quanlycongviec.Application.Common.Interfaces;
+using Quanlycongviec.Domain.Entities;
+using Quanlycongviec.Domain.Enums;
 
 namespace Quanlycongviec.Api.Controllers
 {
@@ -19,14 +22,14 @@ namespace Quanlycongviec.Api.Controllers
     public class CalendarEventsController : ControllerBase
     {
         private readonly IMediator _mediator;
-        private readonly Quanlycongviec.Application.Common.Interfaces.IRealtimePublisherService _realtimePublisher;
+        private readonly INotificationDispatcher _notificationDispatcher;
 
         public CalendarEventsController(
             IMediator mediator,
-            Quanlycongviec.Application.Common.Interfaces.IRealtimePublisherService realtimePublisher)
+            INotificationDispatcher notificationDispatcher)
         {
             _mediator = mediator;
-            _realtimePublisher = realtimePublisher;
+            _notificationDispatcher = notificationDispatcher;
         }
 
         // BẢO MẬT (Audit X1 + L3): dùng extension dùng chung — bỏ fallback GUID admin cứng
@@ -60,17 +63,35 @@ namespace Quanlycongviec.Api.Controllers
 
             var id = await _mediator.Send(command);
 
-            // Phát sự kiện CalendarEventCreated
-            await _realtimePublisher.BroadcastAsync("CalendarEventCreated", new
+            // Gửi thông báo đến những người tham gia qua INotificationDispatcher (thay vì Broadcast dữ liệu nhạy cảm qua Clients.All)
+            if (command.ParticipantUserIds != null && command.ParticipantUserIds.Count > 0)
             {
-                id,
-                title = command.Title,
-                startDateTime = command.StartDateTime,
-                endDateTime = command.EndDateTime,
-                eventType = command.EventType.ToString(),
-                departmentId = command.DepartmentId,
-                organizerId = command.OrganizerId
-            });
+                // Bugfix 10-09-2026: StartDateTime được lưu ở Kind=Utc, nếu format trực tiếp sẽ in giờ UTC.
+                // Convert sang giờ Việt Nam (UTC+7) trước khi hiển thị trong message thông báo.
+                var vietnamTz = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+                    ?? TimeZoneInfo.CreateCustomTimeZone("VN", TimeSpan.FromHours(7), "Vietnam", "Vietnam");
+                var startLocal = TimeZoneInfo.ConvertTimeFromUtc(command.StartDateTime, vietnamTz);
+                var endLocal = TimeZoneInfo.ConvertTimeFromUtc(command.EndDateTime, vietnamTz);
+
+                var notifications = command.ParticipantUserIds
+                    .Where(uid => uid != command.OrganizerId)
+                    .Select(uid => new Notification
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = uid,
+                        Type = NotificationType.EventReminder,
+                        Title = $"Lịch mới: {command.Title}",
+                        Message = $"Đồng chí có lịch [{command.Title}] diễn ra từ {startLocal:dd-MM-yyyy HH:mm} đến {endLocal:dd-MM-yyyy HH:mm}.",
+                        SentAt = DateTime.UtcNow,
+                        IsRead = false
+                    })
+                    .ToList();
+
+                if (notifications.Count > 0)
+                {
+                    await _notificationDispatcher.DispatchBatchAsync(notifications);
+                }
+            }
 
             return CreatedAtAction(nameof(GetCalendarEvents), new { id }, id);
         }

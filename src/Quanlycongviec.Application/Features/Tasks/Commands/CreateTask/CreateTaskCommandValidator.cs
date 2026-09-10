@@ -9,7 +9,10 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
             RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
             RuleFor(x => x.AssignerId).NotEmpty();
             RuleFor(x => x.AssigneeId).NotEmpty();
-            RuleFor(x => x.EstimatedEffortHours).GreaterThan(0);
+            // BẢO MẬT (Audit 04-09-2026): Không cho phép tự giao việc cho chính mình theo quy chuẩn hành chính.
+            RuleFor(x => x.AssigneeId)
+                .NotEqual(x => x.AssignerId)
+                .WithMessage("Không thể tự giao việc cho chính mình theo quy chuẩn hành chính.");
         }
     }
 }

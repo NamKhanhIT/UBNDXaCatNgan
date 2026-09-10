@@ -14,6 +14,8 @@ using Microsoft.Extensions.Logging;
 using Quanlycongviec.Application.AI.Models;
 using Quanlycongviec.Application.Common.Interfaces;
 using Quanlycongviec.Application.Features.Inbox.Commands.ScheduleDocument;
+using Quanlycongviec.Application.Features.Inbox.Commands.CreateInboxDocument;
+using Quanlycongviec.Application.Features.Tasks.Commands.CreateTask;
 using Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocuments;
 using Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocumentsPaginated;
 using Quanlycongviec.Domain.Entities;
@@ -30,28 +32,40 @@ namespace Quanlycongviec.Api.Controllers
         private readonly ISender _mediator;
         private readonly IApplicationDbContext _context;
         private readonly IDocumentAiService _aiService;
-        private readonly IHubContext<NotificationHub> _hubContext;
-        private readonly IWebPushNotificationService _webPushService;
+        private readonly INotificationDispatcher _notificationDispatcher;
         private readonly ILogger<InboxController> _logger;
+        private readonly IDocumentAccessService _documentAccess;
+        private readonly ITaskAuthorizationService _taskAuthorization;
 
         public InboxController(
             ISender mediator,
             IApplicationDbContext context,
             IDocumentAiService aiService,
-            IHubContext<NotificationHub> hubContext,
-            IWebPushNotificationService webPushService,
-            ILogger<InboxController> logger)
+            INotificationDispatcher notificationDispatcher,
+            ILogger<InboxController> logger,
+            IDocumentAccessService documentAccess,
+            ITaskAuthorizationService taskAuthorization)
         {
             _mediator = mediator;
             _context = context;
             _aiService = aiService;
-            _hubContext = hubContext;
-            _webPushService = webPushService;
+            _notificationDispatcher = notificationDispatcher;
             _logger = logger;
+            _documentAccess = documentAccess;
+            _taskAuthorization = taskAuthorization;
         }
 
         // BẢO MẬT (Audit X1): dùng extension dùng chung CurrentUserExtensions.GetUserId
         private Guid CurrentUserId => User.GetUserId();
+
+        private int CurrentRankLevel
+        {
+            get
+            {
+                var claim = User.FindFirst("RankLevel")?.Value;
+                return int.TryParse(claim, out var rank) ? rank : 5;
+            }
+        }
 
         /// <summary>
         /// Lấy danh sách văn bản chỉ đạo đến từ CSDL PostgreSQL — phân trang server-side
@@ -63,16 +77,22 @@ namespace Quanlycongviec.Api.Controllers
             [FromQuery] bool? isScheduled = null,
             [FromQuery] string? channel = null,
             [FromQuery] string? search = null,
-            [FromQuery] bool? isUrgent = null)
+            [FromQuery] bool? isUrgent = null,
+            [FromQuery] string? category = null,
+            [FromQuery] string? status = null)
         {
             var query = new GetInboxDocumentsPaginatedQuery
             {
                 Page = page,
                 PageSize = pageSize,
+                CurrentUserId = CurrentUserId,
+                UserRankLevel = CurrentRankLevel,
                 IsScheduled = isScheduled,
                 Channel = channel,
                 Search = search,
-                IsUrgent = isUrgent
+                IsUrgent = isUrgent,
+                Category = category,
+                AiProcessingStatus = status
             };
             var result = await _mediator.Send(query);
             return Ok(new
@@ -88,13 +108,27 @@ namespace Quanlycongviec.Api.Controllers
             });
         }
 
+        [HttpPost]
+        public async Task<IActionResult> CreateInboxDocument(
+            [FromBody] CreateInboxDocumentCommand command,
+            CancellationToken ct)
+        {
+            command.ReceivedByUserId = CurrentUserId;
+            var id = await _mediator.Send(command, ct);
+            return CreatedAtAction(nameof(GetInboxDocumentById), new { id }, new { success = true, data = id });
+        }
+
         /// <summary>
         /// Lấy chi tiết 1 văn bản đến theo ID
         /// </summary>
         [HttpGet("{id:guid}")]
         public async Task<IActionResult> GetInboxDocumentById([FromRoute] Guid id)
         {
-            var query = new Application.Features.Inbox.Queries.GetInboxDocumentById.GetInboxDocumentByIdQuery { Id = id };
+            var query = new Application.Features.Inbox.Queries.GetInboxDocumentById.GetInboxDocumentByIdQuery
+            {
+                Id = id,
+                CurrentUserId = CurrentUserId
+            };
             var result = await _mediator.Send(query);
 
             if (result == null)
@@ -124,7 +158,7 @@ namespace Quanlycongviec.Api.Controllers
         }
 
         // ══════════════════════════════════════════════════════════════
-        // PROMPT F: AI Workflow Endpoints
+        // AI Workflow Endpoints
         // ══════════════════════════════════════════════════════════════
 
         /// <summary>
@@ -138,6 +172,11 @@ namespace Quanlycongviec.Api.Controllers
             [FromBody] ConfirmClassificationRequest request,
             CancellationToken ct)
         {
+            if (!await _documentAccess.CanAccessDocumentAsync(CurrentUserId, id, "Inbox", ct))
+            {
+                return NotFound(new { success = false, error = "Không tìm thấy văn bản." });
+            }
+
             var inboxDoc = await _context.InboxDocuments.FindAsync(new object[] { id }, ct);
             if (inboxDoc == null)
                 return NotFound(new { success = false, error = "Không tìm thấy văn bản." });
@@ -163,14 +202,24 @@ namespace Quanlycongviec.Api.Controllers
             {
                 case "event":
                     // Tạo CalendarEvent draft từ dữ liệu AI đã duyệt
+                    if (!request.EventStartDateTime.HasValue || !request.EventEndDateTime.HasValue
+                        || request.EventEndDateTime <= request.EventStartDateTime)
+                    {
+                        return BadRequest(new
+                        {
+                            success = false,
+                            error = "Cần xác nhận thời gian bắt đầu và kết thúc sự kiện trước khi xếp lịch."
+                        });
+                    }
+
                     var calEvent = new CalendarEvent
                     {
                         Id = Guid.NewGuid(),
                         Title = inboxDoc.AiTitle ?? inboxDoc.Subject,
                         Description = inboxDoc.AiSummary ?? "",
                         EventType = EventTypeEnum.Meeting,
-                        StartDateTime = inboxDoc.AiEventStartDateTime ?? DateTime.UtcNow.AddDays(1),
-                        EndDateTime = inboxDoc.AiEventEndDateTime ?? DateTime.UtcNow.AddDays(1).AddHours(2),
+                        StartDateTime = request.EventStartDateTime.Value,
+                        EndDateTime = request.EventEndDateTime.Value,
                         OrganizerId = CurrentUserId,
                         DepartmentId = inboxDoc.AiSuggestedDepartmentId,
                         ColorTag = "#3B82F6"
@@ -197,8 +246,13 @@ namespace Quanlycongviec.Api.Controllers
                     inboxDoc.AiProcessingStatus = "Confirmed";
                     break;
 
+                case "store":
+                    routeResult = new { message = "Đã xác nhận lưu trữ văn bản." };
+                    inboxDoc.AiProcessingStatus = "Confirmed";
+                    break;
+
                 default:
-                    return BadRequest(new { success = false, error = "Route phải là 'event', 'assign', hoặc 'review'." });
+                    return BadRequest(new { success = false, error = "Route phải là 'event', 'assign', 'review', hoặc 'store'." });
             }
 
             await _context.SaveChangesAsync(ct);
@@ -220,6 +274,11 @@ namespace Quanlycongviec.Api.Controllers
             [FromRoute] Guid id,
             CancellationToken ct)
         {
+            if (!await _documentAccess.CanAccessDocumentAsync(CurrentUserId, id, "Inbox", ct))
+            {
+                return NotFound(new { success = false, error = "Không tìm thấy văn bản." });
+            }
+
             var inboxDoc = await _context.InboxDocuments.FindAsync(new object[] { id }, ct);
             if (inboxDoc == null)
                 return NotFound(new { success = false, error = "Không tìm thấy văn bản." });
@@ -244,19 +303,28 @@ namespace Quanlycongviec.Api.Controllers
                     WorkloadPercentage = u.AssignedTasks.Count(t =>
                         t.Status != TaskStatusEnum.Completed &&
                         t.Status != TaskStatusEnum.Cancelled &&
-                        !t.IsDeleted) * 10.0 // Rough % estimate: 10% per active task
+                        !t.IsDeleted) * 10.0 // Ước lượng: 10% mỗi nhiệm vụ đang thực hiện
                 })
                 .ToListAsync(ct);
 
             var taskDescription = $"{inboxDoc.AiTitle ?? inboxDoc.Subject}\n{inboxDoc.AiSummary ?? ""}\n{inboxDoc.AiObjectives ?? ""}";
 
-            var suggestion = await _aiService.SuggestAssignmentAsync(taskDescription, candidates, ct);
+            Quanlycongviec.Application.AI.Models.AssignmentSuggestion suggestion;
+            try
+            {
+                suggestion = await _aiService.SuggestAssignmentAsync(taskDescription, candidates, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Lỗi khi gọi AI gợi ý giao việc cho văn bản {InboxId}. Sử dụng thuật toán dự phòng theo tải việc.", id);
+                suggestion = Quanlycongviec.Infrastructure.AI.OllamaDocumentAiService.GenerateHeuristicAssignmentFallback(candidates, taskDescription);
+            }
 
             return Ok(new
             {
                 success = true,
                 data = suggestion,
-                message = "Gợi ý giao việc từ AI. Bạn có thể chọn người khác nếu không đồng ý."
+                message = "Gợi ý giao việc từ hệ thống. Bạn có thể chọn người khác nếu không đồng ý."
             });
         }
 
@@ -270,31 +338,48 @@ namespace Quanlycongviec.Api.Controllers
             [FromBody] CreateTaskFromInboxRequest request,
             CancellationToken ct)
         {
+            if (!await _documentAccess.CanAccessDocumentAsync(CurrentUserId, id, "Inbox", ct))
+            {
+                return NotFound(new { success = false, error = "Không tìm thấy văn bản." });
+            }
+
             var inboxDoc = await _context.InboxDocuments.FindAsync(new object[] { id }, ct);
             if (inboxDoc == null)
                 return NotFound(new { success = false, error = "Không tìm thấy văn bản." });
 
             // Tạo TaskItem chính thức
-            var taskItem = new TaskItem
+            if (!string.Equals(inboxDoc.AiProcessingStatus, "Confirmed", StringComparison.OrdinalIgnoreCase)
+                || inboxDoc.AiReviewedByUserId != CurrentUserId)
             {
-                Id = Guid.NewGuid(),
+                return BadRequest(new
+                {
+                    success = false,
+                    error = "Văn bản phải được cán bộ kiểm tra và xác nhận trước khi giao nhiệm vụ."
+                });
+            }
+
+            var taskId = await _mediator.Send(new CreateTaskCommand
+            {
                 Title = inboxDoc.AiTitle ?? inboxDoc.Subject,
                 Description = inboxDoc.AiSummary ?? inboxDoc.Subject,
+                Requirements = string.IsNullOrWhiteSpace(request.Requirements)
+                    ? inboxDoc.AiObjectives
+                    : request.Requirements,
                 AssignerId = CurrentUserId,
                 AssigneeId = request.AssigneeId,
                 DepartmentId = request.DepartmentId ?? inboxDoc.AiSuggestedDepartmentId,
                 Priority = request.Priority ?? TaskPriority.Medium,
-                Status = TaskStatusEnum.Todo,
                 Type = TaskType.BAU,
-                DueDate = inboxDoc.AiExtractedDeadline,
-                ProgressPercentage = 0,
-                AISummary = inboxDoc.AiSummary
-            };
+                DueDate = request.DueDate ?? inboxDoc.AiExtractedDeadline,
+                OCRText = inboxDoc.AiSummary,
+                EstimatedEffortHours = null
+            }, ct);
 
-            _context.TaskItems.Add(taskItem);
+            var taskItem = await _context.TaskItems
+                .FirstAsync(t => t.Id == taskId && !t.IsDeleted, ct);
 
             // Liên kết InboxDocument với TaskItem
-            inboxDoc.ScheduledTaskId = taskItem.Id;
+            inboxDoc.ScheduledTaskId = taskId;
             inboxDoc.IsScheduled = true;
 
             // AI đề xuất checklist tiến độ
@@ -357,12 +442,18 @@ namespace Quanlycongviec.Api.Controllers
             if (subTask == null)
                 return NotFound(new { success = false, error = "Không tìm thấy đầu việc con." });
 
+            var taskItem = subTask.TaskItem;
+            if (taskItem == null || !await _taskAuthorization.CanAccessTaskAsync(
+                    CurrentUserId, taskItem.Id, ct))
+            {
+                return Forbid();
+            }
+
             // Toggle trạng thái
             subTask.IsCompleted = !subTask.IsCompleted;
             subTask.UpdatedAt = DateTime.UtcNow;
 
             // Tính lại % tiến độ
-            var taskItem = subTask.TaskItem;
             var allSubTasks = await _context.SubTasks
                 .Where(s => s.TaskItemId == taskItem.Id && !s.IsDeleted)
                 .ToListAsync(ct);
@@ -374,9 +465,11 @@ namespace Quanlycongviec.Api.Controllers
 
             // Thông báo 2 chiều: cả người giao và người nhận
             var notificationTitle = $"Tiến độ: {taskItem.Title}";
-            var notificationMessage = $"{(subTask.IsCompleted ? "✅" : "⬜")} \"{subTask.Title}\" — Tiến độ: {taskItem.ProgressPercentage}%";
+            var notificationMessage = $"{(subTask.IsCompleted ? "✔ Hoàn thành" : "🔄 Cập nhật")} \"{subTask.Title}\" — Tiến độ: {taskItem.ProgressPercentage}%";
 
             var userIds = new[] { taskItem.AssignerId, taskItem.AssigneeId }.Distinct();
+
+            await _context.SaveChangesAsync(ct);
 
             foreach (var userId in userIds)
             {
@@ -391,36 +484,9 @@ namespace Quanlycongviec.Api.Controllers
                     SentAt = DateTime.UtcNow,
                     IsRead = false
                 };
-                _context.Notifications.Add(notification);
 
-                // SignalR realtime
-                await _hubContext.Clients.User(userId.ToString())
-                    .SendAsync("ReceiveNotification", new
-                    {
-                        notification.Id,
-                        notification.Title,
-                        notification.Message,
-                        notification.Type,
-                        taskItemId = taskItem.Id,
-                        progressPercentage = taskItem.ProgressPercentage
-                    }, ct);
+                await _notificationDispatcher.DispatchAsync(notification, ct);
             }
-
-            // Web Push
-            foreach (var userId in userIds)
-            {
-                try
-                {
-                    await _webPushService.SendNotificationAsync(
-                        userId, notificationTitle, notificationMessage, cancellationToken: ct);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Web Push thất bại cho userId={UserId}", userId);
-                }
-            }
-
-            await _context.SaveChangesAsync(ct);
 
             return Ok(new
             {
@@ -447,6 +513,8 @@ namespace Quanlycongviec.Api.Controllers
     public class ConfirmClassificationRequest
     {
         public string? Route { get; set; } // "event" | "assign" | "review"
+        public DateTime? EventStartDateTime { get; set; }
+        public DateTime? EventEndDateTime { get; set; }
         public string? AiCategory { get; set; }
         public string? AiTitle { get; set; }
         public string? AiSummary { get; set; }
@@ -461,6 +529,7 @@ namespace Quanlycongviec.Api.Controllers
         public Guid AssigneeId { get; set; }
         public Guid? DepartmentId { get; set; }
         public TaskPriority? Priority { get; set; }
+        public DateTime? DueDate { get; set; }
+        public string? Requirements { get; set; }
     }
 }
-

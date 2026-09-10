@@ -14,11 +14,15 @@ export interface DocumentAttachmentDto {
 }
 
 export async function getDocumentAttachmentsApi(
-  documentId: string
+  documentId: string,
+  targetType: string = 'Inbox'
 ): Promise<{ success: boolean; data?: DocumentAttachmentDto[]; error?: string }> {
-  return await apiFetch<DocumentAttachmentDto[]>(`/api/v1/Files/document/${documentId}`, {
-    method: 'GET',
-  });
+  return await apiFetch<DocumentAttachmentDto[]>(
+    `/api/v1/Files/document/${documentId}?targetType=${encodeURIComponent(targetType)}`,
+    {
+      method: 'GET',
+    }
+  );
 }
 
 export function getFileViewUrl(attachmentId: string): string {

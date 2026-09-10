@@ -8,6 +8,7 @@ using Quanlycongviec.Application.Features.OutgoingDocuments.Commands.RejectOutgo
 using Quanlycongviec.Application.Features.OutgoingDocuments.Commands.SignAndIssue;
 using Quanlycongviec.Application.Features.OutgoingDocuments.Commands.SubmitForSignature;
 using Quanlycongviec.Application.Features.OutgoingDocuments.Commands.UpdateOutgoingDocument;
+using Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgoingDocumentsPaginated;
 using Quanlycongviec.Domain.Entities;
 using Quanlycongviec.Domain.Enums;
 using Quanlycongviec.Infrastructure.Persistence;
@@ -110,6 +111,46 @@ namespace Quanlycongviec.Application.Tests.OutgoingDocuments
             var act = async () => await signHandler.Handle(command, CancellationToken.None);
             await act.Should().ThrowAsync<UnauthorizedAccessException>()
                 .WithMessage("*không có thẩm quyền ký*");
+        }
+
+        [Fact]
+        public async Task GetOutgoingDocumentsPaginated_ShouldExcludeDeletedRowsAndContentPayload()
+        {
+            var leader = new User { Username = "query_leader", FullName = "Leader", Email = "query.leader@test.local" };
+            _context.Users.Add(leader);
+
+            _context.OutgoingDocuments.AddRange(
+                new OutgoingDocument
+                {
+                    Title = "Visible document",
+                    Content = "Confidential body must not be in list payload",
+                    DraftedByUserId = leader.Id,
+                    Status = OutgoingDocumentStatusEnum.Draft,
+                    DraftedAt = DateTime.UtcNow
+                },
+                new OutgoingDocument
+                {
+                    Title = "Deleted document",
+                    Content = "Deleted body",
+                    DraftedByUserId = leader.Id,
+                    Status = OutgoingDocumentStatusEnum.Draft,
+                    IsDeleted = true,
+                    DraftedAt = DateTime.UtcNow.AddMinutes(-1)
+                });
+            await _context.SaveChangesAsync();
+
+            var result = await new GetOutgoingDocumentsPaginatedQueryHandler(_context).Handle(
+                new GetOutgoingDocumentsPaginatedQuery
+                {
+                    CurrentUserId = leader.Id,
+                    UserRankLevel = 1,
+                    Page = 1,
+                    PageSize = 10
+                }, CancellationToken.None);
+
+            result.TotalCount.Should().Be(1);
+            result.Items.Should().ContainSingle();
+            result.Items[0].Content.Should().BeEmpty();
         }
     }
 }

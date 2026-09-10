@@ -53,12 +53,9 @@ namespace Quanlycongviec.Infrastructure.Services
             var assignerDeptId = assigner.PrimaryDepartmentId;
             var assigneeDeptId = assignee.PrimaryDepartmentId;
 
-            if (assignerDeptId != null && assigneeDeptId != null && assignerDeptId == assigneeDeptId)
-            {
-                return true;
-            }
-
-            if (departmentId.HasValue && assignerDeptId.HasValue && departmentId.Value == assignerDeptId.Value)
+            if (assignerDeptId != null && assigneeDeptId != null
+                && assignerDeptId == assigneeDeptId
+                && (!departmentId.HasValue || departmentId.Value == assigneeDeptId.Value))
             {
                 return true;
             }
@@ -109,6 +106,32 @@ namespace Quanlycongviec.Infrastructure.Services
                 && targetUser.PrimaryDepartmentId == currentUser.PrimaryDepartmentId;
         }
 
+        public async Task<bool> CanAccessTaskAsync(Guid currentUserId, Guid taskId, CancellationToken cancellationToken = default)
+        {
+            if (currentUserId == Guid.Empty || taskId == Guid.Empty) return false;
+
+            var user = await _context.Users
+                .Include(u => u.UserRoles)
+                .ThenInclude(ur => ur.Role)
+                .FirstOrDefaultAsync(u => u.Id == currentUserId && !u.IsDeleted, cancellationToken);
+            var task = await _context.TaskItems
+                .FirstOrDefaultAsync(t => t.Id == taskId && !t.IsDeleted, cancellationToken);
+
+            if (user == null || task == null) return false;
+
+            var rank = user.UserRoles
+                .Where(ur => !ur.IsDeleted && ur.Role != null)
+                .Select(ur => (int?)ur.Role.RankLevel)
+                .Min() ?? 5;
+
+            if (rank <= 2) return true;
+            if (task.AssignerId == currentUserId || task.AssigneeId == currentUserId) return true;
+
+            return rank <= 4
+                && user.PrimaryDepartmentId.HasValue
+                && task.DepartmentId == user.PrimaryDepartmentId;
+        }
+
         public async Task<bool> CanUpdateTaskStatusAsync(Guid currentUserId, Guid taskId, TaskStatusEnum newStatus, CancellationToken cancellationToken = default)
         {
             if (currentUserId == Guid.Empty || taskId == Guid.Empty) return false;
@@ -135,7 +158,11 @@ namespace Quanlycongviec.Infrastructure.Services
                 }
 
                 // Assigner hoặc cấp trên có Rank nhỏ hơn
-                return task.AssignerId == currentUserId || currentUserRank <= 3;
+                if (currentUserRank <= 2) return true;
+                if (task.AssignerId == currentUserId) return true;
+                return currentUserRank <= 4
+                    && currentUser.PrimaryDepartmentId.HasValue
+                    && task.DepartmentId == currentUser.PrimaryDepartmentId.Value;
             }
 
             // Chuyển sang làm (InProgress) hoặc Trình duyệt (InReview / PendingUBMTTQReview)

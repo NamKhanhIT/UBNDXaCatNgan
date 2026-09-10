@@ -57,7 +57,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
         public UpdateTaskStatusCommandHandler(
             IApplicationDbContext context,
             ISystemScoreCalculator calculator,
-            ITaskAuthorizationService? authService = null,
+            ITaskAuthorizationService authService,
             INotificationDispatcher? notificationDispatcher = null)
         {
             _context = context;
@@ -68,19 +68,23 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
 
         public async Task<bool> Handle(UpdateTaskStatusCommand request, CancellationToken cancellationToken)
         {
+            ITaskAuthorizationService authService = _authService
+                ?? throw new InvalidOperationException("Task authorization service is required.");
+
             var task = await _context.TaskItems
                 .Include(t => t.SubTasks)
-                .FirstOrDefaultAsync(t => t.Id == request.TaskId, cancellationToken);
+                .FirstOrDefaultAsync(t => t.Id == request.TaskId && !t.IsDeleted, cancellationToken);
 
             if (task == null) return false;
 
             var newStatus = MapStatus(request.Status);
             var oldStatus = task.Status;
+            EnsureTransitionAllowed(task, oldStatus, newStatus, request);
 
             // Kiểm tra phân quyền cập nhật trạng thái
-            if (_authService != null)
+            if (authService != null)
             {
-                var canUpdate = await _authService.CanUpdateTaskStatusAsync(request.CurrentUserId, request.TaskId, newStatus, cancellationToken);
+                var canUpdate = await authService.CanUpdateTaskStatusAsync(request.CurrentUserId, request.TaskId, newStatus, cancellationToken);
                 if (!canUpdate)
                 {
                     throw new UnauthorizedAccessException("Bạn không có quyền chuyển công việc sang trạng thái này.");
@@ -123,15 +127,11 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                     IsRead = false
                 };
 
+                await _context.SaveChangesAsync(cancellationToken);
+
                 if (_notificationDispatcher != null)
                 {
-                    await _context.SaveChangesAsync(cancellationToken);
                     await _notificationDispatcher.DispatchAsync(mttqNotification, cancellationToken);
-                }
-                else
-                {
-                    _context.Notifications.Add(mttqNotification);
-                    await _context.SaveChangesAsync(cancellationToken);
                 }
 
                 return true;
@@ -141,6 +141,26 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
 
             if (newStatus == TaskStatusEnum.Completed)
             {
+                if (request.EvaluatorScore.HasValue)
+                {
+                    if (!double.IsFinite(request.EvaluatorScore.Value)
+                        || request.EvaluatorScore.Value < 0.0
+                        || request.EvaluatorScore.Value > 7.0)
+                    {
+                        throw new ArgumentOutOfRangeException(nameof(request.EvaluatorScore), "Evaluator score must be between 0 and 7.");
+                    }
+
+                    var canScore = await authService!.CanScoreTaskAsync(request.CurrentUserId, task!.Id, cancellationToken);
+                    if (!canScore)
+                    {
+                        throw new UnauthorizedAccessException("Evaluator is not authorized for this task.");
+                    }
+                }
+
+                // These values are derived server-side and must never be trusted
+                // when they arrive in an HTTP request.
+                request.SystemScore = null;
+                request.RatingScore = null;
                 task.ProgressPercentage = 100;
                 task.CompletedAt = DateTime.UtcNow;
 
@@ -222,18 +242,79 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 Summary = $"Chuyển trạng thái [{task.Title}] từ {oldStatus} → {newStatus}" + (newStatus == TaskStatusEnum.Cancelled ? $" (Lý do: {request.RejectionReason})" : "")
             });
 
+            await _context.SaveChangesAsync(cancellationToken);
+
             if (_notificationDispatcher != null)
             {
-                await _context.SaveChangesAsync(cancellationToken);
                 await _notificationDispatcher.DispatchAsync(notification, cancellationToken);
-            }
-            else
-            {
-                _context.Notifications.Add(notification);
-                await _context.SaveChangesAsync(cancellationToken);
             }
 
             return true;
+        }
+
+        private static void EnsureTransitionAllowed(
+            TaskItem task,
+            TaskStatusEnum oldStatus,
+            TaskStatusEnum newStatus,
+            UpdateTaskStatusCommand request)
+        {
+            if (oldStatus == newStatus) return;
+
+            if (newStatus == TaskStatusEnum.InReview)
+            {
+                if (oldStatus != TaskStatusEnum.InProgress && oldStatus != TaskStatusEnum.PendingUBMTTQReview)
+                {
+                    throw new InvalidOperationException("Task must be in progress before submission.");
+                }
+
+                if (string.IsNullOrWhiteSpace(request.SubmissionNote))
+                {
+                    throw new ArgumentException("Submission note is required.", nameof(request.SubmissionNote));
+                }
+
+                if (request.CurrentUserId != task.AssigneeId)
+                {
+                    throw new UnauthorizedAccessException("Only the assignee may submit a task for review.");
+                }
+
+                return;
+            }
+
+            if (newStatus == TaskStatusEnum.Completed)
+            {
+                if (oldStatus != TaskStatusEnum.InReview)
+                {
+                    throw new InvalidOperationException("Task must be submitted for review before completion.");
+                }
+
+                return;
+            }
+
+            if (newStatus == TaskStatusEnum.InProgress && oldStatus == TaskStatusEnum.InReview)
+            {
+                if (string.IsNullOrWhiteSpace(request.RejectionReason))
+                {
+                    throw new ArgumentException("A return reason is required.", nameof(request.RejectionReason));
+                }
+
+                if (request.CurrentUserId == task.AssigneeId)
+                {
+                    throw new UnauthorizedAccessException("The assignee cannot return their own task.");
+                }
+
+                return;
+            }
+
+            if (newStatus == TaskStatusEnum.Cancelled && string.IsNullOrWhiteSpace(request.RejectionReason))
+            {
+                throw new ArgumentException("A cancellation reason is required.", nameof(request.RejectionReason));
+            }
+
+            var validProgression = oldStatus == TaskStatusEnum.Todo && newStatus == TaskStatusEnum.InProgress;
+            if (!validProgression && !(oldStatus == TaskStatusEnum.PendingUBMTTQReview && newStatus == TaskStatusEnum.InReview))
+            {
+                throw new InvalidOperationException($"Transition from {oldStatus} to {newStatus} is not allowed.");
+            }
         }
 
         private static TaskStatusEnum MapStatus(string statusStr)

@@ -20,6 +20,7 @@ namespace Quanlycongviec.Application.Features.SubTasks.Queries.GetSubTasks
     public class GetSubTasksQuery : IRequest<List<SubTaskDto>>
     {
         public Guid TaskItemId { get; set; }
+        public Guid CurrentUserId { get; set; }
 
         public GetSubTasksQuery(Guid taskItemId)
         {
@@ -30,14 +31,19 @@ namespace Quanlycongviec.Application.Features.SubTasks.Queries.GetSubTasks
     public class GetSubTasksQueryHandler : IRequestHandler<GetSubTasksQuery, List<SubTaskDto>>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService _authorizationService;
 
-        public GetSubTasksQueryHandler(IApplicationDbContext context)
+        public GetSubTasksQueryHandler(IApplicationDbContext context, ITaskAuthorizationService authorizationService)
         {
             _context = context;
+            _authorizationService = authorizationService;
         }
 
         public async Task<List<SubTaskDto>> Handle(GetSubTasksQuery request, CancellationToken cancellationToken)
         {
+            if (!await _authorizationService.CanAccessTaskAsync(request.CurrentUserId, request.TaskItemId, cancellationToken))
+                return new List<SubTaskDto>();
+
             var list = await _context.SubTasks
                 .Where(st => st.TaskItemId == request.TaskItemId && !st.IsDeleted)
                 .OrderBy(st => st.CreatedAt)

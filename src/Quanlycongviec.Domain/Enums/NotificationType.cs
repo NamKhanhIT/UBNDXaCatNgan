@@ -4,6 +4,7 @@ namespace Quanlycongviec.Domain.Enums
     {
         Assigned,
         BeforeDeadline,
+        BeforeDeadline48h,
         BeforeDeadline3d,
         BeforeDeadline1d,
         Overdue,

@@ -1,5 +1,4 @@
-import { HubConnection, HubConnectionBuilder, LogLevel, HttpTransportType } from '@microsoft/signalr';
-import { apiFetch, getApiBaseUrl, getStoredToken, needsBearerAuth } from './api.config';
+import { apiFetch } from './api.config';
 
 export interface NotificationItem {
   id: string;
@@ -20,8 +19,6 @@ export interface UserNotificationsResponse {
   unreadCount: number;
   totalCount: number;
 }
-
-let hubConnection: HubConnection | null = null;
 
 /**
  * Fetch list of notifications from backend API
@@ -48,54 +45,4 @@ export async function markAllNotificationsRead() {
   return await apiFetch('/api/v1/Notifications/read-all', {
     method: 'PATCH',
   });
-}
-
-/**
- * Initialize SignalR Hub Connection for real-time notifications
- */
-export function initSignalRConnection(onNotificationReceived: (notification: NotificationItem) => void) {
-  if (hubConnection) {
-    hubConnection.stop();
-  }
-
-  const baseUrl = getApiBaseUrl();
-  const hubUrl = `${baseUrl}/hubs/notifications`;
-
-  hubConnection = new HubConnectionBuilder()
-    .withUrl(hubUrl, {
-      withCredentials: true,
-      transport: HttpTransportType.WebSockets | HttpTransportType.LongPolling,
-      // Khi truy cập từ xa (Cloudflare Tunnel / IP mạng / điện thoại), auth bằng Bearer token
-      accessTokenFactory: () => {
-        if (needsBearerAuth()) {
-          return getStoredToken() || '';
-        }
-        return '';
-      },
-    })
-    .withAutomaticReconnect()
-    .configureLogging(LogLevel.Warning)
-    .build();
-
-  hubConnection.on('ReceiveNotification', (notification: NotificationItem) => {
-    onNotificationReceived(notification);
-  });
-
-  hubConnection
-    .start()
-    .catch((err) => {
-      console.warn('Không thể kết nối SignalR Notification Hub:', err);
-    });
-
-  return hubConnection;
-}
-
-/**
- * Disconnect SignalR
- */
-export function stopSignalRConnection() {
-  if (hubConnection) {
-    hubConnection.stop();
-    hubConnection = null;
-  }
 }

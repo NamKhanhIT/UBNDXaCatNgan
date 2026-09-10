@@ -9,12 +9,12 @@ import { apiFetch } from './api.config';
 export interface CreateTaskPayload {
   title: string;
   description: string;
+  requirements?: string;
   assignerId: string;
   assigneeId: string;
   departmentId?: string;
   priority?: 'Low' | 'Medium' | 'High' | 'Urgent';
   type?: 'BAU' | 'AdHoc' | 'Project';
-  estimatedEffortHours?: number;
   dueDate?: string;
 }
 
@@ -39,6 +39,7 @@ export interface TaskItemDto {
   id: string;
   title: string;
   description: string;
+  requirements?: string;
   assignerId: string;
   assignerName: string;
   assigneeId: string;
@@ -48,7 +49,8 @@ export interface TaskItemDto {
   priority: string;
   status: string;
   type: string;
-  estimatedEffortHours: number;
+  /** Legacy read-only value; new task requests must omit effort. */
+  estimatedEffortHours?: number;
   startDate?: string;
   dueDate?: string;
   completedAt?: string;
@@ -93,15 +95,64 @@ export interface PaginatedTasksResponse {
   pageSize: number;
 }
 
+export interface TaskDetailDto extends TaskItemDto {
+  subTasks: Array<{
+    id: string;
+    taskItemId: string;
+    title: string;
+    isCompleted: boolean;
+  }>;
+  comments: Array<{
+    id: string;
+    userId: string;
+    userFullName: string;
+    content: string;
+    createdAt: string;
+  }>;
+  attachments: Array<{
+    id: string;
+    originalFileName: string;
+    fileType: string;
+    fileSize: number;
+    uploadedAt: string;
+  }>;
+  timeline: Array<{
+    id: string;
+    actionType: string;
+    summary: string;
+    userId: string;
+    userFullName: string;
+    createdAt: string;
+  }>;
+  canSubmit: boolean;
+  canAccept: boolean;
+  canReturn: boolean;
+}
+
 export interface GetTasksParams {
   status?: string;
   departmentId?: string;
   q?: string;
+  priority?: string;
   page?: number;
   pageSize?: number;
   dueDate?: string;
   dueDateFrom?: string;
   dueDateTo?: string;
+  /**
+   * Tab "Hôm Nay" (Audit 04-09-2026): chỉ trả về task liên quan tới user (giao/nhận)
+   * có DueDate hôm nay hoặc đã quá hạn.
+   */
+  todayOnly?: boolean;
+  /**
+   * Audit 04-09-2026: Search nâng cấp — chọn trường nào trong DB sẽ được khớp.
+   */
+  searchField?: 'title' | 'description' | 'assignee' | 'documentNumber';
+  /**
+   * Audit 04-09-2026: Phạm vi dữ liệu. Hệ thống (system), phòng ban (department), chỉ tôi (mine).
+   * Backend validation token RankLevel — 'system' chỉ áp dụng với lãnh đạo.
+   */
+  scope?: 'system' | 'department' | 'mine';
 }
 
 export async function getTasksApi(params?: GetTasksParams) {
@@ -109,15 +160,23 @@ export async function getTasksApi(params?: GetTasksParams) {
   if (params?.status) searchParams.append('status', params.status);
   if (params?.departmentId) searchParams.append('departmentId', params.departmentId);
   if (params?.q) searchParams.append('q', params.q);
+  if (params?.priority) searchParams.append('priority', params.priority);
   if (params?.page) searchParams.append('page', String(params.page));
   if (params?.pageSize) searchParams.append('pageSize', String(params.pageSize));
   if (params?.dueDate) searchParams.append('dueDate', params.dueDate);
   if (params?.dueDateFrom) searchParams.append('dueDateFrom', params.dueDateFrom);
   if (params?.dueDateTo) searchParams.append('dueDateTo', params.dueDateTo);
+  if (params?.todayOnly) searchParams.append('today', 'true');
+  if (params?.searchField) searchParams.append('searchField', params.searchField);
+  if (params?.scope) searchParams.append('scope', params.scope);
 
   const qs = searchParams.toString();
   const url = `/api/v1/Tasks${qs ? `?${qs}` : ''}`;
   return await apiFetch<PaginatedTasksResponse>(url, { method: 'GET' });
+}
+
+export async function getTaskDetailApi(taskId: string) {
+  return await apiFetch<TaskDetailDto>(`/api/v1/Tasks/${taskId}`, { method: 'GET' });
 }
 
 export async function updateTaskStatusApi(

@@ -49,12 +49,22 @@ namespace Quanlycongviec.Infrastructure.AI
             CancellationToken ct)
         {
             var departments = availableDepartments.ToList();
-            var departmentList = string.Join("\n", departments.Select(d => $"  - Id: \"{d.Id}\", Name: \"{d.Name}\""));
+            string responseJson;
+            try
+            {
+                var departmentList = string.Join("\n", departments.Select(d => $"  - Id: \"{d.Id}\", Name: \"{d.Name}\""));
 
-            var systemPrompt = BuildAnalysisSystemPrompt(departmentList);
-            var userPrompt = $"Phân tích văn bản hành chính sau và trả về JSON:\n\n{extractedText}";
+                var systemPrompt = BuildAnalysisSystemPrompt(departmentList);
+                var userPrompt = $"Phân tích văn bản hành chính sau và trả về JSON:\n\n{extractedText}";
 
-            var responseJson = await CallOllamaAsync(systemPrompt, userPrompt, ct);
+                responseJson = await CallOllamaAsync(systemPrompt, userPrompt, ct);
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is System.Net.Sockets.SocketException || ex is TaskCanceledException || ex is TimeoutException)
+            {
+                _logger.LogWarning(ex, "Ollama không khả dụng hoặc mất kết nối ({Message}). Kích hoạt bộ phân tích quy tắc dự phòng (Rule-based Fallback).", ex.Message);
+                return GenerateRuleBasedAnalysisFallback(extractedText, departments);
+            }
+
             var result = ParseAnalysisResult(responseJson, departments);
 
             // Post-validation bằng code — không chỉ tin JSON hợp lệ cú pháp
@@ -69,19 +79,40 @@ namespace Quanlycongviec.Infrastructure.AI
             CancellationToken ct)
         {
             var candidateList = candidates.ToList();
-            var candidateInfo = string.Join("\n", candidateList.Select(c =>
+            if (!candidateList.Any())
             {
-                var expertise = string.IsNullOrWhiteSpace(c.Expertise) ? "chưa cập nhật" : c.Expertise;
-                var years = c.YearsOfExperience > 0 ? $"{c.YearsOfExperience} năm" : "chưa cập nhật";
-                return $"  - UserId: \"{c.UserId}\", Tên: \"{c.FullName}\", Phòng: \"{c.DepartmentName}\", " +
-                       $"Chuyên môn: {expertise}, Kinh nghiệm: {years}, " +
-                       $"Số việc đang làm: {c.ActiveTasksCount}, Tải việc: {c.WorkloadPercentage:F0}%";
-            }));
+                return new AssignmentSuggestion
+                {
+                    SuggestedUserId = Guid.Empty,
+                    SuggestedUserName = "Không có cán bộ",
+                    Reason = "Không tìm thấy cán bộ nào trong hệ thống để phân công.",
+                    Confidence = 0.0
+                };
+            }
 
-            var systemPrompt = BuildAssignmentSystemPrompt(candidateInfo);
-            var userPrompt = $"Mô tả công việc cần giao:\n\n{taskDescription}";
+            string responseJson;
+            try
+            {
+                var candidateInfo = string.Join("\n", candidateList.Select(c =>
+                {
+                    var expertise = string.IsNullOrWhiteSpace(c.Expertise) ? "chưa cập nhật" : c.Expertise;
+                    var years = c.YearsOfExperience > 0 ? $"{c.YearsOfExperience} năm" : "chưa cập nhật";
+                    return $"  - UserId: \"{c.UserId}\", Tên: \"{c.FullName}\", Phòng: \"{c.DepartmentName}\", " +
+                           $"Chuyên môn: {expertise}, Kinh nghiệm: {years}, " +
+                           $"Số việc đang làm: {c.ActiveTasksCount}, Tải việc: {c.WorkloadPercentage:F0}%";
+                }));
 
-            var responseJson = await CallOllamaAsync(systemPrompt, userPrompt, ct);
+                var systemPrompt = BuildAssignmentSystemPrompt(candidateInfo);
+                var userPrompt = $"Mô tả công việc cần giao:\n\n{taskDescription}";
+
+                responseJson = await CallOllamaAsync(systemPrompt, userPrompt, ct);
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is System.Net.Sockets.SocketException || ex is TaskCanceledException || ex is TimeoutException)
+            {
+                _logger.LogWarning(ex, "Ollama không khả dụng hoặc mất kết nối ({Message}). Kích hoạt thuật toán dự phòng thông minh (Heuristic Fallback) dựa trên tải việc cán bộ.", ex.Message);
+                return GenerateHeuristicAssignmentFallback(candidateList, taskDescription);
+            }
+
             return ParseAssignmentResult(responseJson, candidateList);
         }
 
@@ -89,10 +120,20 @@ namespace Quanlycongviec.Infrastructure.AI
             string taskDescription,
             CancellationToken ct)
         {
-            var systemPrompt = BuildChecklistSystemPrompt();
-            var userPrompt = $"Mô tả công việc:\n\n{taskDescription}";
+            string responseJson;
+            try
+            {
+                var systemPrompt = BuildChecklistSystemPrompt();
+                var userPrompt = $"Mô tả công việc:\n\n{taskDescription}";
 
-            var responseJson = await CallOllamaAsync(systemPrompt, userPrompt, ct);
+                responseJson = await CallOllamaAsync(systemPrompt, userPrompt, ct);
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is System.Net.Sockets.SocketException || ex is TaskCanceledException || ex is TimeoutException)
+            {
+                _logger.LogWarning(ex, "Ollama không khả dụng hoặc mất kết nối ({Message}). Sử dụng checklist hành chính mặc định.", ex.Message);
+                return GenerateDefaultAdministrativeChecklist(taskDescription);
+            }
+
             return ParseChecklistResult(responseJson);
         }
 
@@ -426,6 +467,103 @@ JSON SCHEMA:
         {
             if (string.IsNullOrWhiteSpace(value)) return null;
             return DateTime.TryParse(value, out var dt) ? dt : null;
+        }
+
+        public static AssignmentSuggestion GenerateHeuristicAssignmentFallback(
+            List<StaffWorkloadSnapshot> candidates,
+            string taskDescription)
+        {
+            if (candidates == null || !candidates.Any())
+            {
+                return new AssignmentSuggestion
+                {
+                    SuggestedUserId = Guid.Empty,
+                    SuggestedUserName = "Chưa có cán bộ khả dụng",
+                    Reason = "Không tìm thấy cán bộ nào trong hệ thống để phân công.",
+                    Confidence = 0.0
+                };
+            }
+
+            var lowerDesc = (taskDescription ?? "").ToLowerInvariant();
+
+            // Sắp xếp ưu tiên:
+            // 1. Cán bộ có chuyên môn/phòng ban phù hợp với nội dung nếu khớp từ khóa (score thấp hơn để xếp trước)
+            // 2. Tỷ lệ tải việc thấp nhất (WorkloadPercentage)
+            // 3. Số lượng việc đang làm ít nhất (ActiveTasksCount)
+            var ranked = candidates.OrderBy(c =>
+            {
+                int score = (int)c.WorkloadPercentage + (c.ActiveTasksCount * 5);
+                if (!string.IsNullOrWhiteSpace(c.DepartmentName) && lowerDesc.Contains(c.DepartmentName.ToLowerInvariant()))
+                    score -= 40;
+                if (!string.IsNullOrWhiteSpace(c.Expertise) && lowerDesc.Contains(c.Expertise.ToLowerInvariant()))
+                    score -= 30;
+                return score;
+            }).ToList();
+
+            var primary = ranked.First();
+            var deptName = !string.IsNullOrWhiteSpace(primary.DepartmentName) ? primary.DepartmentName : "UBND Xã";
+            var suggestion = new AssignmentSuggestion
+            {
+                SuggestedUserId = primary.UserId,
+                SuggestedUserName = primary.FullName,
+                SuggestedDepartmentId = primary.DepartmentId != Guid.Empty ? primary.DepartmentId : null,
+                SuggestedDepartmentName = deptName,
+                Confidence = 0.8,
+                Reason = $"[Hệ thống tự động - Phân bổ tải việc] Đề xuất {primary.FullName} ({deptName}) do có tỷ lệ tải việc thấp nhất ({primary.WorkloadPercentage:F0}%, {primary.ActiveTasksCount} việc đang xử lý), phù hợp tiếp nhận nhiệm vụ."
+            };
+
+            foreach (var alt in ranked.Skip(1).Take(3))
+            {
+                var altDept = !string.IsNullOrWhiteSpace(alt.DepartmentName) ? alt.DepartmentName : "UBND Xã";
+                suggestion.Alternatives.Add(new AlternativeCandidate
+                {
+                    UserId = alt.UserId,
+                    FullName = alt.FullName,
+                    Reason = $"{altDept} • Tải việc: {alt.WorkloadPercentage:F0}% ({alt.ActiveTasksCount} việc đang xử lý)"
+                });
+            }
+
+            return suggestion;
+        }
+
+        private static List<ProgressChecklistItem> GenerateDefaultAdministrativeChecklist(string taskDescription)
+        {
+            return new List<ProgressChecklistItem>
+            {
+                new() { Title = "Tiếp nhận hồ sơ / văn bản và nghiên cứu quy định hiện hành", Order = 1 },
+                new() { Title = "Xử lý nghiệp vụ, soạn thảo văn bản hoặc phương án thực hiện", Order = 2 },
+                new() { Title = "Trình lãnh đạo UBND xã phê duyệt kết quả thực hiện", Order = 3 }
+            };
+        }
+
+        private static DocumentAnalysisResult GenerateRuleBasedAnalysisFallback(
+            string extractedText,
+            List<DepartmentOption> departments)
+        {
+            var text = extractedText ?? "";
+            var lower = text.ToLowerInvariant();
+
+            DocumentCategory category = DocumentCategory.Other;
+            if (lower.Contains("giấy mời") || lower.Contains("thư mời") || lower.Contains("họp"))
+                category = DocumentCategory.MeetingInvitation;
+            else if (lower.Contains("chỉ đạo") || lower.Contains("công điện") || lower.Contains("nghị quyết"))
+                category = DocumentCategory.SuperiorDirective;
+            else if (lower.Contains("giao nhiệm vụ") || lower.Contains("kế hoạch"))
+                category = DocumentCategory.TaskAssignmentDown;
+            else if (lower.Contains("báo cáo") || lower.Contains("tờ trình"))
+                category = DocumentCategory.ReportSubmissionUp;
+
+            var matchedDept = departments.FirstOrDefault(d => lower.Contains(d.Name.ToLowerInvariant()));
+
+            return new DocumentAnalysisResult
+            {
+                Category = category,
+                Title = text.Length > 120 ? text.Substring(0, 120) + "..." : text,
+                Summary = text.Length > 300 ? text.Substring(0, 300) + "..." : text,
+                Confidence = 0.6,
+                SuggestedDepartmentId = matchedDept?.Id,
+                SuggestedDepartmentName = matchedDept?.Name
+            };
         }
 
         #endregion

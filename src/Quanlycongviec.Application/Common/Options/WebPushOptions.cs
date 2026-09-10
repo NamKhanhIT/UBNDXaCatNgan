@@ -5,10 +5,10 @@ namespace Quanlycongviec.Application.Common.Options
         public const string SectionName = "WebPush";
 
         // VAPID Public Key (expose to frontend clients)
-        public string PublicKey { get; set; } = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U";
+        public string PublicKey { get; set; } = string.Empty;
 
         // VAPID Private Key (kept strictly on server)
-        public string PrivateKey { get; set; } = "UU224Yug2No0EP8v5Y34q9_75yYc5-j_rP90xYk2-K0";
+        public string PrivateKey { get; set; } = string.Empty;
 
         // VAPID Subject (mailto: or URL contact)
         public string Subject { get; set; } = "mailto:admin@ubnd.gov.vn";
