@@ -95,3 +95,15 @@ export function formatDateTimeShort(dateInput?: string | Date | null): string {
 
   return `${hours}:${mins}, ${day}-${month}-${year}`;
 }
+
+/**
+ * 5. Định dạng giờ ngắn: HH:mm (VD: 08:30). Dùng cho time-only chip trong lịch.
+ */
+export function formatTimeShort(dateInput?: string | Date | null): string {
+  if (!dateInput) return '—';
+  const d = parseSafeDate(dateInput);
+  if (!d) return String(dateInput);
+  const hours = String(d.getHours()).padStart(2, '0');
+  const mins = String(d.getMinutes()).padStart(2, '0');
+  return `${hours}:${mins}`;
+}

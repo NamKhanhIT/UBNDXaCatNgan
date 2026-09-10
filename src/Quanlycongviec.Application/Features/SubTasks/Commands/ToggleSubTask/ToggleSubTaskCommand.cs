@@ -11,26 +11,32 @@ namespace Quanlycongviec.Application.Features.SubTasks.Commands.ToggleSubTask
     public class ToggleSubTaskCommand : IRequest<bool>
     {
         public Guid SubTaskId { get; set; }
+        public Guid CurrentUserId { get; set; }
 
-        public ToggleSubTaskCommand(Guid subTaskId)
+        public ToggleSubTaskCommand(Guid subTaskId, Guid currentUserId = default)
         {
             SubTaskId = subTaskId;
+            CurrentUserId = currentUserId;
         }
     }
 
     public class ToggleSubTaskCommandHandler : IRequestHandler<ToggleSubTaskCommand, bool>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService _authorizationService;
 
-        public ToggleSubTaskCommandHandler(IApplicationDbContext context)
+        public ToggleSubTaskCommandHandler(IApplicationDbContext context, ITaskAuthorizationService authorizationService)
         {
             _context = context;
+            _authorizationService = authorizationService;
         }
 
         public async Task<bool> Handle(ToggleSubTaskCommand request, CancellationToken cancellationToken)
         {
             var subTask = await _context.SubTasks.FirstOrDefaultAsync(st => st.Id == request.SubTaskId, cancellationToken);
             if (subTask == null) return false;
+            if (!await _authorizationService.CanAccessTaskAsync(request.CurrentUserId, subTask.TaskItemId, cancellationToken))
+                return false;
 
             subTask.IsCompleted = !subTask.IsCompleted;
             subTask.UpdatedAt = DateTime.UtcNow;

@@ -34,7 +34,10 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
 
         public async Task<PaginatedResult<OutgoingDocumentDto>> Handle(GetOutgoingDocumentsPaginatedQuery request, CancellationToken cancellationToken)
         {
-            var query = _context.OutgoingDocuments.AsQueryable();
+            var query = _context.OutgoingDocuments
+                .AsNoTracking()
+                .Where(o => !o.IsDeleted)
+                .AsQueryable();
 
             // Phân quyền RBAC theo RankLevel
             // Lãnh đạo UBND/HĐND (RankLevel <= 2.5) được xem toàn bộ. Chuyên viên xem văn bản do mình soạn hoặc được giao.
@@ -71,6 +74,7 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
 
             var rawItems = await query
                 .OrderByDescending(o => o.DraftedAt)
+                .ThenByDescending(o => o.Id)
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync(cancellationToken);
@@ -93,7 +97,8 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
                 DocumentType = o.DocumentType,
                 DocumentTypeName = GetDocumentTypeName(o.DocumentType),
                 Title = o.Title,
-                Content = o.Content,
+                // Full document content is loaded only by the detail endpoint.
+                Content = string.Empty,
                 Status = o.Status,
                 StatusName = GetStatusName(o.Status),
                 DraftedByUserId = o.DraftedByUserId,

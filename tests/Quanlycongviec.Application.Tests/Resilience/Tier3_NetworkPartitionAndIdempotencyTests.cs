@@ -11,6 +11,7 @@ using Quanlycongviec.Application.Features.Tasks.Commands.CreateTask;
 using Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus;
 using Quanlycongviec.Domain.Entities;
 using Quanlycongviec.Domain.Enums;
+using Quanlycongviec.Application.Tests;
 using Quanlycongviec.Infrastructure.Persistence;
 using Xunit;
 
@@ -73,7 +74,7 @@ namespace Quanlycongviec.Application.Tests.Resilience
                     EstimatedEffortHours = 4.0
                 };
 
-                var handler = new CreateTaskCommandHandler(_context);
+                var handler = new CreateTaskCommandHandler(_context, new AllowAllTaskAuthorizationService());
                 var createdId = await handler.Handle(command, CancellationToken.None);
 
                 idempotencyCache.TryAdd(idempotencyKey, createdId);
@@ -147,7 +148,7 @@ namespace Quanlycongviec.Application.Tests.Resilience
             }
 
             // KHI CÓ MẠNG TRỞ LẠI -> Drain toàn bộ hàng đợi
-            var handler = new CreateTaskCommandHandler(_context);
+            var handler = new CreateTaskCommandHandler(_context, new AllowAllTaskAuthorizationService());
             var results = new List<Guid>();
 
             foreach (var cmd in offlineQueue)

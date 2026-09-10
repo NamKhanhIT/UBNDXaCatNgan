@@ -39,6 +39,7 @@ namespace Quanlycongviec.Infrastructure.Persistence
         public DbSet<PushSubscription> PushSubscriptions => Set<PushSubscription>();
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
         public DbSet<RatingPeriod> RatingPeriods => Set<RatingPeriod>();
+        public DbSet<MonthlyRatingSummary> MonthlyRatingSummaries => Set<MonthlyRatingSummary>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -98,6 +99,8 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasIndex(o => o.DraftedByUserId);
                 entity.HasIndex(o => new { o.DocumentNumber, o.IssuedDate, o.IsDeleted });
                 entity.HasIndex(o => new { o.SignedByUserId, o.IsDeleted });
+                entity.HasIndex(o => new { o.IsDeleted, o.DraftedAt });
+                entity.HasIndex(o => new { o.IsDeleted, o.Status, o.DraftedAt });
             });
 
             // ── Enum → string conversions (tránh sai lệch khi enum bị chỉnh sửa) ──
@@ -119,6 +122,8 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasIndex(t => new { t.DepartmentId, t.Status, t.IsDeleted });
                 entity.HasIndex(t => new { t.AssigneeId, t.Status, t.IsDeleted });
                 entity.HasIndex(t => new { t.Status, t.IsDeleted });
+                entity.HasIndex(t => new { t.IsDeleted, t.CreatedAt });
+                entity.HasIndex(t => new { t.IsDeleted, t.Status, t.CreatedAt });
             });
 
             // ── Notification: Enum → string conversions & Indexes ──
@@ -157,6 +162,11 @@ namespace Quanlycongviec.Infrastructure.Persistence
                 entity.HasIndex(d => d.IsUrgent);
                 entity.HasIndex(d => new { d.DocumentNumber, d.ReceivedDate, d.IsDeleted });
                 entity.HasIndex(d => new { d.AiSuggestedDepartmentId, d.IsDeleted });
+                entity.HasIndex(d => d.ReceivedByUserId);
+                entity.HasIndex(d => new { d.IsDeleted, d.IsUrgent, d.ReceivedDate });
+                entity.HasIndex(d => new { d.IsDeleted, d.IsScheduled, d.ReceivedDate });
+                entity.HasIndex(d => new { d.IsDeleted, d.Category });
+                entity.HasIndex(d => new { d.IsDeleted, d.AiProcessingStatus });
             });
 
             // ── ReadReceipt: Unique constraint (1 user chỉ đọc 1 entity 1 lần) ──
@@ -358,6 +368,14 @@ namespace Quanlycongviec.Infrastructure.Persistence
                     .HasForeignKey(t => t.UserId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
+
+            // ── MonthlyRatingSummary: Materialized aggregate cho tab Tháng/Quý/Năm ──
+            modelBuilder.Entity<MonthlyRatingSummary>(entity =>
+            {
+                entity.HasIndex(s => new { s.UserId, s.Year, s.Month })
+                    .IsUnique();
+                entity.HasIndex(s => new { s.Year, s.Month });
+            });
         }
 
         public override async System.Threading.Tasks.Task<int> SaveChangesAsync(System.Threading.CancellationToken cancellationToken = default)
@@ -375,4 +393,3 @@ namespace Quanlycongviec.Infrastructure.Persistence
         }
     }
 }
-

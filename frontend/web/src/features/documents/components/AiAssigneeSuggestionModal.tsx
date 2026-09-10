@@ -16,16 +16,52 @@ export function AiAssigneeSuggestionModal({
   onConfirmAssignment,
   onClose,
 }: AiAssigneeSuggestionModalProps) {
-  const [selectedUserId, setSelectedUserId] = useState<string>(candidates[0]?.userId || '');
-  const [taskDeadline, setTaskDeadline] = useState<string>(report.deadlineDate.value || '2026-08-25');
+  // BẢO MẬT (Audit 04-09-2026): Khởi tạo chỉ với candidate đầu tiên KHÔNG trùng currentUser;
+  // caller sẽ tự thêm các candidate khác.
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>(
+    candidates.length > 0 ? [candidates[0].userId] : []
+  );
+  const [taskDeadline, setTaskDeadline] = useState<string>(report.deadlineDate.value || '');
+  const [instructions, setInstructions] = useState<string>('');
+  const [requiredResults, setRequiredResults] = useState<string[]>([
+    'Hoàn thành đúng hạn chót',
+    'Báo cáo kết quả kèm minh chứng',
+  ]);
+  const [newRequiredResult, setNewRequiredResult] = useState<string>('');
 
-  const selectedCandidate = candidates.find(c => c.userId === selectedUserId) || candidates[0];
+  const toggleSelection = (uid: string) => {
+    setSelectedUserIds(prev =>
+      prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]
+    );
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedCandidate) {
-      onConfirmAssignment(selectedCandidate, taskDeadline);
-    }
+    const primary = candidates.find(c => c.userId === selectedUserIds[0]);
+    if (!primary) return;
+    // Gộp chỉ thị bổ sung + checklist vào deadline / instructions qua dữ liệu bổ sung kèm object
+    const richCandidate: AssigneeCandidate & {
+      extraAssigneeIds?: string[];
+      instructions?: string;
+      requiredResults?: string[];
+    } = {
+      ...primary,
+      extraAssigneeIds: selectedUserIds.slice(1),
+      instructions,
+      requiredResults,
+    };
+    onConfirmAssignment(richCandidate, taskDeadline);
+  };
+
+  const addRequiredResult = () => {
+    const trimmed = newRequiredResult.trim();
+    if (!trimmed) return;
+    setRequiredResults(prev => [...prev, trimmed]);
+    setNewRequiredResult('');
+  };
+
+  const removeRequiredResult = (idx: number) => {
+    setRequiredResults(prev => prev.filter((_, i) => i !== idx));
   };
 
   return (
@@ -100,11 +136,11 @@ export function AiAssigneeSuggestionModal({
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {candidates.map(c => {
-                  const isSelected = c.userId === selectedUserId;
+                  const isSelected = selectedUserIds.includes(c.userId);
                   return (
                     <div
                       key={c.userId}
-                      onClick={() => setSelectedUserId(c.userId)}
+                      onClick={() => toggleSelection(c.userId)}
                       style={{
                         padding: 14,
                         borderRadius: 8,
@@ -117,11 +153,12 @@ export function AiAssigneeSuggestionModal({
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <input
-                            type="radio"
+                            type="checkbox"
                             name="assignee"
                             checked={isSelected}
-                            onChange={() => setSelectedUserId(c.userId)}
+                            onChange={() => toggleSelection(c.userId)}
                             style={{ accentColor: '#2563eb' }}
+                            aria-label={`Chọn ${c.fullName}`}
                           />
                           <div>
                             <span style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0f172a' }}>
@@ -162,6 +199,67 @@ export function AiAssigneeSuggestionModal({
               </div>
             </div>
 
+            {/* Hướng dẫn bổ sung */}
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: 4 }}>
+                Hướng dẫn bổ sung (tối đa 1000 ký tự):
+              </label>
+              <textarea
+                className="form-input"
+                rows={2}
+                maxLength={1000}
+                placeholder="Yêu cầu bổ sung cho cán bộ thụ lý..."
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+              />
+            </div>
+
+            {/* Kết quả mong đợi (checklist) */}
+            <div>
+              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: 4 }}>
+                Kết quả mong đợi (checklist):
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {requiredResults.map((item, idx) => (
+                  <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="checkbox" checked readOnly />
+                    <span style={{ flex: 1, fontSize: '0.86rem' }}>{item}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeRequiredResult(idx)}
+                      style={{ background: 'transparent', border: 'none', color: '#dc2626', cursor: 'pointer' }}
+                      aria-label="Xóa mục"
+                    >
+                      ✕
+                    </button>
+                  </label>
+                ))}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    type="text"
+                    placeholder="Thêm mục kết quả mới..."
+                    value={newRequiredResult}
+                    onChange={e => setNewRequiredResult(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addRequiredResult();
+                      }
+                    }}
+                    className="form-input"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={addRequiredResult}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Hạn hoàn thành nhiệm vụ */}
             <div>
               <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: 4 }}>
@@ -195,8 +293,13 @@ export function AiAssigneeSuggestionModal({
               type="submit"
               className="btn btn-primary"
               style={{ fontWeight: 800, padding: '8px 20px' }}
+              disabled={selectedUserIds.length === 0}
             >
-              Xác Nhận & Giao Nhiệm Vụ Cho {selectedCandidate?.fullName}
+              {selectedUserIds.length > 1
+                ? `Xác Nhận & Giao (${selectedUserIds.length} cán bộ)`
+                : candidates.find(c => c.userId === selectedUserIds[0])?.fullName
+                  ? `Xác Nhận & Giao Nhiệm Vụ Cho ${candidates.find(c => c.userId === selectedUserIds[0])?.fullName}`
+                  : 'Xác Nhận & Giao Nhiệm Vụ'}
             </button>
           </div>
         </form>

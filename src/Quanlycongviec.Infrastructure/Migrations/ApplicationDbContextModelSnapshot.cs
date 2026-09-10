@@ -595,6 +595,9 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Property<DateTime>("ReceivedDate")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("ReceivedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("ScheduledDate")
                         .HasColumnType("timestamp with time zone");
 
@@ -630,6 +633,8 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.HasIndex("IsUrgent");
 
                     b.HasIndex("ReceivedDate");
+
+                    b.HasIndex("ReceivedByUserId");
 
                     b.HasIndex("ScheduledTaskId");
 
@@ -1243,6 +1248,9 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.Property<int>("ProgressPercentage")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Requirements")
+                        .HasColumnType("text");
+
                     b.Property<double?>("RatingScore")
                         .HasColumnType("double precision");
 
@@ -1511,6 +1519,62 @@ namespace Quanlycongviec.Infrastructure.Migrations
                     b.ToTable("WorkloadCapacities");
                 });
 
+            modelBuilder.Entity("Quanlycongviec.Domain.Entities.MonthlyRatingSummary", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("AverageFinalScore")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime>("AggregatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime>("LastEvaluationAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("Month")
+                        .HasColumnType("integer");
+
+                    b.Property<double>("SumEvaluatorScore")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("SumSystemScore")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("TasksEvaluated")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TierGrade")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Year")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Year", "Month")
+                        .IsUnique();
+
+                    b.HasIndex("Year", "Month");
+
+                    b.ToTable("MonthlyRatingSummaries");
+                });
+
             modelBuilder.Entity("Quanlycongviec.Domain.Entities.ActivityLog", b =>
                 {
                     b.HasOne("Quanlycongviec.Domain.Entities.User", "User")
@@ -1613,9 +1677,15 @@ namespace Quanlycongviec.Infrastructure.Migrations
 
             modelBuilder.Entity("Quanlycongviec.Domain.Entities.InboxDocument", b =>
                 {
+                    b.HasOne("Quanlycongviec.Domain.Entities.User", "ReceivedByUser")
+                        .WithMany()
+                        .HasForeignKey("ReceivedByUserId");
+
                     b.HasOne("Quanlycongviec.Domain.Entities.TaskItem", "ScheduledTask")
                         .WithMany()
                         .HasForeignKey("ScheduledTaskId");
+
+                    b.Navigation("ReceivedByUser");
 
                     b.Navigation("ScheduledTask");
                 });

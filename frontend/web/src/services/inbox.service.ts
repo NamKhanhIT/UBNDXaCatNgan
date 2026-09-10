@@ -24,6 +24,17 @@ export interface InboxDocumentDto {
   attachmentUrl?: string;
   issuedDate?: string;
   aiSummary?: string;
+  aiCategory?: string;
+  aiTitle?: string;
+  aiExtractedDeadline?: string;
+  aiObjectives?: string;
+  aiSuggestedDepartmentId?: string;
+  aiConfidenceScore?: number;
+  aiEventStartDateTime?: string;
+  aiEventEndDateTime?: string;
+  aiReviewedByUserId?: string;
+  aiReviewedAt?: string;
+  aiProcessingStatus?: string;
 }
 
 export interface PaginatedInboxResponse {
@@ -33,6 +44,24 @@ export interface PaginatedInboxResponse {
   pageSize: number;
 }
 
+export interface CreateInboxDocumentPayload {
+  documentNumber?: string;
+  documentSymbol?: string;
+  subject: string;
+  sender: string;
+  issuingAgency?: string;
+  isUrgent?: boolean;
+  channel?: 'Internal' | 'PublicService';
+  issuedDate?: string;
+}
+
+export async function createInboxDocumentApi(payload: CreateInboxDocumentPayload) {
+  return await apiFetch<string>('/api/v1/Inbox', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export interface GetInboxParams {
   page?: number;
   pageSize?: number;
@@ -40,6 +69,8 @@ export interface GetInboxParams {
   channel?: string;
   search?: string;
   isUrgent?: boolean;
+  category?: string;
+  status?: string;
 }
 
 export async function getInboxDocumentsApi(
@@ -53,6 +84,8 @@ export async function getInboxDocumentsApi(
   if (params?.channel) searchParams.append('channel', params.channel);
   if (params?.search) searchParams.append('search', params.search);
   if (params?.isUrgent !== undefined) searchParams.append('isUrgent', String(params.isUrgent));
+  if (params?.category) searchParams.append('category', params.category);
+  if (params?.status) searchParams.append('status', params.status);
 
   const qs = searchParams.toString();
   const url = `/api/v1/Inbox${qs ? `?${qs}` : ''}`;
@@ -106,13 +139,17 @@ export interface ConfirmClassificationRequest {
   aiSuggestedDepartmentId?: string | null;
   aiObjectives?: string;
   aiExtractedSubjects?: string;
-  route: 'event' | 'assign' | 'review';
+  route: 'event' | 'assign' | 'review' | 'store';
+  eventStartDateTime?: string;
+  eventEndDateTime?: string;
 }
 
 export interface CreateTaskFromInboxRequest {
   assigneeId: string;
   departmentId?: string;
   priority?: number;
+  dueDate?: string;
+  requirements?: string;
 }
 
 export interface SubTaskDto {

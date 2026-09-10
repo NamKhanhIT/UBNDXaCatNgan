@@ -80,12 +80,11 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [requirements, setRequirements] = useState('');
   const [userList, setUserList] = useState<UserDto[]>(FALLBACK_USERS);
-  // M6: mảng fallback rỗng ở production — không được truy cập [0] trực tiếp
-  const [assigneeId, setAssigneeId] = useState<string>(FALLBACK_USERS[0]?.id ?? '');
-  const [dueDate, setDueDate] = useState('2026-08-25');
+  const [assigneeId, setAssigneeId] = useState<string>('');
+  const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<'Khan' | 'Cao' | 'Binh_Thuong'>('Cao');
-  const [estimatedHours, setEstimatedHours] = useState(8);
   const [isLoading, setIsLoading] = useState(false);
 
   // Tải danh sách cán bộ thực tế từ API khi mở modal
@@ -107,14 +106,27 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
     }
 
     loadUsers();
-  }, [isOpen, assigneeId]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
+
+  // BẢO MẬT (Audit 04-09-2026): Quy chuẩn hành chính — không cho phép tự giao việc cho chính mình.
+  const isSelfAssignment =
+    user?.userId && assigneeId && user.userId === assigneeId;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
       addToast('Cảnh báo', 'Vui lòng nhập tiêu đề nhiệm vụ', 'warning');
+      return;
+    }
+    if (!requirements.trim()) {
+      addToast('Cảnh báo', 'Vui lòng nêu yêu cầu hoặc kết quả cần đạt.', 'warning');
+      return;
+    }
+    // BẢO MẬT (Audit 04-09-2026): fail-fast client-side — không cho phép tự giao việc.
+    if (user?.userId && assigneeId && user.userId === assigneeId) {
+      addToast('Cảnh báo', 'Không thể tự giao việc cho chính mình theo quy chuẩn hành chính.', 'warning');
       return;
     }
 
@@ -130,27 +142,33 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
         setIsLoading(false);
         return;
       }
-      const validAssignerId = (user?.userId && GUID_REGEX.test(user.userId))
-        ? user.userId
-        : 'a0000000-0000-0000-0000-000000000001';
+      const validAssignerId = user?.userId && GUID_REGEX.test(user.userId) ? user.userId : '';
+      if (!validAssignerId) {
+        addToast('Phiên làm việc', 'Không xác định được tài khoản đang thao tác.', 'danger');
+        setIsLoading(false);
+        return;
+      }
 
-      const validAssigneeId = (assigneeId && GUID_REGEX.test(assigneeId))
-        ? assigneeId
-        : targetAssignee.id;
+      const validAssigneeId = assigneeId && GUID_REGEX.test(assigneeId) ? assigneeId : '';
+      if (!validAssigneeId) {
+        addToast('Thiếu người thực hiện', 'Danh sách cán bộ chưa sẵn sàng.', 'warning');
+        setIsLoading(false);
+        return;
+      }
 
-      const validDeptId = (targetAssignee.primaryDepartmentId && GUID_REGEX.test(targetAssignee.primaryDepartmentId))
+      const validDeptId = targetAssignee.primaryDepartmentId && GUID_REGEX.test(targetAssignee.primaryDepartmentId)
         ? targetAssignee.primaryDepartmentId
-        : '10000000-0000-0000-0000-000000000002';
+        : undefined;
 
       const payload: CreateTaskPayload = {
         title: title.trim(),
         description: description.trim(),
+        requirements: requirements.trim(),
         assignerId: validAssignerId,
         assigneeId: validAssigneeId,
-        dueDate,
+        dueDate: dueDate || undefined,
         priority: mappedPriority,
         type: 'BAU',
-        estimatedEffortHours: estimatedHours,
         departmentId: validDeptId,
       };
 
@@ -161,17 +179,18 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
           id: (typeof res.data === 'string' && res.data) ? res.data : `TSK-${Date.now()}`,
           title: title.trim(),
           description: description.trim(),
+          requirements: requirements.trim(),
           assignerId: validAssignerId,
           assignerName: user?.fullName || 'Chủ tịch UBND',
           assigneeId: validAssigneeId,
           assigneeName: targetAssignee.fullName || targetAssignee.username,
           departmentName: targetAssignee.departmentName || 'Phòng Kinh tế & Địa chính',
-          dueDate,
-          priority,
-          status: 'Dang_Xu_Ly',
-          type: 'Administrative',
-          estimatedEffortHours: estimatedHours,
-          progressPercentage: 10,
+          dueDate: dueDate || undefined,
+          priority: mappedPriority,
+          status: 'Todo',
+          type: 'BAU',
+          estimatedEffortHours: 0,
+          progressPercentage: 0,
           isEscalated: false,
           createdAt: new Date().toISOString(),
         });
@@ -260,13 +279,26 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
                 className="form-select"
                 value={assigneeId}
                 onChange={e => setAssigneeId(e.target.value)}
+                aria-invalid={!!isSelfAssignment}
+                style={isSelfAssignment ? { borderColor: '#dc2626' } : undefined}
               >
                 {userList.map(u => (
-                  <option key={u.id} value={u.id}>
+                  <option
+                    key={u.id}
+                    value={u.id}
+                    disabled={user?.userId === u.id}
+                    title={user?.userId === u.id ? 'Không thể tự giao việc cho chính mình' : undefined}
+                  >
                     {u.fullName} {u.roleName ? `(${u.roleName})` : ''}
+                    {user?.userId === u.id ? ' — chính bạn (không thể chọn)' : ''}
                   </option>
                 ))}
               </select>
+              {isSelfAssignment && (
+                <div style={{ fontSize: '0.78rem', color: '#dc2626', marginTop: 4, fontWeight: 700 }}>
+                  <i className="fa-solid fa-circle-exclamation" aria-hidden="true" /> Không thể tự giao việc cho chính mình theo quy chuẩn hành chính.
+                </div>
+              )}
             </div>
 
             <div>
@@ -282,35 +314,33 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: 4 }}>
-                Mức độ ưu tiên:
-              </label>
-              <select
-                className="form-select"
-                value={priority}
-                onChange={e => setPriority(e.target.value as any)}
-              >
-                <option value="Binh_Thuong">🔵 Thường</option>
-                <option value="Cao">🟠 Cao</option>
-                <option value="Khan">🔴 Khẩn cấp</option>
-              </select>
-            </div>
+          <div>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: 4 }}>
+              Yêu cầu / kết quả cần đạt (*):
+            </label>
+            <textarea
+              className="form-input"
+              rows={3}
+              placeholder="Nêu rõ kết quả, sản phẩm hoặc hồ sơ cần hoàn thành..."
+              value={requirements}
+              onChange={e => setRequirements(e.target.value)}
+              required
+            />
+          </div>
 
-            <div>
-              <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: 4 }}>
-                Ước tính thời gian (giờ):
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={40}
-                className="form-input"
-                value={estimatedHours}
-                onChange={e => setEstimatedHours(parseInt(e.target.value) || 8)}
-              />
-            </div>
+          <div>
+            <label style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b', display: 'block', marginBottom: 4 }}>
+              Mức độ ưu tiên:
+            </label>
+            <select
+              className="form-select"
+              value={priority}
+              onChange={e => setPriority(e.target.value as any)}
+            >
+              <option value="Binh_Thuong">Thường</option>
+              <option value="Cao">Cao</option>
+              <option value="Khan">Khẩn cấp</option>
+            </select>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
@@ -320,8 +350,9 @@ export function CreateTaskModal({ isOpen, onClose, onTaskCreated }: CreateTaskMo
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={isLoading}
+              disabled={isLoading || !!isSelfAssignment}
               style={{ fontWeight: 700 }}
+              title={isSelfAssignment ? 'Không thể tự giao việc cho chính mình theo quy chuẩn hành chính' : undefined}
             >
               {isLoading ? 'Đang giao...' : 'Giao Việc Ngay'}
             </button>

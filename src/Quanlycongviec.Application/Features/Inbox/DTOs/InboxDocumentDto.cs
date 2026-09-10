@@ -10,6 +10,7 @@ namespace Quanlycongviec.Application.Features.Inbox.DTOs
         public string Category { get; set; } = string.Empty;
         public string Sender { get; set; } = string.Empty;
         public DateTime ReceivedDate { get; set; }
+        public Guid? ReceivedByUserId { get; set; }
         public bool IsUrgent { get; set; }
         public string Channel { get; set; } = "Internal";
         public string? CitizenName { get; set; }
@@ -26,6 +27,17 @@ namespace Quanlycongviec.Application.Features.Inbox.DTOs
         public string? SignerName { get; set; }
         public string? AttachmentUrl { get; set; }
         public DateTime? IssuedDate { get; set; }
+        public string? AiCategory { get; set; }
+        public string? AiTitle { get; set; }
+        public string? AiSummary { get; set; }
+        public DateTime? AiExtractedDeadline { get; set; }
+        public string? AiObjectives { get; set; }
+        public Guid? AiSuggestedDepartmentId { get; set; }
+        public double? AiConfidenceScore { get; set; }
+        public DateTime? AiEventStartDateTime { get; set; }
+        public DateTime? AiEventEndDateTime { get; set; }
+        public Guid? AiReviewedByUserId { get; set; }
+        public DateTime? AiReviewedAt { get; set; }
+        public string? AiProcessingStatus { get; set; }
     }
 }
-

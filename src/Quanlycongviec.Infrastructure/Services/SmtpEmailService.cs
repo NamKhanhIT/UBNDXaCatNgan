@@ -42,18 +42,13 @@ namespace Quanlycongviec.Infrastructure.Services
                 if (sent) return true;
             }
 
-            // Fallback môi trường cục bộ / Dev khi chưa cấu hình SMTP Host:
-            _logger.LogInformation(@"
-                ╔════════════════════════════════════════════════════════════════════════════════╗
-                ║                   [EMAIL OTP XÁC THỰC KHÔI PHỤC MẬT KHẨU]                      ║
-                ║ Người nhận: {ToEmail,-66}                                                      ║
-                ║ Cán bộ:     {FullName,-66}                                                     ║
-                ║ MÃ OTP:     >>>  {OtpCode}  <<<                                                ║
-                ║ (Thời hạn: 10 phút. Nhập mã này trên màn hình để đặt lại mật khẩu mới)         ║
-                ╚════════════════════════════════════════════════════════════════════════════════╝",
-                toEmail, fullName, otpCode);
+            // BẢO MẬT (Audit 04-09-2026): Khi SMTP chưa cấu hình, KHÔNG ghi OTP ra log để tránh lộ mã
+            // cho bất kỳ ai đọc được stdout/server logs. Caller sẽ nhận `false` và xử lý thất bại.
+            _logger.LogWarning(
+                "[SmtpEmailService] SMTP chưa cấu hình — không thể gửi '{Subject}' tới {ToEmail}. Cấu hình section Smtp (Brevo/Gmail) trong ENV để kích hoạt gửi OTP thực sự.",
+                subject, toEmail);
 
-            return true;
+            return false;
         }
 
         public async Task<bool> SendMfaOtpAsync(string toEmail, string fullName, string otpCode, CancellationToken cancellationToken = default)
@@ -74,18 +69,12 @@ namespace Quanlycongviec.Infrastructure.Services
                 if (sent) return true;
             }
 
-            // Fallback môi trường cục bộ / Dev khi chưa cấu hình SMTP Host
-            _logger.LogInformation(@"
-                ╔════════════════════════════════════════════════════════════════════════════════╗
-                ║                   [EMAIL OTP XÁC THỰC 2 YẾU TỐ (MFA / 2FA)]                    ║
-                ║ Người nhận: {ToEmail,-66}                                                      ║
-                ║ Cán bộ:     {FullName,-66}                                                     ║
-                ║ MÃ OTP:     >>>  {OtpCode}  <<<                                                ║
-                ║ (Thời hạn: 05 phút. Nhập mã này trên màn hình để xác thực đăng nhập)           ║
-                ╚════════════════════════════════════════════════════════════════════════════════╝",
-                toEmail, fullName, otpCode);
+            // BẢO MẬT (Audit 04-09-2026): KHÔNG log raw OTP. Trả `false` để caller xử lý thất bại.
+            _logger.LogWarning(
+                "[SmtpEmailService] SMTP chưa cấu hình — không thể gửi OTP MFA tới {ToEmail}. Cấu hình section Smtp (Brevo/Gmail) trong ENV để kích hoạt gửi thực sự.",
+                toEmail);
 
-            return true;
+            return false;
         }
 
         public async Task<bool> SendEmailChangeOtpAsync(string toEmail, string fullName, string otpCode, CancellationToken cancellationToken = default)
@@ -105,17 +94,12 @@ namespace Quanlycongviec.Infrastructure.Services
                 if (sent) return true;
             }
 
-            _logger.LogInformation(@"
-                ╔════════════════════════════════════════════════════════════════════════════════╗
-                ║                   [EMAIL OTP XÁC THỰC CẬP NHẬT EMAIL CÔNG VỤ]                  ║
-                ║ Người nhận: {ToEmail,-66}                                                      ║
-                ║ Cán bộ:     {FullName,-66}                                                     ║
-                ║ MÃ OTP:     >>>  {OtpCode}  <<<                                                ║
-                ║ (Thời hạn: 05 phút. Nhập mã này trên màn hình để xác nhận đổi email)           ║
-                ╚════════════════════════════════════════════════════════════════════════════════╝",
-                toEmail, fullName, otpCode);
+            // BẢO MẬT (Audit 04-09-2026): KHÔNG log raw OTP. Trả `false` để caller xử lý thất bại.
+            _logger.LogWarning(
+                "[SmtpEmailService] SMTP chưa cấu hình — không thể gửi OTP đổi email tới {ToEmail}. Cấu hình section Smtp (Brevo/Gmail) trong ENV để kích hoạt gửi thực sự.",
+                toEmail);
 
-            return true;
+            return false;
         }
 
         private static string FormatVietnamTimestamp()

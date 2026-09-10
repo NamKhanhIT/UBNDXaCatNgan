@@ -9,6 +9,7 @@ namespace Quanlycongviec.Domain.Entities
     {
         public string Title { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
+        public string? Requirements { get; set; }
 
         public Guid AssignerId { get; set; } // Người giao việc (lãnh đạo)
         public User Assigner { get; set; } = null!;

@@ -4,7 +4,8 @@ import React, { useState, useEffect } from 'react';
 import { GoogleCalendarView } from '../../components/GoogleCalendarView';
 import { useAuth } from '../auth/AuthContext';
 import { useToast } from '../../components/ui/ToastContext';
-import { getTasksApi, getUsersApi, TaskItemDto, UserDto } from '../../services/task.service';
+import { getTasksApi, getUsersApi, getTaskDetailApi, TaskItemDto, TaskDetailDto, UserDto } from '../../services/task.service';
+import { TaskDetailDrawer } from '../workcenter/components/TaskDetailDrawer';
 
 export function CalendarFeature() {
   const { activeRole } = useAuth();
@@ -13,13 +14,35 @@ export function CalendarFeature() {
   const [tasks, setTasks] = useState<TaskItemDto[]>([]);
   const [users, setUsers] = useState<UserDto[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [selectedTask, setSelectedTask] = useState<TaskDetailDto | null>(null);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+
+  const openTaskDetail = async (taskId: string) => {
+    try {
+      setIsDetailLoading(true);
+      const response = await getTaskDetailApi(taskId);
+      if (response.success && response.data) {
+        setSelectedTask(response.data);
+      } else {
+        addToast('Không thể mở nhiệm vụ', response.error || 'Nhiệm vụ không còn trong phạm vi truy cập.', 'warning');
+      }
+    } catch (error: any) {
+      addToast('Không thể mở nhiệm vụ', error?.message || 'Đã xảy ra lỗi khi tải chi tiết nhiệm vụ.', 'danger');
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
 
   useEffect(() => {
     async function loadCalendarData() {
       try {
         setIsLoading(true);
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+        const end = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
+
         const [taskRes, userRes] = await Promise.all([
-          getTasksApi({ page: 1, pageSize: 100 }),
+          getTasksApi({ dueDateFrom: start, dueDateTo: end, pageSize: 200 }),
           getUsersApi(),
         ]);
         if (taskRes.success && taskRes.data?.items) {
@@ -53,10 +76,20 @@ export function CalendarFeature() {
           onOpenCreateTaskModal={() => {
             addToast('Giao việc', 'Chức năng giao việc từ lịch công tác', 'info');
           }}
-          onOpenTaskDetailModal={(taskId) => {
-            addToast('Chi tiết nhiệm vụ', `Xem nhiệm vụ ${taskId}`, 'info');
-          }}
+          onOpenTaskDetailModal={openTaskDetail}
           addToast={addToast}
+        />
+      )}
+      {isDetailLoading && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99998, display: 'grid', placeItems: 'center', background: 'rgba(15,23,42,0.18)' }}>
+          <span className="badge badge-blue">Đang tải chi tiết nhiệm vụ...</span>
+        </div>
+      )}
+      {selectedTask && (
+        <TaskDetailDrawer
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onTaskUpdated={(updated) => setSelectedTask(prev => prev ? { ...prev, ...updated } : prev)}
         />
       )}
     </div>

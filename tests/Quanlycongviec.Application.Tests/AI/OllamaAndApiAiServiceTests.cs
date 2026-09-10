@@ -289,6 +289,90 @@ namespace Quanlycongviec.Application.Tests.AI
         }
 
         [Fact]
+        public async Task Ollama_SuggestAssignmentAsync_WhenOllamaOffline_ShouldGracefullyFallbackToHeuristic()
+        {
+            // Arrange: Giả lập lỗi kết nối máy chủ Ollama ngoại tuyến (SocketException 10061)
+            var user1Id = Guid.NewGuid();
+            var user2Id = Guid.NewGuid();
+
+            var candidates = new List<StaffWorkloadSnapshot>
+            {
+                new StaffWorkloadSnapshot
+                {
+                    UserId = user1Id,
+                    FullName = "Nguyễn Văn A",
+                    DepartmentName = "Tư pháp - Hộ tịch",
+                    ActiveTasksCount = 4,
+                    WorkloadPercentage = 60.0
+                },
+                new StaffWorkloadSnapshot
+                {
+                    UserId = user2Id,
+                    FullName = "Trần Thị B",
+                    DepartmentName = "Địa chính - Xây dựng",
+                    ActiveTasksCount = 1,
+                    WorkloadPercentage = 15.0 // Tải thấp nhất
+                }
+            };
+
+            var handlerMock = new Mock<HttpMessageHandler>();
+            handlerMock
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ThrowsAsync(new HttpRequestException(
+                    "No connection could be made because the target machine actively refused it. (localhost:11434)",
+                    new System.Net.Sockets.SocketException(10061)));
+
+            var httpClient = new HttpClient(handlerMock.Object);
+            var service = new OllamaDocumentAiService(httpClient, _options, _ollamaLoggerMock.Object);
+
+            // Act
+            var suggestion = await service.SuggestAssignmentAsync("Xử lý văn bản chỉ đạo", candidates, CancellationToken.None);
+
+            // Assert: Không văng lỗi 500 / Exception, mà tự động fallback sang cán bộ tải việc thấp nhất
+            suggestion.Should().NotBeNull();
+            suggestion.SuggestedUserId.Should().Be(user2Id);
+            suggestion.SuggestedUserName.Should().Be("Trần Thị B");
+            suggestion.Reason.Should().Contain("tải việc thấp nhất");
+            suggestion.Confidence.Should().BeGreaterThan(0);
+        }
+
+        [Fact]
+        public async Task Ollama_AnalyzeDocumentAsync_WhenOllamaOffline_ShouldGracefullyFallbackToRuleBased()
+        {
+            // Arrange
+            var deptId = Guid.NewGuid();
+            var departments = new List<DepartmentOption>
+            {
+                new DepartmentOption { Id = deptId, Name = "Địa chính - Nông nghiệp" }
+            };
+
+            var handlerMock = new Mock<HttpMessageHandler>();
+            handlerMock
+                .Protected()
+                .Setup<Task<HttpResponseMessage>>(
+                    "SendAsync",
+                    ItExpr.IsAny<HttpRequestMessage>(),
+                    ItExpr.IsAny<CancellationToken>()
+                )
+                .ThrowsAsync(new HttpRequestException("Connection refused", new System.Net.Sockets.SocketException(10061)));
+
+            var httpClient = new HttpClient(handlerMock.Object);
+            var service = new OllamaDocumentAiService(httpClient, _options, _ollamaLoggerMock.Object);
+
+            // Act
+            var result = await service.AnalyzeDocumentAsync("Giấy mời tham dự cuộc họp về kế hoạch sử dụng đất", departments, CancellationToken.None);
+
+            // Assert
+            result.Should().NotBeNull();
+            result.Category.Should().Be(Domain.Enums.DocumentCategory.MeetingInvitation);
+        }
+
+        [Fact]
         public async Task Ollama_SuggestProgressChecklistAsync_ShouldParseItemsOrdered()
         {
             // Arrange

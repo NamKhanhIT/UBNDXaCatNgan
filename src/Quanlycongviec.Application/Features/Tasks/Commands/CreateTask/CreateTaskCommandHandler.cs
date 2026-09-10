@@ -17,7 +17,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
 
         public CreateTaskCommandHandler(
             IApplicationDbContext context,
-            ITaskAuthorizationService? authService = null,
+            ITaskAuthorizationService authService,
             INotificationDispatcher? notificationDispatcher = null)
         {
             _context = context;
@@ -28,6 +28,11 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
         public async Task<Guid> Handle(CreateTaskCommand request, CancellationToken cancellationToken)
         {
             // Enforcement phân quyền giao việc nếu có AuthService
+            if (_authService == null)
+            {
+                throw new InvalidOperationException("Task authorization service is required.");
+            }
+
             if (_authService != null)
             {
                 var canAssign = await _authService.CanAssignTaskAsync(request.AssignerId, request.AssigneeId, request.DepartmentId, cancellationToken);
@@ -52,13 +57,14 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
             {
                 Title = request.Title,
                 Description = request.Description,
+                Requirements = string.IsNullOrWhiteSpace(request.Requirements) ? null : request.Requirements.Trim(),
                 AssignerId = request.AssignerId,
                 AssigneeId = request.AssigneeId,
                 DepartmentId = request.DepartmentId,
                 Priority = request.Priority,
                 Status = TaskStatusEnum.Todo,
                 Type = request.Type,
-                EstimatedEffortHours = request.EstimatedEffortHours,
+                EstimatedEffortHours = request.EstimatedEffortHours.GetValueOrDefault(),
                 StartDate = finalStartDate,
                 DueDate = utcDueDate,
                 OCRText = request.OCRText,
@@ -74,7 +80,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
 
             if (workload != null)
             {
-                workload.CurrentAssignedHours += request.EstimatedEffortHours;
+                workload.CurrentAssignedHours += request.EstimatedEffortHours.GetValueOrDefault();
             }
 
             // Ghi Audit Log cho hành động giao việc
@@ -102,15 +108,11 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
                 IsRead = false
             };
 
+            await _context.SaveChangesAsync(cancellationToken);
+
             if (_notificationDispatcher != null)
             {
-                await _context.SaveChangesAsync(cancellationToken);
                 await _notificationDispatcher.DispatchAsync(notification, cancellationToken);
-            }
-            else
-            {
-                _context.Notifications.Add(notification);
-                await _context.SaveChangesAsync(cancellationToken);
             }
 
             return task.Id;

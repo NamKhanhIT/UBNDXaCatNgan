@@ -6,6 +6,7 @@ import { DocumentAnalysisReport } from '../services/document-ai.service';
 import { DocumentAiAnalysisPanel } from './DocumentAiAnalysisPanel';
 import { TaskChecklistViewer } from './TaskChecklistViewer';
 import { GeneratedSubTask } from '../services/document-ai.service';
+import { formatDateShort, formatAdministrativeDate, formatDateTimeShort } from '../../../lib/formatters';
 
 interface DocumentViewerModalProps {
   document: {
@@ -200,10 +201,10 @@ export function DocumentViewerModal({
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', marginBottom: 20 }}>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>
-                          {analysisReport.issuingAgency.value?.toUpperCase() || 'ỦY BAN NHÂN DÂN'}
+                          {analysisReport.issuingAgency.value?.toUpperCase() || document.sender?.toUpperCase() || 'ỦY BAN NHÂN DÂN'}
                         </div>
                         <div style={{ fontSize: '0.85rem', borderBottom: '1px solid #000', paddingBottom: 2, display: 'inline-block' }}>
-                          Số: {analysisReport.documentNumber.value || '142'}/{analysisReport.documentSymbol.value || 'CT-UBND'}
+                          Số: {analysisReport.documentNumber.value || document.documentNumber || '—'}/{analysisReport.documentSymbol.value || document.documentSymbol || 'CV-UBND'}
                         </div>
                       </div>
                       <div style={{ textAlign: 'center' }}>
@@ -214,7 +215,7 @@ export function DocumentViewerModal({
                           Độc lập - Tự do - Hạnh phúc
                         </div>
                         <div style={{ fontStyle: 'italic', fontSize: '0.85rem', marginTop: 4 }}>
-                          {analysisReport.issuedDate.value ? `Ngày ${analysisReport.issuedDate.value}` : 'Năm 2026'}
+                          {analysisReport.issuedDate.value ? formatAdministrativeDate(analysisReport.issuedDate.value) : (document.issuedDate ? formatAdministrativeDate(document.issuedDate) : '')}
                         </div>
                       </div>
                     </div>
@@ -225,56 +226,101 @@ export function DocumentViewerModal({
                         {analysisReport.documentType.value === 'HopThuMoi'
                           ? 'GIẤY MỜI HỌP'
                           : analysisReport.documentType.value === 'ChiDao'
-                          ? 'CHỈ THỊ CÔNG TÁC'
-                          : 'BÁO CÁO KẾT QUẢ CÔNG TÁC'}
+                          ? 'VĂN BẢN CHỈ ĐẠO ĐIỀU HÀNH'
+                          : analysisReport.documentType.value === 'BaoCao'
+                          ? 'BÁO CÁO CÔNG VỤ'
+                          : 'VĂN BẢN HÀNH CHÍNH'}
                       </div>
                       <div style={{ fontStyle: 'italic', fontSize: '0.95rem', marginTop: 4 }}>
-                        Về việc: {analysisReport.summary.value}
+                        Về việc: {document.subject || analysisReport.summary.value}
                       </div>
                     </div>
 
-                    {/* Nội dung trang 1 */}
-                    <div style={{ textAlign: 'justify', textIndent: 24, marginBottom: 12 }}>
-                      Thực hiện nhiệm vụ chỉ đạo điều hành phát triển kinh tế xã hội và đảm bảo an ninh trật tự trên địa bàn xã năm 2026; Ủy ban nhân dân yêu cầu các ban ngành, đoàn thể và cán bộ công chức trực thuộc triển khai nghiêm túc các nội dung sau:
+                    {/* Nội dung trích yếu */}
+                    <div style={{ textAlign: 'justify', textIndent: 24, marginBottom: 16 }}>
+                      {analysisReport.summary.value || document.subject || 'Văn bản tiếp nhận chưa có nội dung tóm tắt chi tiết.'}
                     </div>
 
-                    <div style={{ paddingLeft: 16, marginBottom: 12 }}>
-                      <p><strong>1. Đối tượng và phạm vi thi hành:</strong> Toàn thể cán bộ, công chức và nhân dân 12 thôn xóm trên địa bàn xã.</p>
-                      <p><strong>2. Yêu cầu trọng tâm:</strong> Triển khai đồng bộ các giải pháp quản lý đất đai, tăng cường kiểm tra thực địa và xử lý dứt điểm các vướng mắc tồn đọng.</p>
-                    </div>
+                    {/* Nhiệm vụ / Yêu cầu trọng tâm */}
+                    {analysisReport.keyObjectives.value && analysisReport.keyObjectives.value.length > 0 ? (
+                      <div style={{ paddingLeft: 8, marginBottom: 16 }}>
+                        <div style={{ fontWeight: 'bold', marginBottom: 6 }}>Nhiệm vụ / Yêu cầu trọng tâm:</div>
+                        {analysisReport.keyObjectives.value.map((obj, idx) => (
+                          <div key={idx} style={{ marginBottom: 4, textIndent: 12 }}>
+                            - {obj}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
 
-                    <div style={{ textAlign: 'center', marginTop: 40, color: '#64748b', fontSize: '0.8rem', fontStyle: 'italic' }}>
-                      — Hết nội dung Trang 1 —
+                    {/* Chi tiết sự kiện (nếu là giấy mời họp) */}
+                    {analysisReport.eventDetails?.value ? (
+                      <div style={{ background: '#f8fafc', padding: 12, borderRadius: 6, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+                        <div style={{ fontWeight: 'bold', marginBottom: 6 }}>Chi tiết lịch làm việc:</div>
+                        {analysisReport.eventDetails.value.startDateTime && (
+                          <div style={{ fontSize: '0.88rem' }}>
+                            - Thời gian: {formatDateTimeShort(analysisReport.eventDetails.value.startDateTime)}
+                            {analysisReport.eventDetails.value.endDateTime ? ` đến ${formatDateTimeShort(analysisReport.eventDetails.value.endDateTime)}` : ''}
+                          </div>
+                        )}
+                        {analysisReport.eventDetails.value.location && (
+                          <div style={{ fontSize: '0.88rem' }}>- Địa điểm: {analysisReport.eventDetails.value.location}</div>
+                        )}
+                        {analysisReport.eventDetails.value.attendees && (
+                          <div style={{ fontSize: '0.88rem' }}>- Thành phần: {analysisReport.eventDetails.value.attendees}</div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {/* Hạn hoàn thành nếu có */}
+                    {analysisReport.deadlineDate.value && (
+                      <div style={{ background: '#fef3c7', padding: '6px 12px', borderRadius: 4, marginBottom: 16 }}>
+                        <strong>Thời hạn xử lý:</strong> Trước ngày {formatDateShort(analysisReport.deadlineDate.value)}
+                      </div>
+                    )}
+
+                    <div style={{ textAlign: 'center', marginTop: 30, color: '#64748b', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                      — Dữ liệu trích xuất từ văn bản tiếp nhận —
                     </div>
                   </div>
                 ) : (
                   <div>
-                    {/* Nội dung trang 2 */}
-                    <div style={{ textAlign: 'justify', marginBottom: 16 }}>
-                      <p><strong>3. Phân công tổ chức thực hiện và Thời hạn hoàn thành:</strong></p>
-                      <p style={{ textIndent: 24 }}>
-                        - Giao Phòng Kinh tế & Địa chính chủ trì, phối hợp với Văn phòng HĐND & UBND tham mưu kế hoạch chi tiết.
-                      </p>
-                      <p style={{ textIndent: 24, background: '#fef3c7', padding: '4px 8px', borderRadius: 4 }}>
-                        - Thời hạn hoàn thành báo cáo phương án: <strong>Trước ngày {analysisReport.deadlineDate.value || '25/08/2026'}</strong> để trình Thường trực UBND xã xem xét.
-                      </p>
+                    {/* Trang 2: Phân công & Đơn vị phối hợp */}
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Thông tin phân công & đối tượng áp dụng:</div>
+                      {analysisReport.targetSubjects.value && analysisReport.targetSubjects.value.length > 0 ? (
+                        <div style={{ marginBottom: 8, textIndent: 12 }}>
+                          <strong>Đối tượng thi hành:</strong> {analysisReport.targetSubjects.value.join(', ')}
+                        </div>
+                      ) : null}
+                      {analysisReport.relatedDepartments.value && analysisReport.relatedDepartments.value.length > 0 ? (
+                        <div style={{ marginBottom: 8, textIndent: 12 }}>
+                          <strong>Đơn vị phối hợp:</strong> {analysisReport.relatedDepartments.value.join(', ')}
+                        </div>
+                      ) : null}
+                      {analysisReport.deadlineDate.value ? (
+                        <div style={{ background: '#fef3c7', padding: '6px 12px', borderRadius: 4, marginTop: 12 }}>
+                          <strong>Thời hạn báo cáo / hoàn thành:</strong> Ngày {formatDateShort(analysisReport.deadlineDate.value)}
+                        </div>
+                      ) : (
+                        <div style={{ color: '#64748b', fontStyle: 'italic', marginTop: 8 }}>
+                          Văn bản không xác định thời hạn báo cáo cụ thể.
+                        </div>
+                      )}
                     </div>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', marginTop: 60 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', marginTop: 40 }}>
                       <div>
                         <div style={{ fontWeight: 'bold', fontSize: '0.85rem', fontStyle: 'italic' }}>Nơi nhận:</div>
                         <div style={{ fontSize: '0.8rem' }}>
-                          - Thường trực Đảng ủy, HĐND xã;<br />
-                          - Lãnh đạo UBND xã;<br />
-                          - Các ban ngành, xóm bản;<br />
-                          - Lưu: VT, HS.
+                          - {document.sender || 'Cơ quan chỉ đạo'};<br />
+                          - Lưu trữ công vụ.
                         </div>
                       </div>
                       <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>TM. ỦY BAN NHÂN DÂN</div>
-                        <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>CHỦ TỊCH</div>
-                        <div style={{ height: 60 }} />
-                        <div style={{ fontWeight: 'bold', fontSize: '0.95rem' }}>Đặng Xuân Quang</div>
+                        <div style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>XÁC NHẬN CÔNG VỤ</div>
+                        <div style={{ height: 50 }} />
+                        <div style={{ fontWeight: 'bold', fontSize: '0.9rem', color: '#64748b' }}>(Hệ thống quản lý văn bản)</div>
                       </div>
                     </div>
 

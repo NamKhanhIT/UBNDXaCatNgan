@@ -63,6 +63,56 @@ namespace Quanlycongviec.Application.Tests.Notifications
             saved!.Title.Should().Be("Nhiệm vụ mới");
 
             _realtimeMock.Verify(r => r.PublishToUserAsync(user.Id, "NotificationReceived", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
+            _realtimeMock.Verify(r => r.PublishToUserAsync(user.Id, "ReceiveNotification", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_ShouldDispatchOnlyToTargetedUser_NeverBroadcast()
+        {
+            var targetUserId = Guid.NewGuid();
+            var notification = new Notification
+            {
+                UserId = targetUserId,
+                Type = NotificationType.Overdue,
+                Title = "Quá hạn",
+                Message = "Công việc quá hạn"
+            };
+
+            await _dispatcher.DispatchAsync(notification, CancellationToken.None);
+
+            // Xác minh gửi tới đúng User Id, KHÔNG gửi broadcast
+            _realtimeMock.Verify(r => r.PublishToUserAsync(targetUserId, "ReceiveNotification", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
+            _realtimeMock.Verify(r => r.PublishToUserAsync(targetUserId, "NotificationReceived", It.IsAny<object>(), It.IsAny<CancellationToken>()), Times.Once);
+        }
+
+        [Fact]
+        public async Task DispatchAsync_ShouldRespectStoredWebPushPreference()
+        {
+            var user = new User
+            {
+                Username = "no_push",
+                FullName = "No Push",
+                Email = "no.push@test.local",
+                NotificationPreferences = "{\"channelWebPush\":false,\"notifyNewTask\":false}"
+            };
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            await _dispatcher.DispatchAsync(new Notification
+            {
+                UserId = user.Id,
+                Type = NotificationType.Assigned,
+                Title = "Task",
+                Message = "Task assigned"
+            }, CancellationToken.None);
+
+            _webPushMock.Verify(w => w.SendNotificationAsync(
+                user.Id,
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<object?>(),
+                It.IsAny<CancellationToken>()), Times.Never);
         }
     }
 }

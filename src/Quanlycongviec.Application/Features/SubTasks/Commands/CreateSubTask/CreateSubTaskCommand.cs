@@ -11,22 +11,26 @@ namespace Quanlycongviec.Application.Features.SubTasks.Commands.CreateSubTask
     public class CreateSubTaskCommand : IRequest<Guid>
     {
         public Guid TaskItemId { get; set; }
+        public Guid CurrentUserId { get; set; }
         public string Title { get; set; } = string.Empty;
 
-        public CreateSubTaskCommand(Guid taskItemId, string title)
+        public CreateSubTaskCommand(Guid taskItemId, string title, Guid currentUserId = default)
         {
             TaskItemId = taskItemId;
             Title = title;
+            CurrentUserId = currentUserId;
         }
     }
 
     public class CreateSubTaskCommandHandler : IRequestHandler<CreateSubTaskCommand, Guid>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService _authorizationService;
 
-        public CreateSubTaskCommandHandler(IApplicationDbContext context)
+        public CreateSubTaskCommandHandler(IApplicationDbContext context, ITaskAuthorizationService authorizationService)
         {
             _context = context;
+            _authorizationService = authorizationService;
         }
 
         public async Task<Guid> Handle(CreateSubTaskCommand request, CancellationToken cancellationToken)
@@ -36,6 +40,8 @@ namespace Quanlycongviec.Application.Features.SubTasks.Commands.CreateSubTask
                 .FirstOrDefaultAsync(t => t.Id == request.TaskItemId, cancellationToken);
 
             if (task == null) throw new InvalidOperationException("Không tìm thấy nhiệm vụ.");
+            if (!await _authorizationService.CanAccessTaskAsync(request.CurrentUserId, request.TaskItemId, cancellationToken))
+                throw new UnauthorizedAccessException("Bạn không có quyền cập nhật checklist của nhiệm vụ này.");
 
             var subTask = new SubTask
             {

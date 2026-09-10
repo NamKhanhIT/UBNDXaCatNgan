@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Quanlycongviec.Application.Features.Notifications.Commands.SendTestSms;
 using Quanlycongviec.Application.Features.Users.Commands.ChangeEmail;
 using Quanlycongviec.Application.Features.Users.Commands.Phone;
+using Quanlycongviec.Application.Features.Users.Queries.GetAssignableUsers;
 using Quanlycongviec.Application.Features.Users.Queries.GetUsersPaginated;
 
 namespace Quanlycongviec.Api.Controllers
@@ -42,6 +43,28 @@ namespace Quanlycongviec.Api.Controllers
                 DepartmentId = departmentId,
                 RoleCode = roleCode,
                 WorkloadStatus = workloadStatus
+            });
+            return Ok(new { success = true, data = result });
+        }
+
+        /// <summary>
+        /// Operation Center: Picker cán bộ có thể giao việc — rank, tải việc, năng lực, AI-ranked.
+        /// Audit 04-09-2026: yêu cầu ManagerPlus (Rank ≤ 3) vì đây là nơi chuẩn bị lệnh giao việc.
+        /// </summary>
+        [HttpGet("assignable")]
+        [Authorize(Policy = "ManagerPlus")]
+        public async Task<IActionResult> GetAssignableUsers(
+            [FromQuery] Guid? departmentId = null,
+            [FromQuery] string? capability = null,
+            [FromQuery] string? search = null)
+        {
+            var callerId = User.GetUserId();
+            var result = await _mediator.Send(new GetAssignableUsersQuery
+            {
+                CallerUserId = callerId,
+                DepartmentId = departmentId,
+                Capability = capability,
+                Search = search
             });
             return Ok(new { success = true, data = result });
         }

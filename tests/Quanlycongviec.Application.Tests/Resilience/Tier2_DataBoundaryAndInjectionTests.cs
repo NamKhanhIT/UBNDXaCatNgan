@@ -9,6 +9,7 @@ using Quanlycongviec.Application.Common.Interfaces;
 using Quanlycongviec.Application.Features.Tasks.Commands.CreateTask;
 using Quanlycongviec.Domain.Entities;
 using Quanlycongviec.Domain.Enums;
+using Quanlycongviec.Application.Tests;
 using Quanlycongviec.Infrastructure.Persistence;
 using Xunit;
 
@@ -155,7 +156,7 @@ namespace Quanlycongviec.Application.Tests.Resilience
                 EstimatedEffortHours = 5.0
             };
 
-            var handler = new CreateTaskCommandHandler(_context);
+            var handler = new CreateTaskCommandHandler(_context, new AllowAllTaskAuthorizationService());
             var taskId = await handler.Handle(command, CancellationToken.None);
 
             // Kiểm tra TaskItem được lưu trữ an toàn trong CSDL

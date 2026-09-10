@@ -233,11 +233,24 @@ namespace Quanlycongviec.Application.Tests.PushNotifications
         [Fact]
         public void VapidKeys_ShouldBeValidForWebPush()
         {
-            var options = new WebPushOptions();
+            var options = new WebPushOptions
+            {
+                PublicKey = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBJuBkr3qBUYIHBQFLXYp5Nksh8U",
+                PrivateKey = "UU224Yug2No0EP8v5Y34q9_75yYc5-j_rP90xYk2-K0"
+            };
             Action actPub = () => WebPush.VapidHelper.ValidatePublicKey(options.PublicKey);
             Action actPriv = () => WebPush.VapidHelper.ValidatePrivateKey(options.PrivateKey);
             actPub.Should().NotThrow();
             actPriv.Should().NotThrow();
+        }
+
+        [Fact]
+        public void WebPushOptions_ShouldNotContainSecretDefaults()
+        {
+            var options = new WebPushOptions();
+
+            options.PublicKey.Should().BeEmpty();
+            options.PrivateKey.Should().BeEmpty();
         }
     }
 }

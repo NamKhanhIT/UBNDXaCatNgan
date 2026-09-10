@@ -102,15 +102,11 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.TransferTask
                 IsRead = false
             };
 
+            await _context.SaveChangesAsync(cancellationToken);
+
             if (_notificationDispatcher != null)
             {
-                await _context.SaveChangesAsync(cancellationToken);
                 await _notificationDispatcher.DispatchAsync(notification, cancellationToken);
-            }
-            else
-            {
-                _context.Notifications.Add(notification);
-                await _context.SaveChangesAsync(cancellationToken);
             }
 
             return true;

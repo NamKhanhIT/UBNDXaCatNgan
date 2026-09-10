@@ -2,6 +2,9 @@
 
 import React, { useState } from 'react';
 import { useToast } from '../../../components/ui/ToastContext';
+import { createInboxDocumentApi, getInboxDocumentByIdApi } from '../../../services/inbox.service';
+import { createOutgoingDocumentApi, getOutgoingDocumentByIdApi } from '../../../services/outgoing-document.service';
+import { uploadAndAnalyzeApi, uploadFileApi } from '../../../services/files.service';
 
 interface DocumentUploadModalProps {
   onUploadSuccess: (newDoc: any) => void;
@@ -36,30 +39,51 @@ export function DocumentUploadModal({ onUploadSuccess, onClose }: DocumentUpload
       addToast('Cảnh báo', 'Vui lòng nhập trích yếu nội dung văn bản', 'warning');
       return;
     }
+    if (!selectedFile) {
+      addToast('Thiếu tệp', 'Vui lòng chọn tài liệu cần tiếp nhận.', 'warning');
+      return;
+    }
 
     try {
       setIsAnalyzing(true);
       addToast('Đang xử lý', 'Hệ thống đang trích xuất và phân tích nội dung văn bản...', 'info');
 
-      await new Promise(resolve => setTimeout(resolve, 800));
-
-      const newDoc = {
-        id: `DOC-${Date.now().toString().slice(-4)}`,
-        documentNumber: documentNumber || '156',
-        documentSymbol: documentSymbol || 'UBND-VP',
-        subject: subject.trim(),
-        category: 'Chỉ đạo điều hành',
-        sender: issuingAgency || 'UBND Huyện Thanh Chương',
-        issuedDate: new Date().toISOString().split('T')[0],
-        receivedDate: new Date().toISOString().split('T')[0],
-        isUrgent,
-        isScheduled: false,
-        processingStatus: 'PendingConfirmation',
-        aiSummary: subject.trim(),
-      };
-
-      addToast('Tiếp nhận thành công', 'Đã phân tích văn bản hoàn tất!', 'success');
-      onUploadSuccess(newDoc);
+      const file = selectedFile;
+      if (documentType === 'incoming') {
+        const created = await createInboxDocumentApi({
+          documentNumber: documentNumber.trim(),
+          documentSymbol: documentSymbol.trim() || undefined,
+          subject: subject.trim(),
+          sender: issuingAgency.trim(),
+          issuingAgency: issuingAgency.trim() || undefined,
+          isUrgent,
+          channel: 'Internal',
+        });
+        const documentId = typeof created.data === 'string' ? created.data : '';
+        if (!created.success || !documentId) throw new Error(created.error || 'Không thể tạo văn bản đến.');
+        const analyzed = await uploadAndAnalyzeApi(file, documentId);
+        if (!analyzed.success) throw new Error(analyzed.error || analyzed.aiError || 'Không thể phân tích văn bản.');
+        const detail = await getInboxDocumentByIdApi(documentId);
+        if (!detail.success || !detail.data) throw new Error(detail.error || 'Không thể tải lại văn bản.');
+        onUploadSuccess(detail.data);
+      } else {
+        const created = await createOutgoingDocumentApi({
+          documentType: 'CongVan',
+          title: subject.trim(),
+          content: '',
+          recipientNote: issuingAgency.trim() || undefined,
+          isUrgent,
+        });
+        const documentId = typeof created.data === 'string' ? created.data : '';
+        if (!created.success || !documentId) throw new Error(created.error || 'Không thể tạo văn bản đi.');
+        const uploaded = await uploadFileApi(file, documentId, 'Outgoing', 'MainDocument');
+        if (!uploaded.success) throw new Error(uploaded.error || 'Không thể tải tài liệu.');
+        const detail = await getOutgoingDocumentByIdApi(documentId);
+        if (!detail.success || !detail.data) throw new Error(detail.error || 'Không thể tải lại văn bản.');
+        onUploadSuccess(detail.data);
+      }
+      addToast('Tiếp nhận thành công', 'Đã tải và lưu văn bản trên máy chủ.', 'success');
+      return;
     } catch (err: any) {
       addToast('Lỗi tiếp nhận', err.message || 'Không thể tải lên văn bản', 'danger');
     } finally {

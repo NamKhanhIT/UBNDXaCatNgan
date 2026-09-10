@@ -34,6 +34,16 @@ namespace Quanlycongviec.Application.Tests.Notifications
         {
             var services = new ServiceCollection();
             services.AddSingleton(context);
+
+            var dispatcherMock = new Mock<INotificationDispatcher>();
+            dispatcherMock
+                .Setup(d => d.DispatchAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>()))
+                .Returns<Notification, CancellationToken>(async (notif, ct) =>
+                {
+                    context.Notifications.Add(notif);
+                    await context.SaveChangesAsync(ct);
+                });
+            services.AddSingleton(dispatcherMock.Object);
             
             var hubContextMock = new Mock<IHubContext<NotificationHub>>();
             var clientsMock = new Mock<IHubClients>();
@@ -152,6 +162,74 @@ namespace Quanlycongviec.Application.Tests.Notifications
             // Assert 2: IsEscalated vẫn true, không tạo thêm log leo thang
             var escalationLogsCount2 = await context.ReminderLogs.CountAsync(r => r.TaskItemId == urgentOverdueTask.Id && r.ReminderType == "Escalation");
             escalationLogsCount2.Should().Be(1);
+        }
+
+        [Fact]
+        public async Task ProcessRemindersAsync_ShouldUse48HourReminderInsteadOfThreeDayReminder()
+        {
+            using var context = new ApplicationDbContext(_dbOptions);
+            var assigner = new User { Id = Guid.NewGuid(), Username = "reminder_assigner", Email = "reminder.assigner@test.local" };
+            var assignee = new User { Id = Guid.NewGuid(), Username = "reminder_assignee", Email = "reminder.assignee@test.local" };
+            context.Users.AddRange(assigner, assignee);
+            var vnNow = DateTime.UtcNow.AddHours(7);
+            var task = new TaskItem
+            {
+                Id = Guid.NewGuid(),
+                Title = "48 hour reminder",
+                AssignerId = assigner.Id,
+                AssigneeId = assignee.Id,
+                Status = TaskStatusEnum.InProgress,
+                DueDate = vnNow.AddHours(46)
+            };
+            context.TaskItems.Add(task);
+            await context.SaveChangesAsync();
+
+            var service = new TaskReminderBackgroundService(
+                CreateServiceProvider(context),
+                NullLogger<TaskReminderBackgroundService>.Instance,
+                new ConfigurationBuilder().Build());
+
+            await service.ProcessRemindersAsync(CancellationToken.None);
+
+            (await context.ReminderLogs.AnyAsync(r => r.TaskItemId == task.Id && r.ReminderType == "BeforeDeadline48h"))
+                .Should().BeTrue();
+            (await context.ReminderLogs.AnyAsync(r => r.TaskItemId == task.Id && r.ReminderType == "BeforeDeadline3d"))
+                .Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task ProcessRemindersAsync_ShouldIgnoreDeletedTasks()
+        {
+            var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
+                .Options;
+            using var context = new ApplicationDbContext(options);
+            var assigner = new User { Id = Guid.NewGuid(), Username = "deleted_assigner", Email = "deleted.assigner@test.local" };
+            var assignee = new User { Id = Guid.NewGuid(), Username = "deleted_assignee", Email = "deleted.assignee@test.local" };
+            context.Users.AddRange(assigner, assignee);
+            var vnNow = DateTime.UtcNow.AddHours(7);
+            var deletedTask = new TaskItem
+            {
+                Id = Guid.NewGuid(),
+                Title = "Deleted task",
+                AssignerId = assigner.Id,
+                AssigneeId = assignee.Id,
+                Status = TaskStatusEnum.InProgress,
+                DueDate = vnNow.AddHours(20),
+                IsDeleted = true
+            };
+            context.TaskItems.Add(deletedTask);
+            await context.SaveChangesAsync();
+
+            var service = new TaskReminderBackgroundService(
+                CreateServiceProvider(context),
+                NullLogger<TaskReminderBackgroundService>.Instance,
+                new ConfigurationBuilder().Build());
+
+            await service.ProcessRemindersAsync(CancellationToken.None);
+
+            (await context.ReminderLogs.AnyAsync(r => r.TaskItemId == deletedTask.Id))
+                .Should().BeFalse();
         }
     }
 }

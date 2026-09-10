@@ -27,8 +27,15 @@ namespace Quanlycongviec.Infrastructure
             }
             else
             {
-                var connectionString = configuration.GetConnectionString("DefaultConnection")
-                    ?? "Host=localhost;Port=5432;Database=quanlycongviec_xa;Username=postgres;Password=CHANGE_ME_VIA_USER_SECRETS";
+                // BẢO MẬT (Audit 04-09-2026): KHÔNG dùng connection string fallback hardcoded trong source.
+                // Validate ngay tại registration time — không defer đến lần resolve đầu.
+                var connectionString = configuration.GetConnectionString("DefaultConnection");
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    throw new InvalidOperationException(
+                        "ConnectionStrings:DefaultConnection chưa được cấu hình. " +
+                        "Đặt chuỗi kết nối PostgreSQL trong appsettings.Development.json hoặc dotnet user-secrets.");
+                }
 
                 services.AddDbContext<ApplicationDbContext>(options =>
                     options.UseNpgsql(connectionString));
@@ -43,7 +50,9 @@ namespace Quanlycongviec.Infrastructure
             services.AddScoped<IRefreshTokenService, RefreshTokenService>();
             services.AddScoped<IEmailService, SmtpEmailService>();
             services.AddScoped<ITaskAuthorizationService, TaskAuthorizationService>();
+            services.AddScoped<IDocumentAccessService, DocumentAccessService>();
             services.AddScoped<INotificationDispatcher, NotificationDispatcherService>();
+            services.AddMemoryCache();
 
             // ── Dịch vụ SMS Miễn Phí (Android Gateway / GSM Modem / Simulator) ──
             services.Configure<Quanlycongviec.Application.Common.Options.SmsOptions>(
@@ -119,6 +128,7 @@ namespace Quanlycongviec.Infrastructure
 
             // ── Background Reminder Service ──
             services.AddHostedService<TaskReminderBackgroundService>();
+            services.AddHostedService<MonthlyRatingAggregationService>();
 
             // ── JWT Authentication ──
             var jwtSecret = configuration["Jwt:Secret"]
@@ -207,6 +217,14 @@ namespace Quanlycongviec.Infrastructure
                     {
                         var rankClaim = context.User.FindFirst("RankLevel")?.Value;
                         return int.TryParse(rankClaim, out var rank) && rank <= 3;
+                    }));
+
+                // RankLevel ≤ 4: Cán bộ lãnh đạo / quản lý (từ Phó phòng trở lên) có quyền thẩm định & xem báo cáo thi đua
+                options.AddPolicy("CanViewReports", policy =>
+                    policy.RequireAssertion(context =>
+                    {
+                        var rankClaim = context.User.FindFirst("RankLevel")?.Value;
+                        return int.TryParse(rankClaim, out var rank) && rank <= 4;
                     }));
             });
 

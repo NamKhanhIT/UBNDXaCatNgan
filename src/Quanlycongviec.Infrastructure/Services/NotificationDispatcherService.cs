@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Quanlycongviec.Application.Common.Interfaces;
 using Quanlycongviec.Domain.Entities;
@@ -49,6 +50,24 @@ namespace Quanlycongviec.Infrastructure.Services
                         sentAt = notification.SentAt
                     },
                     cancellationToken);
+
+                await _realtimePublisher.PublishToUserAsync(
+                    notification.UserId,
+                    "ReceiveNotification",
+                    new
+                    {
+                        id = notification.Id,
+                        userId = notification.UserId,
+                        taskItemId = notification.TaskItemId,
+                        calendarEventId = notification.CalendarEventId,
+                        type = notification.Type.ToString(),
+                        channel = notification.Channel.ToString(),
+                        title = notification.Title,
+                        message = notification.Message,
+                        createdAt = notification.CreatedAt,
+                        isRead = notification.IsRead
+                    },
+                    cancellationToken);
             }
             catch
             {
@@ -56,17 +75,20 @@ namespace Quanlycongviec.Infrastructure.Services
             }
 
             // 3. Đẩy WebPush tới người dùng
-            try
+            if (await ShouldSendWebPushAsync(notification, cancellationToken))
             {
-                await _webPushService.SendNotificationAsync(
-                    notification.UserId,
-                    notification.Title,
-                    notification.Message,
-                    cancellationToken: cancellationToken);
-            }
-            catch
-            {
-                // Non-blocking
+                try
+                {
+                    await _webPushService.SendNotificationAsync(
+                        notification.UserId,
+                        notification.Title,
+                        notification.Message,
+                        cancellationToken: cancellationToken);
+                }
+                catch
+                {
+                    // Non-blocking
+                }
             }
         }
 
@@ -77,6 +99,53 @@ namespace Quanlycongviec.Infrastructure.Services
             foreach (var notif in notifications)
             {
                 await DispatchAsync(notif, cancellationToken);
+            }
+        }
+
+        private async Task<bool> ShouldSendWebPushAsync(
+            Notification notification,
+            CancellationToken cancellationToken)
+        {
+            var preferences = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.Id == notification.UserId && !u.IsDeleted)
+                .Select(u => u.NotificationPreferences)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(preferences)) return true;
+
+            try
+            {
+                using var document = JsonDocument.Parse(preferences);
+                var root = document.RootElement;
+
+                if (root.TryGetProperty("channelWebPush", out var channel)
+                    && channel.ValueKind == JsonValueKind.False)
+                {
+                    return false;
+                }
+
+                var eventKey = notification.Type switch
+                {
+                    Domain.Enums.NotificationType.Assigned => "notifyNewTask",
+                    Domain.Enums.NotificationType.BeforeDeadline
+                        or Domain.Enums.NotificationType.BeforeDeadline48h
+                        or Domain.Enums.NotificationType.BeforeDeadline1d
+                        or Domain.Enums.NotificationType.BeforeDeadline3d
+                        or Domain.Enums.NotificationType.Overdue
+                        or Domain.Enums.NotificationType.Escalation => "notifyDeadline",
+                    Domain.Enums.NotificationType.Reviewed => "notifyApproval",
+                    Domain.Enums.NotificationType.WeeklySummary => "notifyDailyDigest",
+                    _ => null
+                };
+
+                return eventKey == null
+                    || !root.TryGetProperty(eventKey, out var enabled)
+                    || enabled.ValueKind != JsonValueKind.False;
+            }
+            catch (JsonException)
+            {
+                return true;
             }
         }
     }

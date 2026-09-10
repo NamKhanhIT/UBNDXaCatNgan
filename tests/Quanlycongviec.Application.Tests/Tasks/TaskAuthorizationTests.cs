@@ -140,6 +140,17 @@ namespace Quanlycongviec.Application.Tests.Tasks
         }
 
         [Fact]
+        public async Task TruongPhong_CannotAssignCrossDepartment_WithSpoofedDepartmentId()
+        {
+            var canAssign = await _authService.CanAssignTaskAsync(
+                _userTruongPhongKinhTe.Id,
+                _userChuyenVienVanHoa.Id,
+                _depKinhTe.Id);
+
+            canAssign.Should().BeFalse();
+        }
+
+        [Fact]
         public async Task TruongPhong_CannotTransferTask_CrossDepartment()
         {
             // Tạo task thuộc phòng Kinh tế
@@ -183,6 +194,28 @@ namespace Quanlycongviec.Application.Tests.Tasks
             // Trưởng phòng duyệt Hoàn thành -> Hợp lệ
             var canCompleteByTP = await _authService.CanUpdateTaskStatusAsync(_userTruongPhongKinhTe.Id, task.Id, TaskStatusEnum.Completed);
             canCompleteByTP.Should().BeTrue();
+        }
+
+        [Fact]
+        public async Task TruongPhong_CannotCompleteTaskOutsideOwnDepartment()
+        {
+            var task = new TaskItem
+            {
+                Title = "Cross department approval",
+                AssignerId = _userChuTich.Id,
+                AssigneeId = _userChuyenVienVanHoa.Id,
+                DepartmentId = _depVanHoa.Id,
+                Status = TaskStatusEnum.InReview
+            };
+            _context.TaskItems.Add(task);
+            await _context.SaveChangesAsync();
+
+            var canComplete = await _authService.CanUpdateTaskStatusAsync(
+                _userTruongPhongKinhTe.Id,
+                task.Id,
+                TaskStatusEnum.Completed);
+
+            canComplete.Should().BeFalse();
         }
     }
 }

@@ -12,6 +12,7 @@ namespace Quanlycongviec.Application.Features.Comments.Queries.GetComments
     public class GetTaskCommentsQuery : IRequest<List<TaskCommentDto>>
     {
         public Guid TaskId { get; set; }
+        public Guid CurrentUserId { get; set; }
     }
 
     public class TaskCommentDto
@@ -27,14 +28,19 @@ namespace Quanlycongviec.Application.Features.Comments.Queries.GetComments
     public class GetTaskCommentsQueryHandler : IRequestHandler<GetTaskCommentsQuery, List<TaskCommentDto>>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService _authorizationService;
 
-        public GetTaskCommentsQueryHandler(IApplicationDbContext context)
+        public GetTaskCommentsQueryHandler(IApplicationDbContext context, ITaskAuthorizationService authorizationService)
         {
             _context = context;
+            _authorizationService = authorizationService;
         }
 
         public async Task<List<TaskCommentDto>> Handle(GetTaskCommentsQuery request, CancellationToken cancellationToken)
         {
+            if (!await _authorizationService.CanAccessTaskAsync(request.CurrentUserId, request.TaskId, cancellationToken))
+                return new List<TaskCommentDto>();
+
             return await _context.TaskComments
                 .Where(c => c.TaskItemId == request.TaskId && !c.IsDeleted)
                 .Include(c => c.User)

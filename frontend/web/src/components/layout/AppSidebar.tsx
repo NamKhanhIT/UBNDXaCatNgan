@@ -145,15 +145,6 @@ export function AppSidebar({ isMobileOpen, onCloseMobile }: AppSidebarProps) {
                   <span>Công việc trong ngày</span>
                 </Link>
                 <Link
-                  href="/documents"
-                  className={`sidebar-item sub-item ${isActive('/documents') ? 'active' : ''}`}
-                  onClick={onCloseMobile}
-                  style={{ fontSize: '0.82rem', padding: '6px 12px', minHeight: 32 }}
-                >
-                  <i className="fa-solid fa-envelope-open-text" style={{ fontSize: 13 }} aria-hidden="true" />
-                  <span>Sổ văn bản đến & đi</span>
-                </Link>
-                <Link
                   href="/workcenter?tab=scheduled"
                   className={`sidebar-item sub-item ${isActive('/workcenter') && pathname.includes('tab=scheduled') ? 'active' : ''}`}
                   onClick={onCloseMobile}
@@ -184,7 +175,7 @@ export function AppSidebar({ isMobileOpen, onCloseMobile }: AppSidebarProps) {
               onClick={onCloseMobile}
             >
               <i className="fa-solid fa-trophy" style={{ fontSize: 16 }} aria-hidden="true" />
-              <span style={{ flex: 1 }}>ĐÁNH GIÁ THI ĐUA (GRAD)</span>
+              <span style={{ flex: 1 }}>ĐÁNH GIÁ THI ĐUA</span>
             </Link>
           )}
 

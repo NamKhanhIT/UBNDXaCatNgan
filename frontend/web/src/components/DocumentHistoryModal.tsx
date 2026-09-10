@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getDocumentVersionsApi, DocumentVersionDto } from '../services/outgoing-document.service';
+import { formatDateTimeShort } from '../lib/formatters';
 
 export interface DocumentHistoryModalProps {
   isOpen: boolean;
@@ -188,7 +189,7 @@ export const DocumentHistoryModal: React.FC<DocumentHistoryModalProps> = ({
                       👤 {ver.changedByName}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: '#64748b', marginTop: 2 }}>
-                      🕒 {new Date(ver.changedAt).toLocaleString('vi-VN')}
+                      🕒 {formatDateTimeShort(ver.changedAt)}
                     </div>
                   </div>
                 ))

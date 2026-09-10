@@ -30,11 +30,18 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
     public class CreateTaskCommentCommandHandler : IRequestHandler<CreateTaskCommentCommand, CreateTaskCommentResult>
     {
         private readonly IApplicationDbContext _context;
+        private readonly ITaskAuthorizationService _authorizationService;
+        private readonly INotificationDispatcher? _notificationDispatcher;
         private static readonly Regex MentionRegex = new(@"@(\S+)", RegexOptions.Compiled);
 
-        public CreateTaskCommentCommandHandler(IApplicationDbContext context)
+        public CreateTaskCommentCommandHandler(
+            IApplicationDbContext context,
+            ITaskAuthorizationService authorizationService,
+            INotificationDispatcher? notificationDispatcher = null)
         {
             _context = context;
+            _authorizationService = authorizationService;
+            _notificationDispatcher = notificationDispatcher;
         }
 
         public async Task<CreateTaskCommentResult> Handle(CreateTaskCommentCommand request, CancellationToken cancellationToken)
@@ -44,6 +51,9 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
 
             if (task == null)
                 return new CreateTaskCommentResult { Success = false, Message = "Không tìm thấy công việc." };
+
+            if (!await _authorizationService.CanAccessTaskAsync(request.UserId, request.TaskId, cancellationToken))
+                return new CreateTaskCommentResult { Success = false, Message = "Bạn không có quyền bình luận trong công việc này." };
 
             var user = await _context.Users
                 .FirstOrDefaultAsync(u => u.Id == request.UserId && !u.IsDeleted, cancellationToken);
@@ -64,6 +74,7 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
             var mentions = MentionRegex.Matches(request.Content);
             var mentionedUsernames = mentions.Select(m => m.Groups[1].Value).Distinct().ToList();
             var mentionedUsers = new List<string>();
+            var notificationsToSend = new List<Notification>();
 
             if (mentionedUsernames.Count > 0)
             {
@@ -79,8 +90,9 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
                     {
                         foreach (var u in allUsers.Where(u => u.Id != request.UserId))
                         {
-                            _context.Notifications.Add(new Notification
+                            notificationsToSend.Add(new Notification
                             {
+                                Id = Guid.NewGuid(),
                                 UserId = u.Id,
                                 TaskItemId = request.TaskId,
                                 Type = NotificationType.Comment,
@@ -101,8 +113,9 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
 
                     if (matchedUser != null && matchedUser.Id != request.UserId)
                     {
-                        _context.Notifications.Add(new Notification
+                        notificationsToSend.Add(new Notification
                         {
+                            Id = Guid.NewGuid(),
                             UserId = matchedUser.Id,
                             TaskItemId = request.TaskId,
                             Type = NotificationType.Comment,
@@ -128,6 +141,11 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
             });
 
             await _context.SaveChangesAsync(cancellationToken);
+
+            if (_notificationDispatcher != null && notificationsToSend.Count > 0)
+            {
+                await _notificationDispatcher.DispatchBatchAsync(notificationsToSend, cancellationToken);
+            }
 
             return new CreateTaskCommentResult
             {
