@@ -30,7 +30,7 @@ namespace Quanlycongviec.Application.Tests.Notifications
                 .Options;
         }
 
-        private IServiceProvider CreateServiceProvider(ApplicationDbContext context)
+        private IServiceProvider CreateServiceProvider(ApplicationDbContext context, INotificationDispatcher? dispatcher = null)
         {
             var services = new ServiceCollection();
             services.AddSingleton(context);
@@ -43,7 +43,7 @@ namespace Quanlycongviec.Application.Tests.Notifications
                     context.Notifications.Add(notif);
                     await context.SaveChangesAsync(ct);
                 });
-            services.AddSingleton(dispatcherMock.Object);
+            services.AddSingleton(dispatcher ?? dispatcherMock.Object);
             
             var hubContextMock = new Mock<IHubContext<NotificationHub>>();
             var clientsMock = new Mock<IHubClients>();
@@ -171,7 +171,7 @@ namespace Quanlycongviec.Application.Tests.Notifications
             var assigner = new User { Id = Guid.NewGuid(), Username = "reminder_assigner", Email = "reminder.assigner@test.local" };
             var assignee = new User { Id = Guid.NewGuid(), Username = "reminder_assignee", Email = "reminder.assignee@test.local" };
             context.Users.AddRange(assigner, assignee);
-            var vnNow = DateTime.UtcNow.AddHours(7);
+            var vnNow = DateTime.UtcNow;
             var task = new TaskItem
             {
                 Id = Guid.NewGuid(),
@@ -230,6 +230,115 @@ namespace Quanlycongviec.Application.Tests.Notifications
 
             (await context.ReminderLogs.AnyAsync(r => r.TaskItemId == deletedTask.Id))
                 .Should().BeFalse();
+        }
+
+        private sealed class TestClock : TimeProvider
+        {
+            public DateTimeOffset Now { get; set; } = new(2026, 9, 11, 3, 0, 0, TimeSpan.Zero);
+            public override DateTimeOffset GetUtcNow() => Now;
+        }
+
+        [Fact]
+        public async Task FailedDelivery_ShouldRetryAfterRestart_WithoutDuplicatingSavedNotifications()
+        {
+            using var context = new ApplicationDbContext(_dbOptions);
+            var clock = new TestClock();
+            var leader = new User { Username = "retry_leader", Email = "retry.leader@test.local" };
+            var staff = new User { Username = "retry_staff", Email = "retry.staff@test.local" };
+            context.Users.AddRange(leader, staff);
+            var task = new TaskItem
+            {
+                Title = "Retry",
+                AssignerId = leader.Id,
+                AssigneeId = staff.Id,
+                DueDate = clock.Now.UtcDateTime.AddHours(-1),
+                Status = TaskStatusEnum.InProgress
+            };
+            context.TaskItems.Add(task);
+            await context.SaveChangesAsync();
+            var real = new NotificationDispatcherService(context, Mock.Of<IRealtimePublisherService>(), Mock.Of<IWebPushNotificationService>());
+            var failOnce = true;
+            var dispatcher = new Mock<INotificationDispatcher>();
+            dispatcher.Setup(d => d.DispatchAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>()))
+                .Returns<Notification, CancellationToken>(async (notification, ct) =>
+                {
+                    if (notification.UserId == leader.Id && failOnce)
+                    {
+                        failOnce = false;
+                        throw new InvalidOperationException("Temporary persistence failure");
+                    }
+                    await real.DispatchAsync(notification, ct);
+                });
+            var config = new ConfigurationBuilder().Build();
+            await new TaskReminderBackgroundService(CreateServiceProvider(context, dispatcher.Object),
+                NullLogger<TaskReminderBackgroundService>.Instance, config, clock).ProcessRemindersAsync();
+            (await context.Notifications.CountAsync()).Should().Be(1);
+            (await context.ReminderLogs.SingleAsync()).SentAt.Should().Be(DateTime.UnixEpoch);
+            context.ChangeTracker.Clear();
+            await new TaskReminderBackgroundService(CreateServiceProvider(context, dispatcher.Object),
+                NullLogger<TaskReminderBackgroundService>.Instance, config, clock).ProcessRemindersAsync();
+            (await context.Notifications.CountAsync()).Should().Be(2);
+            (await context.ReminderLogs.SingleAsync()).SentAt.Should().Be(clock.Now.UtcDateTime);
+        }
+
+        [Fact]
+        public async Task ReviewWithoutDeadline_ShouldNotifyLeader_WhileTwelveHourReminderUsesUtc()
+        {
+            using var context = new ApplicationDbContext(_dbOptions);
+            var clock = new TestClock();
+            var leader = new User { Username = "utc_leader", Email = "utc.leader@test.local" };
+            var staff = new User { Username = "utc_staff", Email = "utc.staff@test.local" };
+            context.Users.AddRange(leader, staff);
+            var review = new TaskItem { Title = "No deadline review", AssignerId = leader.Id, AssigneeId = staff.Id, Status = TaskStatusEnum.InReview };
+            var due = new TaskItem
+            {
+                Title = "Twelve hours",
+                AssignerId = leader.Id,
+                AssigneeId = staff.Id,
+                DueDate = clock.Now.UtcDateTime.AddHours(10),
+                Status = TaskStatusEnum.InProgress
+            };
+            context.TaskItems.AddRange(review, due);
+            await context.SaveChangesAsync();
+            await new TaskReminderBackgroundService(CreateServiceProvider(context), NullLogger<TaskReminderBackgroundService>.Instance,
+                new ConfigurationBuilder().Build(), clock).ProcessRemindersAsync();
+            (await context.Notifications.SingleAsync(n => n.TaskItemId == review.Id)).UserId.Should().Be(leader.Id);
+            (await context.ReminderLogs.SingleAsync(r => r.TaskItemId == due.Id)).ReminderType.Should().Be("BeforeDeadline12h");
+            (await context.Notifications.AnyAsync(n => n.Type == NotificationType.Overdue)).Should().BeFalse();
+        }
+
+        [Fact]
+        public async Task RecurringReminder_ShouldRepeatAfterInterval_StopAfterAcceptance_AndNotifyReviewerOnly()
+        {
+            using var context = new ApplicationDbContext(_dbOptions);
+            var clock = new TestClock();
+            var assigner = new User { Username = "leader", Email = "leader@test.local" };
+            var assignee = new User { Username = "staff", Email = "staff@test.local" };
+            context.Users.AddRange(assigner, assignee);
+            var task = new TaskItem { Title = "Review cycle", AssignerId = assigner.Id, AssigneeId = assignee.Id, DueDate = clock.Now.UtcDateTime.AddHours(-1), Status = TaskStatusEnum.InProgress };
+            var cancelled = new TaskItem { Title = "Cancelled", AssignerId = assigner.Id, AssigneeId = assignee.Id, DueDate = task.DueDate, Status = TaskStatusEnum.Cancelled };
+            context.TaskItems.AddRange(task, cancelled);
+            await context.SaveChangesAsync();
+            var config = new ConfigurationBuilder().AddInMemoryCollection(new[] { new System.Collections.Generic.KeyValuePair<string, string?>("DailyDigest:Enabled", "false") }).Build();
+            var service = new TaskReminderBackgroundService(CreateServiceProvider(context), NullLogger<TaskReminderBackgroundService>.Instance, config, clock);
+            await service.ProcessRemindersAsync();
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(2);
+            (await context.Notifications.CountAsync(n => n.TaskItemId == cancelled.Id)).Should().Be(0);
+            await service.ProcessRemindersAsync();
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(2);
+            clock.Now = clock.Now.AddHours(25);
+            await service.ProcessRemindersAsync();
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(4);
+            task.Status = TaskStatusEnum.InReview;
+            await context.SaveChangesAsync();
+            await service.ProcessRemindersAsync();
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(5);
+            (await context.Notifications.Where(n => n.Title.StartsWith("Chờ nghiệm thu")).SingleAsync()).UserId.Should().Be(assigner.Id);
+            task.Status = TaskStatusEnum.Completed;
+            await context.SaveChangesAsync();
+            clock.Now = clock.Now.AddHours(25);
+            await service.ProcessRemindersAsync();
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(5);
         }
     }
 }

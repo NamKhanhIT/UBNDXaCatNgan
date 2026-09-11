@@ -23,6 +23,8 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocumentsPag
         public bool? IsUrgent { get; set; }
         public string? Category { get; set; }
         public string? AiProcessingStatus { get; set; }
+        public string? Scope { get; set; }
+        public string? WorkspaceState { get; set; }
     }
 
     public class GetInboxDocumentsPaginatedQueryHandler
@@ -54,40 +56,37 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocumentsPag
                 .AsNoTracking()
                 .Where(d => !d.IsDeleted);
 
-            if (request.UserRankLevel.Value >= 5)
+            var userId = request.CurrentUserId.Value;
+            var callerDepartmentId = await _context.Users
+                .Where(u => u.Id == userId && !u.IsDeleted)
+                .Select(u => u.PrimaryDepartmentId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (request.Scope == "mine" || request.UserRankLevel.Value > 2)
             {
                 query = query.Where(d =>
-                    d.AiReviewedByUserId == request.CurrentUserId.Value
+                    d.ReceivedByUserId == userId
+                    || d.AiReviewedByUserId == userId
+                    || (callerDepartmentId.HasValue && d.AiSuggestedDepartmentId == callerDepartmentId)
                     || _context.DocumentAttachments.Any(a =>
                         a.DocumentId == d.Id
                         && a.TargetType == "Inbox"
-                        && a.UploadedByUserId == request.CurrentUserId.Value
+                        && a.UploadedByUserId == userId
                         && !a.IsDeleted)
                     || (d.ScheduledTaskId.HasValue && _context.TaskItems.Any(t =>
                         t.Id == d.ScheduledTaskId.Value
                         && !t.IsDeleted
-                        && (t.AssigneeId == request.CurrentUserId.Value || t.AssignerId == request.CurrentUserId.Value))));
+                        && (t.AssigneeId == userId || t.AssignerId == userId))));
             }
-            else if (request.UserRankLevel.Value is 3 or 4)
-            {
-                var callerDepartmentId = await _context.Users
-                    .Where(u => u.Id == request.CurrentUserId.Value && !u.IsDeleted)
-                    .Select(u => u.PrimaryDepartmentId)
-                    .FirstOrDefaultAsync(cancellationToken);
 
-                query = query.Where(d =>
-                    d.AiReviewedByUserId == request.CurrentUserId.Value
-                    || d.AiSuggestedDepartmentId == callerDepartmentId
-                    || _context.DocumentAttachments.Any(a =>
-                        a.DocumentId == d.Id
-                        && a.TargetType == "Inbox"
-                        && a.UploadedByUserId == request.CurrentUserId.Value
-                        && !a.IsDeleted)
-                    || (callerDepartmentId.HasValue && d.ScheduledTaskId.HasValue
-                        && _context.TaskItems.Any(t =>
-                            t.Id == d.ScheduledTaskId.Value
-                            && !t.IsDeleted
-                            && t.DepartmentId == callerDepartmentId.Value)));
+            if (!string.IsNullOrWhiteSpace(request.WorkspaceState) && request.WorkspaceState != "all")
+            {
+                query = request.WorkspaceState switch
+                {
+                    "assigned" => query.Where(d => d.ScheduledTaskId.HasValue),
+                    "unassigned" => query.Where(d => !d.ScheduledTaskId.HasValue),
+                    _ => query
+                };
             }
 
             // Filter: IsScheduled (tab "Đến — Chưa xử lý" vs "Đã xếp lịch")

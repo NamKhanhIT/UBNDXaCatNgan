@@ -19,6 +19,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
         public double? EvaluatorScore { get; set; }
         public string? SubmissionNote { get; set; }
         public string? RejectionReason { get; set; }
+        public string? ApprovalNote { get; set; }
         public DateTime? NewExtendedDueDate { get; set; }
         public Guid CurrentUserId { get; set; }
 
@@ -33,7 +34,8 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
             DateTime? newExtendedDueDate = null,
             double? systemScore = null,
             double? evaluatorScore = null,
-            string? submissionNote = null)
+            string? submissionNote = null,
+            string? approvalNote = null)
         {
             TaskId = taskId;
             Status = status;
@@ -44,6 +46,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
             SystemScore = systemScore;
             EvaluatorScore = evaluatorScore;
             SubmissionNote = submissionNote;
+            ApprovalNote = approvalNote;
         }
     }
 
@@ -195,7 +198,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 }
             }
 
-            if (newStatus == TaskStatusEnum.Cancelled && !string.IsNullOrWhiteSpace(request.RejectionReason))
+            if ((newStatus == TaskStatusEnum.Cancelled || (oldStatus == TaskStatusEnum.InReview && newStatus == TaskStatusEnum.InProgress)) && !string.IsNullOrWhiteSpace(request.RejectionReason))
             {
                 task.RejectionReason = request.RejectionReason;
                 if (request.NewExtendedDueDate.HasValue)
@@ -203,6 +206,15 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                     var val = request.NewExtendedDueDate.Value;
                     task.DueDate = val.Kind == DateTimeKind.Utc ? val : DateTime.SpecifyKind(val, DateTimeKind.Utc);
                 }
+            }
+
+            var submissionEvidence = string.Empty;
+            if (newStatus == TaskStatusEnum.InReview)
+            {
+                var deadlineEvidence = task.DueDate.HasValue
+                    ? $"Hạn tại thời điểm nộp: {task.DueDate.Value:O}. {(DateTime.UtcNow > task.DueDate.Value ? "Nộp trễ hạn." : "Nộp trong hạn.")}"
+                    : "Chưa đặt hạn.";
+                submissionEvidence = $"[Bằng chứng nộp] {deadlineEvidence} Ghi chú cán bộ: {request.SubmissionNote}";
             }
 
             task.UpdatedAt = DateTime.UtcNow;
@@ -227,7 +239,11 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 Type = newStatus == TaskStatusEnum.Completed ? NotificationType.Reviewed : NotificationType.Comment,
                 Channel = NotificationChannel.InApp,
                 Title = $"🔔 Cập nhật tiến độ: {task.Title}",
-                Message = $"Nhiệm vụ [{task.Title}] đã chuyển sang trạng thái [{newStatus}].",
+                Message = oldStatus == TaskStatusEnum.InReview && newStatus == TaskStatusEnum.InProgress
+                    ? $"Nhiệm vụ [{task.Title}] cần chỉnh sửa: {request.RejectionReason}"
+                    : newStatus == TaskStatusEnum.InReview ? $"Cán bộ đã nộp kết quả nhiệm vụ [{task.Title}], chờ nghiệm thu."
+                    : newStatus == TaskStatusEnum.Completed ? $"Nhiệm vụ [{task.Title}] đã được nghiệm thu."
+                    : $"Nhiệm vụ [{task.Title}] đã chuyển sang trạng thái [{newStatus}].",
                 SentAt = DateTime.UtcNow,
                 IsRead = false
             };
@@ -239,7 +255,10 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.UpdateTaskStatus
                 ActionType = "status_changed",
                 TargetEntityType = "TaskItem",
                 TargetEntityId = task.Id.ToString(),
-                Summary = $"Chuyển trạng thái [{task.Title}] từ {oldStatus} → {newStatus}" + (newStatus == TaskStatusEnum.Cancelled ? $" (Lý do: {request.RejectionReason})" : "")
+                Summary = $"Chuyển trạng thái [{task.Title}] từ {oldStatus} → {newStatus}"
+                    + (newStatus == TaskStatusEnum.Cancelled || (oldStatus == TaskStatusEnum.InReview && newStatus == TaskStatusEnum.InProgress) ? $" (Lý do: {request.RejectionReason})" : "")
+                    + (!string.IsNullOrWhiteSpace(submissionEvidence) ? $" - {submissionEvidence}" : "")
+                    + (!string.IsNullOrWhiteSpace(request.ApprovalNote) ? $" (Ghi chú phê duyệt: {request.ApprovalNote})" : "")
             });
 
             await _context.SaveChangesAsync(cancellationToken);

@@ -28,6 +28,8 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
         // BẢO MẬT/Domain (Audit 04-09-2026): TodayOnly filter — chỉ hiển thị các nhiệm vụ
         // liên quan tới user (giao hoặc nhận) có DueDate hôm nay hoặc đã quá hạn.
         public bool TodayOnly { get; set; } = false;
+        public string? WorkspaceTab { get; set; }
+        public string? Scope { get; set; }
 
         public GetTasksQuery(
             Guid? userId = null,
@@ -108,6 +110,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
                         .FirstOrDefaultAsync(cancellationToken);
 
                     query = query.Where(t => t.AssignerId == request.UserId.Value
+                        || t.AssigneeId == request.UserId.Value
                         || (callerDepartmentId.HasValue && t.DepartmentId == callerDepartmentId.Value));
                 }
                 // RankLevel 1,2: Lãnh đạo cao nhất thấy toàn bộ
@@ -128,9 +131,38 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
                 query = query.Where(t => t.Priority == priority);
             }
 
-            if (request.DepartmentId.HasValue && !request.RankLevel.HasValue)
+            if (request.DepartmentId.HasValue)
             {
                 query = query.Where(t => t.DepartmentId == request.DepartmentId.Value);
+            }
+
+            // Workspace filters only narrow the server-authorized result set.
+            var now = DateTime.UtcNow;
+            var endOfVnDay = now.AddHours(7).Date.AddDays(1).AddHours(-7);
+            if (request.Scope == "mine")
+                query = query.Where(t => t.AssigneeId == request.UserId || t.AssignerId == request.UserId);
+            switch (request.WorkspaceTab)
+            {
+                case "today":
+                    query = query.Where(t => t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled
+                        && (t.AssigneeId == request.UserId || t.AssignerId == request.UserId)
+                        && (t.Status == TaskStatusEnum.InReview || !t.DueDate.HasValue || t.DueDate < endOfVnDay));
+                    break;
+                case "assigned_to_me":
+                    query = query.Where(t => t.AssigneeId == request.UserId && t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled);
+                    break;
+                case "pending_review":
+                    query = query.Where(t => t.Status == TaskStatusEnum.InReview);
+                    break;
+                case "sent":
+                    query = query.Where(t => t.AssignerId == request.UserId);
+                    break;
+                case "overdue":
+                    query = query.Where(t => t.DueDate < now && (t.Status == TaskStatusEnum.Todo || t.Status == TaskStatusEnum.InProgress));
+                    break;
+                case "completed":
+                    query = query.Where(t => t.Status == TaskStatusEnum.Completed);
+                    break;
             }
 
             if (!string.IsNullOrWhiteSpace(request.SearchQuery))
