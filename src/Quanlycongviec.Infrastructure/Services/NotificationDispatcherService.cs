@@ -30,9 +30,13 @@ namespace Quanlycongviec.Infrastructure.Services
         {
             if (notification == null) return;
 
-            // 1. Lưu thông báo vào CSDL
-            _context.Notifications.Add(notification);
-            await _context.SaveChangesAsync(cancellationToken);
+            // 1. Lưu thông báo vào CSDL (Idempotent: nếu đã tồn tại thì không thêm trùng)
+            var exists = await _context.Notifications.AnyAsync(n => n.Id == notification.Id, cancellationToken);
+            if (!exists)
+            {
+                _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
 
             // 2. Bắn SignalR realtime đến người nhận
             try

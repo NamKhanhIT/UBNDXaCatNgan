@@ -1,19 +1,20 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../features/auth/AuthContext';
 import { useToast } from '../ui/ToastContext';
-import { RoleCode, ROLE_HIERARCHY } from '../../services/role-hierarchy.service';
+import { ROLE_HIERARCHY } from '../../services/role-hierarchy.service';
 import { getNotifications, markNotificationRead, markAllNotificationsRead, NotificationItem } from '../../services/notification.service';
 import { formatAdministrativeDate, formatDateTimeShort } from '../../lib/formatters';
-import { useSignalREvent } from '../../hooks/use-signalr';
 
 interface AppHeaderProps {
   onToggleMobileSidebar: () => void;
 }
 
 export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
-  const { user, activeRole, setActiveRoleContext } = useAuth();
+  const router = useRouter();
+  const { user, activeRole } = useAuth();
   const { addToast } = useToast();
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -23,98 +24,7 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
 
   const currentDateText = formatAdministrativeDate();
 
-  // Lắng nghe sự kiện nhiệm vụ mới (TaskAssigned)
-  useSignalREvent('TaskAssigned', (data: any) => {
-    if (data?.title) {
-      addToast('Nhiệm vụ mới', `📌 Bạn được giao nhiệm vụ: ${data.title}`, 'info');
-    }
-    const newNotif: NotificationItem = {
-      id: `task-assigned-${data?.taskId || Date.now()}`,
-      userId: user?.userId || '',
-      type: 'Assigned',
-      channel: 'SignalR',
-      title: `📌 Nhiệm vụ mới: ${data?.title || 'Được giao công việc mới'}`,
-      message: `Đồng chí được giao nhiệm vụ [${data?.title}].`,
-      taskItemId: data?.taskId,
-      sentAt: new Date().toISOString(),
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
-    setNotifications(prev => [newNotif, ...prev.filter(n => n.id !== newNotif.id)]);
-    setUnreadCount(prev => prev + 1);
-  });
-
-  // Lắng nghe sự kiện thông báo SignalR Realtime (ReceiveNotification)
-  useSignalREvent('ReceiveNotification', (data: any) => {
-    if (data?.title) {
-      addToast(data.title, data.message || 'Bạn có thông báo mới', 'info');
-    }
-    const newNotif: NotificationItem = {
-      id: data.id || `notif-${Date.now()}`,
-      userId: user?.userId || '',
-      type: data.type || 'SystemAlert',
-      channel: 'SignalR',
-      title: data.title || 'Thông báo mới',
-      message: data.message || '',
-      taskItemId: data.taskItemId,
-      sentAt: new Date().toISOString(),
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
-    setNotifications(prev => [newNotif, ...prev.filter(n => n.id !== newNotif.id)]);
-    setUnreadCount(prev => prev + 1);
-  });
-
-  useSignalREvent('NotificationCreated', (data: any) => {
-    if (data?.title) {
-      addToast(data.title, data.message || 'Bạn có thông báo mới', 'info');
-    }
-    const newNotif: NotificationItem = {
-      id: data.id || `notif-${Date.now()}`,
-      userId: user?.userId || '',
-      type: data.type || 'SystemAlert',
-      channel: 'SignalR',
-      title: data.title || 'Thông báo mới',
-      message: data.message || '',
-      taskItemId: data.taskItemId,
-      sentAt: new Date().toISOString(),
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
-    setNotifications(prev => [newNotif, ...prev.filter(n => n.id !== newNotif.id)]);
-    setUnreadCount(prev => prev + 1);
-  });
-
-  // Lắng nghe sự kiện nộp báo cáo (ReportSubmitted)
-  useSignalREvent('ReportSubmitted', (data: any) => {
-    addToast('Báo cáo mới', `📝 Cán bộ đã nộp báo cáo kết quả nhiệm vụ`, 'info');
-    const newNotif: NotificationItem = {
-      id: `report-sub-${data?.taskId || Date.now()}`,
-      userId: user?.userId || '',
-      type: 'ReportSubmitted',
-      channel: 'SignalR',
-      title: `📝 Báo cáo nhiệm vụ mới`,
-      message: `Cán bộ đã nộp báo cáo công việc. Ghi chú: ${data?.submissionNote || 'Đã hoàn thành'}.`,
-      taskItemId: data?.taskId,
-      sentAt: new Date().toISOString(),
-      isRead: false,
-      createdAt: new Date().toISOString(),
-    };
-    setNotifications(prev => [newNotif, ...prev.filter(n => n.id !== newNotif.id)]);
-    setUnreadCount(prev => prev + 1);
-  });
-
-  // Lắng nghe sự kiện duyệt báo cáo (ReportApproved)
-  useSignalREvent('ReportApproved', (data: any) => {
-    addToast('Duyệt báo cáo', `✅ Báo cáo nhiệm vụ đã được lãnh đạo phê duyệt`, 'success');
-  });
-
-  // Lắng nghe sự kiện trả lại báo cáo (ReportRejected)
-  useSignalREvent('ReportRejected', (data: any) => {
-    addToast('Yêu cầu chỉnh sửa', `⚠️ Báo cáo nhiệm vụ cần bổ sung, chỉnh sửa: ${data?.reason || 'Chưa đạt yêu cầu'}`, 'warning');
-  });
-
-  // Load danh sách thông báo
+  // Load danh sách thông báo định kỳ (Polling mỗi 30s)
   useEffect(() => {
     async function loadNotifications() {
       try {
@@ -155,6 +65,12 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
       }
     }
     setShowNotifDropdown(false);
+
+    if (notif.taskItemId) {
+      router.push(`/workcenter?tab=all&taskId=${notif.taskItemId}`);
+    } else if (notif.calendarEventId) {
+      router.push('/calendar');
+    }
   };
 
   const handleMarkAllRead = async () => {
@@ -218,72 +134,8 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
         </div>
       </div>
 
-      {/* Cụm bên phải: Chuyển đổi vai trò + Chuông thông báo + Avatar (Tuyệt đối KHÔNG có nút Đăng xuất tại đây) */}
+      {/* Cụm bên phải: Chuông thông báo + Avatar (Đã loại bỏ hoàn toàn bộ chuyển đổi vai trò và SignalR listeners theo yêu cầu) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        {/* Switch Role Context */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            background: '#f8fafc',
-            padding: '4px 10px',
-            borderRadius: 8,
-            border: '1px solid #e2e8f0',
-          }}
-        >
-          <i className="fa-solid fa-user-gear" style={{ fontSize: 13, color: '#2563eb' }} aria-hidden="true" />
-          <label
-            htmlFor="header-role-select"
-            style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', margin: 0, cursor: 'pointer' }}
-          >
-            Vai trò:
-          </label>
-          <select
-            id="header-role-select"
-            aria-label="Chọn vai trò điều hành công vụ"
-            className="form-select"
-            style={{
-              padding: '2px 6px',
-              fontSize: '0.78rem',
-              height: 28,
-              width: 'auto',
-              border: 'none',
-              background: 'transparent',
-              fontWeight: 800,
-              color: '#1e293b',
-              cursor: 'pointer',
-            }}
-            value={activeRole}
-            onChange={async e => {
-              const newRole = e.target.value as RoleCode;
-              // BẢO MẬT (Audit Đợt 4 - M5): chờ API xác nhận — thất bại thì select
-              // tự revert về activeRole cũ (controlled value) và báo lỗi rõ ràng.
-              const ok = await setActiveRoleContext(newRole);
-              if (ok) {
-                addToast('Chuyển vai trò', `Đã chuyển sang ngữ cảnh: ${ROLE_HIERARCHY[newRole]?.label}`, 'info');
-              } else {
-                addToast('Chuyển vai trò thất bại', 'Máy chủ từ chối hoặc không phản hồi. Giữ nguyên ngữ cảnh hiện tại.', 'danger');
-              }
-            }}
-          >
-            <optgroup label="── Lãnh đạo UBND ──">
-              <option value="ChuTichUBND">🏛️ Chủ tịch UBND xã</option>
-              <option value="PhoChuTichUBND">📋 Phó Chủ tịch UBND xã</option>
-            </optgroup>
-            <optgroup label="── Cơ quan tham mưu & Chuyên môn ──">
-              <option value="ChanhVanPhong">🏢 Chánh Văn phòng HĐND & UBND</option>
-              <option value="TruongPhong">🏗️ Trưởng phòng chuyên môn</option>
-              <option value="PhoPhong">👔 Phó Trưởng phòng</option>
-              <option value="ChuyenVien">👤 Chuyên viên</option>
-            </optgroup>
-            <optgroup label="── Khối Đảng - Đoàn thể ──">
-              <option value="BiThuDU">⭐ Bí thư Đảng ủy</option>
-              <option value="ChuTichHDND">📜 Chủ tịch HĐND xã</option>
-            </optgroup>
-          </select>
-        </div>
-
         {/* Chuông Thông báo & Dropdown Panel */}
         <div style={{ position: 'relative' }} ref={notifRef}>
           <button
