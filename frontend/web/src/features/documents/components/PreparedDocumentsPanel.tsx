@@ -30,6 +30,8 @@ const STATUS_CONFIG: Record<
   OutgoingDocumentStatusEnum,
   { label: string; bg: string; color: string; border: string }
 > = {
+  Recalled: { label: 'Đã thu hồi', bg: '#f1f5f9', color: '#475569', border: '#cbd5e1' },
+  Cancelled: { label: 'Đã hủy', bg: '#fef2f2', color: '#b91c1c', border: '#fecaca' },
   Draft: {
     label: 'Bản thảo',
     bg: '#f1f5f9',

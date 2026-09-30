@@ -52,39 +52,26 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocumentsPag
                     new System.Collections.Generic.List<InboxDocumentDto>(), 0, page, pageSize);
             }
 
-            var query = _context.InboxDocuments
-                .AsNoTracking()
-                .Where(d => !d.IsDeleted);
-
             var userId = request.CurrentUserId.Value;
-            var callerDepartmentId = await _context.Users
-                .Where(u => u.Id == userId && !u.IsDeleted)
-                .Select(u => u.PrimaryDepartmentId)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            if (request.Scope == "mine" || request.UserRankLevel.Value > 2)
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(userId, cancellationToken);
+            if (actor == null) return new(new(), 0, page, pageSize);
+            var query = access.Inbox(actor).AsNoTracking();
+            if (request.Scope == "mine")
             {
                 query = query.Where(d =>
                     d.ReceivedByUserId == userId
-                    || d.AiReviewedByUserId == userId
-                    || (callerDepartmentId.HasValue && d.AiSuggestedDepartmentId == callerDepartmentId)
-                    || _context.DocumentAttachments.Any(a =>
-                        a.DocumentId == d.Id
-                        && a.TargetType == "Inbox"
-                        && a.UploadedByUserId == userId
-                        && !a.IsDeleted)
-                    || (d.ScheduledTaskId.HasValue && _context.TaskItems.Any(t =>
-                        t.Id == d.ScheduledTaskId.Value
-                        && !t.IsDeleted
-                        && (t.AssigneeId == userId || t.AssignerId == userId))));
+                    || _context.DocumentPresentations.Any(p => !p.IsDeleted && p.InboxDocumentId == d.Id && (p.SubmittedById == userId || p.RecipientId == userId))
+                    || _context.TaskDocumentLinks.Any(l => !l.IsDeleted && l.InboxDocumentId == d.Id && !l.TaskItem.IsDeleted
+                        && (l.TaskItem.AssigneeId == userId || l.TaskItem.AssignerId == userId || l.TaskItem.ReviewerId == userId)));
             }
 
             if (!string.IsNullOrWhiteSpace(request.WorkspaceState) && request.WorkspaceState != "all")
             {
                 query = request.WorkspaceState switch
                 {
-                    "assigned" => query.Where(d => d.ScheduledTaskId.HasValue),
-                    "unassigned" => query.Where(d => !d.ScheduledTaskId.HasValue),
+                    "assigned" => query.Where(d => _context.TaskDocumentLinks.Any(l => !l.IsDeleted && l.InboxDocumentId == d.Id)),
+                    "unassigned" => query.Where(d => !_context.TaskDocumentLinks.Any(l => !l.IsDeleted && l.InboxDocumentId == d.Id)),
                     _ => query
                 };
             }
@@ -92,7 +79,7 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocumentsPag
             // Filter: IsScheduled (tab "Đến — Chưa xử lý" vs "Đã xếp lịch")
             if (request.IsScheduled.HasValue)
             {
-                query = query.Where(d => d.IsScheduled == request.IsScheduled.Value);
+                query = query.Where(d => _context.TaskDocumentLinks.Any(l => !l.IsDeleted && l.InboxDocumentId == d.Id) == request.IsScheduled.Value);
             }
 
             // Filter: Channel (Internal / PublicService)
@@ -179,10 +166,10 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocumentsPag
                     CitizenName = null,
                     CitizenPhone = null,
                     ServiceCode = d.ServiceCode,
-                    IsScheduled = d.IsScheduled,
+                    IsScheduled = _context.TaskDocumentLinks.Any(l => !l.IsDeleted && l.InboxDocumentId == d.Id),
                     ScheduledDate = d.ScheduledDate,
                     ScheduledShift = d.ScheduledShift,
-                    ScheduledTaskId = d.ScheduledTaskId,
+                    ScheduledTaskId = _context.TaskDocumentLinks.Where(l => !l.IsDeleted && l.InboxDocumentId == d.Id).OrderBy(l => l.CreatedAt).Select(l => (Guid?)l.TaskItemId).FirstOrDefault(),
                     DocumentSymbol = d.DocumentSymbol,
                     IssuingAgency = d.IssuingAgency,
                     SignerName = d.SignerName,

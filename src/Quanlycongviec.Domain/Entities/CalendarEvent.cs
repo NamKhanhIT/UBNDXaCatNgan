@@ -8,6 +8,9 @@ namespace Quanlycongviec.Domain.Entities
     public class CalendarEvent : BaseEntity
     {
         public string Title { get; set; } = string.Empty;
+        public Guid Version { get; set; } = Guid.NewGuid();
+        public Guid? SourceInboxDocumentId { get; set; }
+        public InboxDocument? SourceInboxDocument { get; set; }
         public string Description { get; set; } = string.Empty;
 
         public EventTypeEnum EventType { get; set; } = EventTypeEnum.Meeting;

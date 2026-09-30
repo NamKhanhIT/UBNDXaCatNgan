@@ -75,6 +75,10 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
+    if ((eventName === 'ReceiveNotification' || eventName === 'NotificationReceived') && envelope.data?.id) {
+      envelope = { ...envelope, eventId: `${eventName}:${envelope.data.id}` };
+    }
+
     // 1. Kiểm tra chống nhận trùng lặp sự kiện
     if (processedEventIdsRef.current.has(envelope.eventId)) {
       return; // Bỏ qua sự kiện đã từng nhận
@@ -184,9 +188,14 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
         setConnectionStatus('disconnected');
       });
 
-      await connection.start();
       connectionRef.current = connection;
+      await connection.start();
+      if (connectionRef.current !== connection) {
+        await connection.stop();
+        return;
+      }
       setConnectionStatus('connected');
+      handleIncomingMessage('SYSTEM_RECONNECTED', { timestamp: new Date().toISOString() });
     } catch (err) {
       console.warn('SignalR Hub chưa sẵn sàng kết nối:', err);
       setConnectionStatus('disconnected');
@@ -211,6 +220,14 @@ export function SignalRProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, [isLoggedIn, startConnection]);
+
+  useEffect(() => {
+    if (!isLoggedIn || connectionStatus !== 'disconnected') return;
+    const timer = setTimeout(() => void startConnection(), 30000);
+    const online = () => void startConnection();
+    window.addEventListener('online', online);
+    return () => { clearTimeout(timer); window.removeEventListener('online', online); };
+  }, [isLoggedIn, connectionStatus, startConnection]);
 
   const reconnect = useCallback(async () => {
     if (connectionRef.current) {

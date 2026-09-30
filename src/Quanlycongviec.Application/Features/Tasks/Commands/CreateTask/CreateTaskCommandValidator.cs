@@ -6,6 +6,9 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.CreateTask
     {
         public CreateTaskCommandValidator()
         {
+            RuleFor(x => x.RequestId).NotEmpty();
+            RuleFor(x => x.Requirements).NotEmpty();
+            RuleFor(x => x.DueDate).NotNull();
             RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
             RuleFor(x => x.AssignerId).NotEmpty();
             RuleFor(x => x.AssigneeId).NotEmpty();

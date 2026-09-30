@@ -143,9 +143,15 @@ namespace Quanlycongviec.Api.IntegrationTests
                 NullLogger<FilesController>.Instance,
                 new AllowAllDocumentAccessService());
 
+            var uploader = new User { Username = "path_fixture", Email = "path@example.invalid" };
+            var document = new InboxDocument { ReceivedByUserId = uploader.Id, Subject = "Path fixture" };
+            context.Users.Add(uploader);
+            context.InboxDocuments.Add(document);
+            context.WorkflowPermissions.Add(new WorkflowPermission { UserId = uploader.Id, CanReceiveDocuments = true });
+            await context.SaveChangesAsync();
             var principal = new ClaimsPrincipal(new ClaimsIdentity(new[]
             {
-                new Claim(ClaimTypes.NameIdentifier, Guid.NewGuid().ToString())
+                new Claim(ClaimTypes.NameIdentifier, uploader.Id.ToString())
             }, "TestAuth"));
             controller.ControllerContext = new ControllerContext
             {
@@ -161,11 +167,11 @@ namespace Quanlycongviec.Api.IntegrationTests
             fileMock.Setup(f => f.Length).Returns(64);
             fileMock.Setup(f => f.ContentType).Returns("application/pdf");
             fileMock.Setup(f => f.OpenReadStream())
-                    .Returns(new MemoryStream(new byte[] { 0x25, 0x50, 0x44, 0x46, 0x2D, 0x31 }));
+                    .Returns(() => new MemoryStream(new byte[] { 0x25, 0x50, 0x44, 0x46, 0x2D, 0x31 }));
             fileMock.Setup(f => f.CopyToAsync(It.IsAny<Stream>(), It.IsAny<CancellationToken>()))
                     .Returns(Task.CompletedTask);
 
-            var result = await controller.UploadFile(fileMock.Object, Guid.NewGuid());
+            var result = await controller.UploadFile(fileMock.Object, document.Id, requestId: Guid.NewGuid());
 
             var ok = result as OkObjectResult;
             ok.Should().NotBeNull("file .pdf hợp lệ về extension phải vẫn upload được sau khi sanitize");

@@ -31,10 +31,25 @@ namespace Quanlycongviec.Infrastructure.Services
             if (notification == null) return;
 
             // 1. Lưu thông báo vào CSDL (Idempotent: nếu đã tồn tại thì không thêm trùng)
-            var exists = await _context.Notifications.AnyAsync(n => n.Id == notification.Id, cancellationToken);
-            if (!exists)
+            var stored = await _context.Notifications.FirstOrDefaultAsync(n => n.Id == notification.Id, cancellationToken);
+            if (stored == null)
             {
+                notification.RequiresRealtimeDelivery = true;
                 _context.Notifications.Add(notification);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            else notification = stored;
+            if (notification.IsDeleted || notification.RealtimeDeliveredAt.HasValue) return;
+            if (!await WorkflowReminderDelivery.IsCurrentAsync(_context, notification, cancellationToken))
+            {
+                notification.IsDeleted = true;
+                notification.RequiresRealtimeDelivery = false;
+                await _context.SaveChangesAsync(cancellationToken);
+                return;
+            }
+            if (!notification.RequiresRealtimeDelivery)
+            {
+                notification.RequiresRealtimeDelivery = true;
                 await _context.SaveChangesAsync(cancellationToken);
             }
 
@@ -51,6 +66,8 @@ namespace Quanlycongviec.Infrastructure.Services
                         message = notification.Message,
                         type = notification.Type.ToString(),
                         taskItemId = notification.TaskItemId,
+                        inboxDocumentId = notification.InboxDocumentId,
+                        outgoingDocumentId = notification.OutgoingDocumentId,
                         sentAt = notification.SentAt
                     },
                     cancellationToken);
@@ -64,6 +81,8 @@ namespace Quanlycongviec.Infrastructure.Services
                         userId = notification.UserId,
                         taskItemId = notification.TaskItemId,
                         calendarEventId = notification.CalendarEventId,
+                        inboxDocumentId = notification.InboxDocumentId,
+                        outgoingDocumentId = notification.OutgoingDocumentId,
                         type = notification.Type.ToString(),
                         channel = notification.Channel.ToString(),
                         title = notification.Title,
@@ -72,6 +91,9 @@ namespace Quanlycongviec.Infrastructure.Services
                         isRead = notification.IsRead
                     },
                     cancellationToken);
+                notification.RequiresRealtimeDelivery = false;
+                notification.RealtimeDeliveredAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
             }
             catch
             {

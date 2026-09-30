@@ -7,6 +7,7 @@ using Quanlycongviec.Application.Features.Tasks.Commands.CreateTask;
 using Quanlycongviec.Domain.Entities;
 using Quanlycongviec.Domain.Enums;
 using Quanlycongviec.Infrastructure.Persistence;
+using Quanlycongviec.Infrastructure.Services;
 using Quanlycongviec.Application.Tests;
 using Xunit;
 
@@ -32,14 +33,17 @@ namespace Quanlycongviec.Application.Tests.Tasks
             var assigner = new User { Username = "chutich", FullName = "Chủ tịch UBND", Email = "chutich@ubnd.gov.vn" };
             var assignee = new User { Username = "chuyenvien1", FullName = "Chuyên viên Nam", Email = "nam@ubnd.gov.vn" };
 
-            _context.Users.AddRange(assigner, assignee);
+            WorkflowTestData.AddAssignmentRoles(_context, assigner, assignee);
             _context.WorkloadCapacities.Add(new WorkloadCapacity { UserId = assignee.Id, WeeklyMaxHours = 40.0, CurrentAssignedHours = 10.0 });
             await _context.SaveChangesAsync();
 
-            var handler = new CreateTaskCommandHandler(_context, new AllowAllTaskAuthorizationService());
+            var handler = new CreateTaskCommandHandler(_context, new TaskAuthorizationService(_context));
             var command = new CreateTaskCommand
             {
                 Title = "Rà soát văn bản đôn đốc chỉ đạo",
+                RequestId = Guid.NewGuid(),
+                Requirements = "Báo cáo rà soát",
+                DueDate = DateTime.UtcNow.AddDays(1),
                 Description = "Thực hiện rà soát các nghị quyết quý 3",
                 AssignerId = assigner.Id,
                 AssigneeId = assignee.Id,
@@ -61,7 +65,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
             taskInDb.Priority.Should().Be(TaskPriority.High);
 
             var workload = await _context.WorkloadCapacities.FirstOrDefaultAsync(w => w.UserId == assignee.Id);
-            workload!.CurrentAssignedHours.Should().Be(25.0); // 10 + 15
+            workload!.CurrentAssignedHours.Should().Be(10.0); // Assignment no longer invents or books effort.
 
             var auditLog = await _context.AuditLogs.FirstOrDefaultAsync(a => a.EntityId == taskId.ToString());
             auditLog.Should().NotBeNull();
@@ -98,6 +102,9 @@ namespace Quanlycongviec.Application.Tests.Tasks
             var command = new CreateTaskCommand
             {
                 Title = "Task without legacy effort",
+                RequestId = Guid.NewGuid(),
+                Requirements = "Kết quả bắt buộc",
+                DueDate = DateTime.UtcNow.AddDays(1),
                 AssignerId = Guid.NewGuid(),
                 AssigneeId = Guid.NewGuid(),
                 EstimatedEffortHours = 0
@@ -119,13 +126,15 @@ namespace Quanlycongviec.Application.Tests.Tasks
         {
             var assigner = new User { Username = "requirements_assigner", FullName = "Assigner", Email = "req.assigner@test.local" };
             var assignee = new User { Username = "requirements_assignee", FullName = "Assignee", Email = "req.assignee@test.local" };
-            _context.Users.AddRange(assigner, assignee);
+            WorkflowTestData.AddAssignmentRoles(_context, assigner, assignee);
             await _context.SaveChangesAsync();
 
-            var handler = new CreateTaskCommandHandler(_context, new AllowAllTaskAuthorizationService());
+            var handler = new CreateTaskCommandHandler(_context, new TaskAuthorizationService(_context));
             var taskId = await handler.Handle(new CreateTaskCommand
             {
                 Title = "Requirements contract",
+                RequestId = Guid.NewGuid(),
+                DueDate = DateTime.UtcNow.AddDays(1),
                 Description = "Directive",
                 Requirements = "  Submit the signed result  ",
                 AssignerId = assigner.Id,

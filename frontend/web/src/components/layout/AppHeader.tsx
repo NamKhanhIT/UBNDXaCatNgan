@@ -7,6 +7,7 @@ import { useToast } from '../ui/ToastContext';
 import { ROLE_HIERARCHY } from '../../services/role-hierarchy.service';
 import { getNotifications, markNotificationRead, markAllNotificationsRead, NotificationItem } from '../../services/notification.service';
 import { formatAdministrativeDate, formatDateTimeShort } from '../../lib/formatters';
+import { useSignalRContext } from '../../providers/SignalRProvider';
 
 interface AppHeaderProps {
   onToggleMobileSidebar: () => void;
@@ -16,6 +17,7 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
   const router = useRouter();
   const { user, activeRole } = useAuth();
   const { addToast } = useToast();
+  const { subscribe, isConnected } = useSignalRContext();
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
@@ -26,12 +28,18 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
 
   // Load danh sách thông báo định kỳ (Polling mỗi 30s)
   useEffect(() => {
+    let active = true;
+    let latestRequest = 0;
+    setNotifications([]);
+    setUnreadCount(0);
     async function loadNotifications() {
+      if (!user?.userId || document.visibilityState !== 'visible') return;
+      const request = ++latestRequest;
       try {
-        const items = await getNotifications();
-        if (Array.isArray(items)) {
-          setNotifications(items);
-          setUnreadCount(items.filter(n => !n.isRead).length);
+        const response = await getNotifications();
+        if (active && request === latestRequest && response.success && response.data) {
+          setNotifications(response.data.items);
+          setUnreadCount(response.data.unreadCount);
         }
       } catch (err) {
         console.warn('Lỗi khi tải thông báo:', err);
@@ -39,9 +47,18 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
     }
     loadNotifications();
 
-    const interval = setInterval(loadNotifications, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    const interval = setInterval(() => { if (!isConnected) void loadNotifications(); }, 30000);
+    const unsubscribe = subscribe('ReceiveNotification', loadNotifications);
+    const unsubscribeReconnect = subscribe('SYSTEM_RECONNECTED', loadNotifications);
+    document.addEventListener('visibilitychange', loadNotifications);
+    return () => {
+      active = false;
+      clearInterval(interval);
+      unsubscribe();
+      unsubscribeReconnect();
+      document.removeEventListener('visibilitychange', loadNotifications);
+    };
+  }, [user?.userId, isConnected, subscribe]);
 
   // Đóng dropdown khi click ra ngoài
   useEffect(() => {
@@ -57,7 +74,8 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
   const handleNotificationClick = async (notif: NotificationItem) => {
     if (!notif.isRead) {
       try {
-        await markNotificationRead(notif.id);
+        const response = await markNotificationRead(notif.id);
+        if (!response.success) throw new Error(response.error || 'Không thể đánh dấu đã đọc.');
         setNotifications(prev => prev.map(n => (n.id === notif.id ? { ...n, isRead: true } : n)));
         setUnreadCount(prev => Math.max(0, prev - 1));
       } catch (err) {
@@ -68,14 +86,19 @@ export function AppHeader({ onToggleMobileSidebar }: AppHeaderProps) {
 
     if (notif.taskItemId) {
       router.push(`/workcenter?tab=all&taskId=${notif.taskItemId}`);
+    } else if (notif.inboxDocumentId) {
+      router.push(`/documents?kind=Inbox&documentId=${encodeURIComponent(notif.inboxDocumentId)}`);
+    } else if (notif.outgoingDocumentId) {
+      router.push(`/documents?kind=Outgoing&documentId=${encodeURIComponent(notif.outgoingDocumentId)}`);
     } else if (notif.calendarEventId) {
-      router.push('/calendar');
+      router.push(`/calendar?eventId=${encodeURIComponent(notif.calendarEventId)}`);
     }
   };
 
   const handleMarkAllRead = async () => {
     try {
-      await markAllNotificationsRead();
+      const response = await markAllNotificationsRead();
+      if (!response.success) throw new Error(response.error || 'Không thể đánh dấu đã đọc.');
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
       setUnreadCount(0);
       addToast('Đã đọc tất cả', 'Đã đánh dấu tất cả thông báo là đã đọc', 'info');

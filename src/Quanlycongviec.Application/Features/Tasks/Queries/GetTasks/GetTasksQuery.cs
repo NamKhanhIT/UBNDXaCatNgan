@@ -30,6 +30,9 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
         public bool TodayOnly { get; set; } = false;
         public string? WorkspaceTab { get; set; }
         public string? Scope { get; set; }
+        public string? TimeFilter { get; set; }
+        public string? SearchField { get; set; }
+        public string? ReviewScope { get; set; }
 
         public GetTasksQuery(
             Guid? userId = null,
@@ -58,194 +61,87 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTasks
         }
     }
 
-    public class GetTasksQueryHandler : IRequestHandler<GetTasksQuery, PaginatedResult<TaskItemDto>>
+    public class GetTasksQueryHandler(IApplicationDbContext context) : IRequestHandler<GetTasksQuery, PaginatedResult<TaskItemDto>>
     {
-        private readonly IApplicationDbContext _context;
-
-        public GetTasksQueryHandler(IApplicationDbContext context)
+        public async Task<PaginatedResult<TaskItemDto>> Handle(GetTasksQuery request, CancellationToken ct)
         {
-            _context = context;
-        }
-
-        public async Task<PaginatedResult<TaskItemDto>> Handle(GetTasksQuery request, CancellationToken cancellationToken)
-        {
-            if (!request.UserId.HasValue || request.UserId.Value == Guid.Empty || !request.RankLevel.HasValue)
-            {
-                return new PaginatedResult<TaskItemDto>(
-                    new List<TaskItemDto>(),
-                    0,
-                    Math.Max(1, request.Page),
-                    Math.Clamp(request.PageSize, 1, 100));
-            }
-
-            var query = _context.TaskItems
-                .AsNoTracking()
-                .Include(t => t.Assigner)
-                .Include(t => t.Assignee)
-                .Include(t => t.Department)
-                .Where(t => !t.IsDeleted);
-
-            // Scope level filtering
-            if (request.RankLevel.HasValue && request.UserId.HasValue)
-            {
-                // Khi bật TodayOnly, tab "Hôm Nay" phải thấy cả task user GIAO và user NHẬN
-                // có DueDate hôm nay/quá hạn — bất kể rank. Áp dụng rule rộng hơn.
-                if (request.TodayOnly)
-                {
-                    query = query.Where(t =>
-                        t.AssigneeId == request.UserId.Value
-                        || t.AssignerId == request.UserId.Value);
-                }
-                else if (request.RankLevel.Value >= 5) // Chuyên viên: chỉ thấy task phân cho mình
-                {
-                    query = query.Where(t => t.AssigneeId == request.UserId.Value);
-                }
-                else if (request.RankLevel.Value == 3 || request.RankLevel.Value == 4) // Trưởng/Phó phòng: thấy task trong phòng mình hoặc do mình tạo
-                {
-                    // The caller's department comes from the server-side user
-                    // record; a client supplied filter cannot widen this scope.
-                    var callerDepartmentId = await _context.Users
-                        .Where(u => u.Id == request.UserId.Value && !u.IsDeleted)
-                        .Select(u => u.PrimaryDepartmentId)
-                        .FirstOrDefaultAsync(cancellationToken);
-
-                    query = query.Where(t => t.AssignerId == request.UserId.Value
-                        || t.AssigneeId == request.UserId.Value
-                        || (callerDepartmentId.HasValue && t.DepartmentId == callerDepartmentId.Value));
-                }
-                // RankLevel 1,2: Lãnh đạo cao nhất thấy toàn bộ
-            }
-
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(context);
+            var actor = await access.ActorAsync(request.UserId ?? Guid.Empty, ct);
+            var page = Math.Max(1, request.Page);
+            var size = Math.Clamp(request.PageSize, 1, 100);
+            if (actor == null) return new(new(), 0, page, size);
+            var query = access.Tasks(actor).AsNoTracking();
+            if (request.Scope == "mine" || request.TodayOnly)
+                query = query.Where(t => t.AssigneeId == actor.Id || t.AssignerId == actor.Id || t.ReviewerId == actor.Id);
+            if (request.Scope == "department")
+                query = query.Where(t => actor.DepartmentId.HasValue && t.DepartmentId == actor.DepartmentId);
+            if (request.DepartmentId.HasValue) query = query.Where(t => t.DepartmentId == request.DepartmentId);
             if (!string.IsNullOrWhiteSpace(request.StatusFilter) && request.StatusFilter != "all")
             {
-                if (Enum.TryParse<TaskStatusEnum>(request.StatusFilter, true, out var statusEnum))
-                {
-                    query = query.Where(t => t.Status == statusEnum);
-                }
+                if (!Enum.TryParse<TaskStatusEnum>(request.StatusFilter, true, out var status) || !Enum.IsDefined(status)) throw new ArgumentException("Trạng thái không hợp lệ.");
+                query = query.Where(t => t.Status == status);
             }
-
-            if (!string.IsNullOrWhiteSpace(request.PriorityFilter)
-                && request.PriorityFilter != "all"
-                && Enum.TryParse<TaskPriority>(request.PriorityFilter, true, out var priority))
+            if (!string.IsNullOrWhiteSpace(request.PriorityFilter) && request.PriorityFilter != "all")
             {
+                if (!Enum.TryParse<TaskPriority>(request.PriorityFilter, true, out var priority) || !Enum.IsDefined(priority)) throw new ArgumentException("Mức ưu tiên không hợp lệ.");
                 query = query.Where(t => t.Priority == priority);
             }
-
-            if (request.DepartmentId.HasValue)
-            {
-                query = query.Where(t => t.DepartmentId == request.DepartmentId.Value);
-            }
-
-            // Workspace filters only narrow the server-authorized result set.
-            var now = DateTime.UtcNow;
-            var endOfVnDay = now.AddHours(7).Date.AddDays(1).AddHours(-7);
-            if (request.Scope == "mine")
-                query = query.Where(t => t.AssigneeId == request.UserId || t.AssignerId == request.UserId);
-            switch (request.WorkspaceTab)
-            {
-                case "today":
-                    query = query.Where(t => t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled
-                        && (t.AssigneeId == request.UserId || t.AssignerId == request.UserId)
-                        && (t.Status == TaskStatusEnum.InReview || !t.DueDate.HasValue || t.DueDate < endOfVnDay));
-                    break;
-                case "assigned_to_me":
-                    query = query.Where(t => t.AssigneeId == request.UserId && t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled);
-                    break;
-                case "pending_review":
-                    query = query.Where(t => t.Status == TaskStatusEnum.InReview);
-                    break;
-                case "sent":
-                    query = query.Where(t => t.AssignerId == request.UserId);
-                    break;
-                case "overdue":
-                    query = query.Where(t => t.DueDate < now && (t.Status == TaskStatusEnum.Todo || t.Status == TaskStatusEnum.InProgress));
-                    break;
-                case "completed":
-                    query = query.Where(t => t.Status == TaskStatusEnum.Completed);
-                    break;
-            }
-
             if (!string.IsNullOrWhiteSpace(request.SearchQuery))
             {
-                var q = request.SearchQuery.Trim().ToLower();
-                query = query.Where(t =>
-                    t.Title.ToLower().Contains(q) ||
-                    t.Assignee.FullName.ToLower().Contains(q) ||
-                    t.Assigner.FullName.ToLower().Contains(q));
+                var search = request.SearchQuery.Trim().ToLower();
+                var field = request.SearchField ?? "all";
+                query = query.Where(t => ((field == "all" || field == "title") && t.Title.ToLower().Contains(search))
+                    || ((field == "all" || field == "description") && t.Description.ToLower().Contains(search))
+                    || ((field == "all" || field == "assignee") && t.Assignee.FullName.ToLower().Contains(search))
+                    || ((field == "all" || field == "documentNumber") && t.DocumentLinks.Any(l => !l.IsDeleted
+                       && ((l.InboxDocument != null && l.InboxDocument.DocumentNumber.ToLower().Contains(search))
+                       || (l.OutgoingDocument != null && l.OutgoingDocument.DocumentNumber.ToLower().Contains(search))))));
             }
-
-            // Filter: DueDate (exact day for "Hôm nay" tab)
+            var now = DateTime.UtcNow;
+            var start = DateTime.SpecifyKind(now.AddHours(7).Date.AddHours(-7), DateTimeKind.Utc);
+            var end = start.AddDays(1);
+            var soon = now.AddHours(48);
+            var timeFilter = request.TimeFilter;
+            if (request.TodayOnly)
+                query = query.Where(t => t.DueDate < end && t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled);
+            if (timeFilter == "today") query = query.Where(t => t.DueDate >= start && t.DueDate < end);
+            if (timeFilter == "soon") query = query.Where(t => t.DueDate >= now && t.DueDate <= soon && (t.Status == TaskStatusEnum.Todo || t.Status == TaskStatusEnum.InProgress));
+            if (timeFilter == "overdue") query = query.Where(t => t.DueDate < now && (t.Status == TaskStatusEnum.Todo || t.Status == TaskStatusEnum.InProgress));
+            if (timeFilter == "revision") query = query.Where(t => t.Status == TaskStatusEnum.InProgress && t.RejectionReason != null && t.RejectionReason != "");
             if (request.DueDate.HasValue)
             {
-                var date = request.DueDate.Value.Date;
-                query = query.Where(t => t.DueDate.HasValue && t.DueDate.Value.Date == date);
+                var dateStart = DateTime.SpecifyKind(request.DueDate.Value.Date.AddHours(-7), DateTimeKind.Utc);
+                var dateEnd = dateStart.AddDays(1);
+                query = query.Where(t => t.DueDate >= dateStart && t.DueDate < dateEnd);
             }
-
-            // Filter: Date range intersection for Calendar (From & To)
             if (request.DueDateFrom.HasValue && request.DueDateTo.HasValue)
             {
-                var from = request.DueDateFrom.Value.Date;
-                var to = request.DueDateTo.Value.Date;
-                query = query.Where(t => (t.StartDate.HasValue || t.DueDate.HasValue) &&
-                    ((t.StartDate ?? t.DueDate)!.Value.Date <= to) &&
-                    ((t.DueDate ?? t.StartDate)!.Value.Date >= from));
+                var from = DateTime.SpecifyKind(request.DueDateFrom.Value.Date.AddHours(-7), DateTimeKind.Utc);
+                var to = DateTime.SpecifyKind(request.DueDateTo.Value.Date.AddDays(1).AddHours(-7), DateTimeKind.Utc);
+                query = query.Where(t => (t.StartDate ?? t.DueDate) < to && (t.DueDate ?? t.StartDate) >= from);
             }
-
-            // Filter: TodayOnly — chỉ hiển thị các task liên quan tới user (giao hoặc nhận)
-            // có DueDate hôm nay hoặc đã quá hạn (hỗ trợ tab "Hôm Nay" trong Trung tâm điều hành).
-            if (request.TodayOnly)
-            {
-                var today = DateTime.UtcNow.Date;
-                query = query.Where(t =>
-                    t.DueDate.HasValue
-                    && t.DueDate.Value.Date <= today
-                    && (t.AssigneeId == request.UserId.Value || t.AssignerId == request.UserId.Value));
-            }
-
-            // Count total before pagination
-            var totalCount = await query.CountAsync(cancellationToken);
-
-            // Paginate
-            var page = Math.Max(1, request.Page);
-            var pageSize = Math.Clamp(request.PageSize, 1, 100);
-
-            var list = await query
-                .OrderByDescending(t => t.CreatedAt)
-                .ThenByDescending(t => t.Id)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .Select(t => new TaskItemDto
-                {
-                    Id = t.Id,
-                    Title = t.Title,
-                    Description = t.Description,
-                    Requirements = t.Requirements,
-                    AssignerId = t.AssignerId,
-                    AssignerName = t.Assigner != null ? t.Assigner.FullName : string.Empty,
-                    AssigneeId = t.AssigneeId,
-                    AssigneeName = t.Assignee != null ? t.Assignee.FullName : string.Empty,
-                    DepartmentId = t.DepartmentId,
-                    DepartmentName = t.Department != null ? t.Department.Name : string.Empty,
-                    Priority = t.Priority.ToString(),
-                    Status = t.Status.ToString(),
-                    Type = t.Type.ToString(),
-                    EstimatedEffortHours = t.EstimatedEffortHours,
-                    StartDate = t.StartDate ?? t.DueDate,
-                    DueDate = t.DueDate,
-                    CompletedAt = t.CompletedAt,
-                    SubmissionNote = t.SubmissionNote,
-                    SystemScore = t.SystemScore,
-                    EvaluatorScore = t.EvaluatorScore,
-                    RatingScore = t.RatingScore,
-                    RejectionReason = t.RejectionReason,
-                    IsEscalated = t.IsEscalated,
-                    OpenAnnotationCount = t.Annotations.Count(a => a.ResolvedStatus == AnnotationStatusEnum.Open),
-                    TotalAnnotationCount = t.Annotations.Count(),
-                    CreatedAt = t.CreatedAt
-                })
-                .ToListAsync(cancellationToken);
-
-            return new PaginatedResult<TaskItemDto>(list, totalCount, page, pageSize);
+            var counts = new Dictionary<string, int>();
+            foreach (var tab in new[] { "action_needed", "pending_review", "sent", "completed", "all" })
+                counts[tab] = await ApplyTab(query, tab, actor.Id, request.ReviewScope).CountAsync(ct);
+            var selected = ApplyTab(query, request.WorkspaceTab, actor.Id, request.ReviewScope);
+            var total = await selected.CountAsync(ct);
+            var items = await selected.OrderByDescending(t => t.Priority == TaskPriority.Urgent ? 3 : t.Priority == TaskPriority.High ? 2 : t.Priority == TaskPriority.Medium ? 1 : 0).ThenBy(t => t.DueDate ?? DateTime.MaxValue)
+                .ThenByDescending(t => t.CreatedAt).ThenBy(t => t.Id).Skip((page - 1) * size).Take(size)
+                .Select(TaskProjection.Summary).ToListAsync(ct);
+            return new(items, total, page, size) { Counts = counts };
         }
+
+        private static IQueryable<Quanlycongviec.Domain.Entities.TaskItem> ApplyTab(IQueryable<Quanlycongviec.Domain.Entities.TaskItem> query, string? tab, Guid userId, string? reviewScope) => tab switch
+        {
+            "action_needed" or "today" => query.Where(t => (t.AssigneeId == userId && (t.Status == TaskStatusEnum.Todo || t.Status == TaskStatusEnum.InProgress))
+                || (t.ReviewerId == userId && t.Status == TaskStatusEnum.InReview)),
+            "assigned_to_me" => query.Where(t => t.AssigneeId == userId && t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled),
+            "pending_review" => query.Where(t => t.Status == TaskStatusEnum.InReview
+                && (reviewScope == "to_review" ? t.ReviewerId == userId : reviewScope == "submitted" ? t.AssigneeId == userId : (t.ReviewerId == userId || t.AssigneeId == userId))),
+            "sent" => query.Where(t => t.AssignerId == userId),
+            "completed" => query.Where(t => t.Status == TaskStatusEnum.Completed),
+            "overdue" => query.Where(t => t.DueDate < DateTime.UtcNow && (t.Status == TaskStatusEnum.Todo || t.Status == TaskStatusEnum.InProgress)),
+            _ => query
+        };
     }
 }

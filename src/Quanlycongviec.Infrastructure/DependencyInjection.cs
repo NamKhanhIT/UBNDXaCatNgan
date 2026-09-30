@@ -128,6 +128,7 @@ namespace Quanlycongviec.Infrastructure
 
             // ── Background Reminder Service ──
             services.AddHostedService<TaskReminderBackgroundService>();
+            services.AddHostedService<WorkflowNotificationDeliveryService>();
             services.AddHostedService<MonthlyRatingAggregationService>();
 
             // ── JWT Authentication ──

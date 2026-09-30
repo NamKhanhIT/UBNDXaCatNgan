@@ -1,221 +1,58 @@
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using Quanlycongviec.Application.Common.Interfaces;
+using Quanlycongviec.Application.Common.Services;
 using Quanlycongviec.Domain.Enums;
 
-namespace Quanlycongviec.Infrastructure.Services
+namespace Quanlycongviec.Infrastructure.Services;
+
+public sealed class TaskAuthorizationService(IApplicationDbContext db) : ITaskAuthorizationService
 {
-    public class TaskAuthorizationService : ITaskAuthorizationService
+    private readonly WorkflowAccess access = new(db);
+
+    public async Task<bool> CanAssignTaskAsync(Guid assignerId, Guid assigneeId, Guid? departmentId, CancellationToken cancellationToken = default)
     {
-        private readonly IApplicationDbContext _context;
+        var assigner = await access.ActorAsync(assignerId, cancellationToken);
+        var assignee = await access.ActorAsync(assigneeId, cancellationToken);
+        return assigner != null && assignee != null && WorkflowAccess.CanAssign(assigner, assignee, departmentId);
+    }
 
-        public TaskAuthorizationService(IApplicationDbContext context)
-        {
-            _context = context;
-        }
+    public async Task<bool> CanAccessTaskAsync(Guid currentUserId, Guid taskId, CancellationToken cancellationToken = default)
+    {
+        var actor = await access.ActorAsync(currentUserId, cancellationToken);
+        return actor != null && await access.Tasks(actor).AnyAsync(t => t.Id == taskId, cancellationToken);
+    }
 
-        public async Task<bool> CanAssignTaskAsync(Guid assignerId, Guid assigneeId, Guid? departmentId, CancellationToken cancellationToken = default)
-        {
-            if (assignerId == Guid.Empty || assigneeId == Guid.Empty) return false;
-            if (assignerId == assigneeId) return false; // Không tự giao việc cho chính mình theo quy chuẩn hành chính
+    public async Task<bool> CanTransferTaskAsync(Guid currentUserId, Guid taskId, Guid targetUserId, CancellationToken cancellationToken = default)
+    {
+        var actor = await access.ActorAsync(currentUserId, cancellationToken);
+        var task = await db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId && !t.IsDeleted, cancellationToken);
+        return actor != null && task != null && await access.CanManageTaskAsync(actor, task, cancellationToken)
+            && await CanAssignTaskAsync(currentUserId, targetUserId, null, cancellationToken);
+    }
 
-            var assigner = await _context.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Id == assignerId, cancellationToken);
+    public async Task<bool> CanUpdateTaskStatusAsync(Guid currentUserId, Guid taskId, TaskStatusEnum newStatus, CancellationToken cancellationToken = default)
+    {
+        var actor = await access.ActorAsync(currentUserId, cancellationToken);
+        var task = await db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId && !t.IsDeleted, cancellationToken);
+        if (actor == null || task == null) return false;
+        if (task.Status == TaskStatusEnum.Completed || task.Status == TaskStatusEnum.Cancelled || task.Status == newStatus) return false;
+        if (newStatus == TaskStatusEnum.Completed && task.Status != TaskStatusEnum.InReview) return false;
+        if (newStatus == TaskStatusEnum.Completed || (task.Status == TaskStatusEnum.InReview && newStatus == TaskStatusEnum.InProgress))
+            return await access.CanReviewAsync(actor, task, cancellationToken);
+        if (newStatus == TaskStatusEnum.Cancelled) return await access.CanManageTaskAsync(actor, task, cancellationToken);
+        if (newStatus == TaskStatusEnum.InProgress)
+            return task.Status == TaskStatusEnum.Todo && currentUserId == task.AssigneeId;
+        if (newStatus == TaskStatusEnum.InReview)
+            return task.Status == TaskStatusEnum.InProgress && currentUserId == task.AssigneeId;
+        return false;
+    }
 
-            var assignee = await _context.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Id == assigneeId, cancellationToken);
-
-            if (assigner == null || assignee == null) return false;
-
-            int assignerRank = assigner.UserRoles.Where(ur => !ur.IsDeleted).Min(ur => (int?)ur.Role.RankLevel) ?? 5;
-            int assigneeRank = assignee.UserRoles.Where(ur => !ur.IsDeleted).Min(ur => (int?)ur.Role.RankLevel) ?? 5;
-
-            // 1. Chỉ giao XUỐNG DƯỚI (RankLevel số nhỏ hơn = cấp cao hơn)
-            if (assignerRank >= assigneeRank) return false;
-
-            // 2. Chuyên viên (Rank 5) không có quyền giao việc
-            if (assignerRank >= 5) return false;
-
-            // 3. Lãnh đạo cấp cao (Rank 1: Chủ tịch/Bí thư, Rank 2: Phó Chủ tịch) -> Toàn quyền giao việc liên phòng
-            if (assignerRank <= 2) return true;
-
-            // 4. Chánh Văn phòng (Rank 3): Quản lý Văn phòng và có thẩm quyền tham mưu điều phối liên phòng
-            if (assigner.ActiveRoleCode == "ChanhVanPhong") return true;
-
-            // 5. Trưởng phòng / Phó phòng chuyên môn (Rank 3, 4): Chỉ giao việc nội bộ phòng ban mình
-            var assignerDeptId = assigner.PrimaryDepartmentId;
-            var assigneeDeptId = assignee.PrimaryDepartmentId;
-
-            if (assignerDeptId != null && assigneeDeptId != null
-                && assignerDeptId == assigneeDeptId
-                && (!departmentId.HasValue || departmentId.Value == assigneeDeptId.Value))
-            {
-                return true;
-            }
-
-            return false;
-        }
-
-        public async Task<bool> CanTransferTaskAsync(Guid currentUserId, Guid taskId, Guid targetUserId, CancellationToken cancellationToken = default)
-        {
-            if (currentUserId == Guid.Empty || taskId == Guid.Empty || targetUserId == Guid.Empty) return false;
-
-            var currentUser = await _context.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Id == currentUserId, cancellationToken);
-
-            var task = await _context.TaskItems
-                .FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
-
-            var targetUser = await _context.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Id == targetUserId, cancellationToken);
-
-            if (currentUser == null || task == null || targetUser == null) return false;
-
-            int currentUserRank = currentUser.UserRoles.Where(ur => !ur.IsDeleted).Min(ur => (int?)ur.Role.RankLevel) ?? 5;
-            int targetUserRank = targetUser.UserRoles.Where(ur => !ur.IsDeleted).Min(ur => (int?)ur.Role.RankLevel) ?? 5;
-
-            // Chuyên viên không được điều chuyển
-            if (currentUserRank >= 5) return false;
-
-            // Không được điều chuyển cho người có Rank cao hơn hoặc ngang cấp mình
-            if (currentUserRank >= targetUserRank) return false;
-
-            // Lãnh đạo UBND (Rank 1, 2) có quyền điều chuyển liên phòng
-            if (currentUserRank <= 2) return true;
-
-            // Chánh Văn phòng (Rank 3) có quyền điều phối liên phòng
-            if (currentUser.ActiveRoleCode == "ChanhVanPhong") return true;
-
-            // Trưởng/Phó phòng chuyên môn: Chỉ điều chuyển trong nội bộ phòng ban mình
-            var oldAssignee = await _context.Users.FirstOrDefaultAsync(u => u.Id == task.AssigneeId, cancellationToken);
-            if (oldAssignee == null) return false;
-
-            return currentUser.PrimaryDepartmentId != null
-                && oldAssignee.PrimaryDepartmentId == currentUser.PrimaryDepartmentId
-                && targetUser.PrimaryDepartmentId == currentUser.PrimaryDepartmentId;
-        }
-
-        public async Task<bool> CanAccessTaskAsync(Guid currentUserId, Guid taskId, CancellationToken cancellationToken = default)
-        {
-            if (currentUserId == Guid.Empty || taskId == Guid.Empty) return false;
-
-            var user = await _context.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Id == currentUserId && !u.IsDeleted, cancellationToken);
-            var task = await _context.TaskItems
-                .FirstOrDefaultAsync(t => t.Id == taskId && !t.IsDeleted, cancellationToken);
-
-            if (user == null || task == null) return false;
-
-            var rank = user.UserRoles
-                .Where(ur => !ur.IsDeleted && ur.Role != null)
-                .Select(ur => (int?)ur.Role.RankLevel)
-                .Min() ?? 5;
-
-            if (rank <= 2) return true;
-            if (task.AssignerId == currentUserId || task.AssigneeId == currentUserId) return true;
-
-            return rank <= 4
-                && user.PrimaryDepartmentId.HasValue
-                && task.DepartmentId == user.PrimaryDepartmentId;
-        }
-
-        public async Task<bool> CanUpdateTaskStatusAsync(Guid currentUserId, Guid taskId, TaskStatusEnum newStatus, CancellationToken cancellationToken = default)
-        {
-            if (currentUserId == Guid.Empty || taskId == Guid.Empty) return false;
-
-            var task = await _context.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
-            if (task == null) return false;
-
-            var currentUser = await _context.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Id == currentUserId, cancellationToken);
-
-            if (currentUser == null) return false;
-
-            int currentUserRank = currentUser.UserRoles.Where(ur => !ur.IsDeleted).Min(ur => (int?)ur.Role.RankLevel) ?? 5;
-
-            // Duyệt Hoàn thành (Completed)
-            if (newStatus == TaskStatusEnum.Completed)
-            {
-                // Chuyên viên không được tự duyệt Hoàn thành cho chính mình
-                if (task.AssigneeId == currentUserId && currentUserRank >= 5)
-                {
-                    return false;
-                }
-
-                // Assigner hoặc cấp trên có Rank nhỏ hơn
-                if (currentUserRank <= 2) return true;
-                if (task.AssignerId == currentUserId) return true;
-                return currentUserRank <= 4
-                    && currentUser.PrimaryDepartmentId.HasValue
-                    && task.DepartmentId == currentUser.PrimaryDepartmentId.Value;
-            }
-
-            // Chuyển sang làm (InProgress) hoặc Trình duyệt (InReview / PendingUBMTTQReview)
-            if (newStatus == TaskStatusEnum.InProgress || newStatus == TaskStatusEnum.InReview || newStatus == TaskStatusEnum.PendingUBMTTQReview)
-            {
-                return task.AssigneeId == currentUserId || task.AssignerId == currentUserId || currentUserRank <= 2;
-            }
-
-            // Từ chối / Huỷ (Cancelled)
-            if (newStatus == TaskStatusEnum.Cancelled)
-            {
-                return task.AssignerId == currentUserId || currentUserRank <= 3;
-            }
-
-            return true;
-        }
-
-        public async Task<bool> CanScoreTaskAsync(Guid evaluatorId, Guid taskId, CancellationToken cancellationToken = default)
-        {
-            if (evaluatorId == Guid.Empty || taskId == Guid.Empty) return false;
-
-            var task = await _context.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId, cancellationToken);
-            if (task == null) return false;
-
-            // Không tự chấm điểm cho chính mình
-            if (task.AssigneeId == evaluatorId) return false;
-
-            var evaluator = await _context.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Id == evaluatorId, cancellationToken);
-
-            var assignee = await _context.Users
-                .Include(u => u.UserRoles)
-                .ThenInclude(ur => ur.Role)
-                .FirstOrDefaultAsync(u => u.Id == task.AssigneeId, cancellationToken);
-
-            if (evaluator == null || assignee == null) return false;
-
-            int evaluatorRank = evaluator.UserRoles.Where(ur => !ur.IsDeleted).Min(ur => (int?)ur.Role.RankLevel) ?? 5;
-            int assigneeRank = assignee.UserRoles.Where(ur => !ur.IsDeleted).Min(ur => (int?)ur.Role.RankLevel) ?? 5;
-
-            // Người chấm phải có cấp bậc cao hơn (RankLevel nhỏ hơn)
-            if (evaluatorRank >= assigneeRank) return false;
-
-            // Lãnh đạo UBND (Rank 1, 2) có quyền chấm điểm toàn cơ quan
-            if (evaluatorRank <= 2) return true;
-
-            // Chánh Văn phòng (Rank 3)
-            if (evaluator.ActiveRoleCode == "ChanhVanPhong") return true;
-
-            // Trưởng phòng chuyên môn (Rank 3): Chỉ chấm cho cán bộ thuộc phòng mình
-            return evaluator.PrimaryDepartmentId != null && assignee.PrimaryDepartmentId == evaluator.PrimaryDepartmentId;
-        }
+    public async Task<bool> CanScoreTaskAsync(Guid evaluatorId, Guid taskId, CancellationToken cancellationToken = default)
+    {
+        var actor = await access.ActorAsync(evaluatorId, cancellationToken);
+        var task = await db.TaskItems.FirstOrDefaultAsync(t => t.Id == taskId && !t.IsDeleted, cancellationToken);
+        if (actor == null || task == null || actor.Id == task.AssigneeId) return false;
+        var assignee = await access.ActorAsync(task.AssigneeId, cancellationToken);
+        return assignee != null && WorkflowAccess.CanAssign(actor, assignee);
     }
 }

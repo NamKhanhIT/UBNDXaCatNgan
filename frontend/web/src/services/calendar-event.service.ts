@@ -11,6 +11,9 @@ export interface EventParticipantDto {
 
 export interface CalendarEventDto {
   id: string;
+  version: string;
+  sourceInboxDocumentId?: string;
+  canEdit: boolean;
   title: string;
   description: string;
   eventType: EventTypeEnum;
@@ -30,6 +33,9 @@ export interface CalendarEventDto {
 }
 
 export interface CreateCalendarEventData {
+  requestId?: string;
+  sourceInboxDocumentId?: string;
+  sourceDocumentVersion?: string;
   title: string;
   description?: string;
   eventType: EventTypeEnum;
@@ -47,6 +53,7 @@ export interface CreateCalendarEventData {
 
 export interface UpdateCalendarEventData {
   id: string;
+  version: string;
   title: string;
   description?: string;
   eventType: EventTypeEnum;
@@ -78,22 +85,23 @@ export async function getCalendarEventsApi(params: {
   });
 }
 
+const pendingRequests = new Map<string, string>();
+async function mutateCalendar<T>(path: string, method: string, data: object): Promise<ApiResponse<T>> {
+  const fingerprint = JSON.stringify([path, method, data]);
+  const requestId = (data as { requestId?: string }).requestId || pendingRequests.get(fingerprint) || crypto.randomUUID();
+  pendingRequests.set(fingerprint, requestId);
+  const response = await apiFetch<T>(path, { method, body: JSON.stringify({ ...data, requestId }) });
+  if (response.success) { pendingRequests.delete(fingerprint); window.dispatchEvent(new Event('workflow:changed')); }
+  return response;
+}
 export async function createCalendarEventApi(data: CreateCalendarEventData): Promise<ApiResponse<string>> {
-  return await apiFetch<string>('/api/v1/CalendarEvents', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+  return mutateCalendar('/api/v1/CalendarEvents', 'POST', data);
 }
 
 export async function updateCalendarEventApi(id: string, data: UpdateCalendarEventData): Promise<ApiResponse<boolean>> {
-  return await apiFetch<boolean>(`/api/v1/CalendarEvents/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  });
+  return mutateCalendar(`/api/v1/CalendarEvents/${id}`, 'PUT', data);
 }
 
-export async function deleteCalendarEventApi(id: string): Promise<ApiResponse<boolean>> {
-  return await apiFetch<boolean>(`/api/v1/CalendarEvents/${id}`, {
-    method: 'DELETE',
-  });
+export async function deleteCalendarEventApi(id: string, version: string): Promise<ApiResponse<boolean>> {
+  return mutateCalendar(`/api/v1/CalendarEvents/${id}`, 'DELETE', { version });
 }

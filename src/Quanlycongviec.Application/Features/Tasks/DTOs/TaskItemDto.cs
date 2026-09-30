@@ -11,6 +11,12 @@ namespace Quanlycongviec.Application.Features.Tasks.DTOs
         public Guid AssignerId { get; set; }
         public string AssignerName { get; set; } = string.Empty;
         public Guid AssigneeId { get; set; }
+        public Guid? ReviewerId { get; set; }
+        public string? ReviewerName { get; set; }
+        public Guid? ParentTaskId { get; set; }
+        public Guid Version { get; set; }
+        public bool RequiresWorkflowReview { get; set; }
+        public int ProgressPercentage { get; set; }
         public string AssigneeName { get; set; } = string.Empty;
         public Guid? DepartmentId { get; set; }
         public string? DepartmentName { get; set; }

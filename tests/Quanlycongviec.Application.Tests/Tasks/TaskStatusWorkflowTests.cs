@@ -27,6 +27,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
 
             Func<Task> act = () => handler.Handle(new UpdateTaskStatusCommand
             {
+                RequestId = Guid.NewGuid(), Version = task.Version,
                 TaskId = task.Id,
                 Status = "InReview",
                 CurrentUserId = task.AssigneeId,
@@ -47,6 +48,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
             var handler = CreateHandler(context);
             Func<Task> act = () => handler.Handle(new UpdateTaskStatusCommand
             {
+                RequestId = Guid.NewGuid(), Version = task.Version,
                 TaskId = task.Id,
                 Status = "Completed",
                 CurrentUserId = task.AssignerId
@@ -66,6 +68,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
             var handler = CreateHandler(context);
             Func<Task> act = () => handler.Handle(new UpdateTaskStatusCommand
             {
+                RequestId = Guid.NewGuid(), Version = task.Version,
                 TaskId = task.Id,
                 Status = "InProgress",
                 CurrentUserId = task.AssignerId
@@ -76,7 +79,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
         }
 
         [Fact]
-        public async Task Handle_ShouldCalculateSystemScoreServerSide()
+        public async Task Handle_ShouldPreserveLegacyScores_AndIgnoreScoresInAcceptance()
         {
             await using var context = CreateContext();
             var task = AddTask(context, TaskStatusEnum.InReview);
@@ -95,9 +98,11 @@ namespace Quanlycongviec.Application.Tests.Tasks
             var handler = new UpdateTaskStatusCommandHandler(context, calculator.Object, auth.Object);
             var result = await handler.Handle(new UpdateTaskStatusCommand
             {
+                RequestId = Guid.NewGuid(), Version = task.Version,
                 TaskId = task.Id,
                 Status = "Completed",
                 CurrentUserId = task.AssignerId,
+                SubmissionId = (await context.TaskSubmissions.SingleAsync()).Id,
                 SystemScore = 99,
                 RatingScore = 100,
                 EvaluatorScore = 6.5
@@ -105,9 +110,10 @@ namespace Quanlycongviec.Application.Tests.Tasks
 
             result.Should().BeTrue();
             var saved = await context.TaskItems.SingleAsync(t => t.Id == task.Id);
-            saved.SystemScore.Should().Be(2.5);
-            saved.EvaluatorScore.Should().Be(6.5);
-            saved.RatingScore.Should().Be(9.0);
+            saved.SystemScore.Should().BeNull();
+            saved.EvaluatorScore.Should().BeNull();
+            saved.RatingScore.Should().BeNull();
+            calculator.Invocations.Should().BeEmpty();
         }
 
         [Fact]
@@ -120,6 +126,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
             var handler = CreateHandler(context);
             Func<Task> act = () => handler.Handle(new UpdateTaskStatusCommand
             {
+                RequestId = Guid.NewGuid(), Version = task.Version,
                 TaskId = task.Id,
                 Status = "InReview",
                 CurrentUserId = task.AssignerId,
@@ -140,15 +147,19 @@ namespace Quanlycongviec.Application.Tests.Tasks
 
         private static TaskItem AddTask(ApplicationDbContext context, TaskStatusEnum status)
         {
+            var leader = new User { Username = "leader", Email = "leader@example.invalid" };
+            var officer = new User { Username = "officer", Email = "officer@example.invalid" };
+            WorkflowTestData.AddAssignmentRoles(context, leader, officer);
             var task = new TaskItem
             {
-                Title = "Workflow test",
-                AssignerId = Guid.NewGuid(),
-                AssigneeId = Guid.NewGuid(),
-                Status = status,
-                DepartmentId = Guid.NewGuid()
+                Title = "Workflow test", AssignerId = leader.Id, AssigneeId = officer.Id,
+                ReviewerId = leader.Id, Requirements = "Kết quả", DueDate = DateTime.UtcNow.AddDays(1),
+                Status = status, DepartmentId = leader.PrimaryDepartment!.Id
             };
             context.TaskItems.Add(task);
+            if (status == TaskStatusEnum.InReview)
+                context.TaskSubmissions.Add(new TaskSubmission { TaskItemId = task.Id, SubmittedById = officer.Id,
+                    Note = "Kết quả thử", SubmittedAt = DateTime.UtcNow, DueDateAtSubmission = task.DueDate });
             return task;
         }
 

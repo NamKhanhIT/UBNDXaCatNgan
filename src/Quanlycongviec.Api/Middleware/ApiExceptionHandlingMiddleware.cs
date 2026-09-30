@@ -37,6 +37,12 @@ namespace Quanlycongviec.Api.Middleware
             {
                 await _next(context);
             }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                // The caller abandoned this response; do not write a 500 to a closed connection.
+                if (!context.Response.HasStarted)
+                    context.Response.StatusCode = StatusCodes.Status499ClientClosedRequest;
+            }
             catch (Exception exception)
             {
                 await HandleExceptionAsync(context, exception);
@@ -47,6 +53,10 @@ namespace Quanlycongviec.Api.Middleware
         {
             var (statusCode, message) = exception switch
             {
+                Quanlycongviec.Application.Common.Services.WorkflowConflictException => (StatusCodes.Status409Conflict, exception.Message),
+                Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException => (StatusCodes.Status409Conflict,
+                    "Dữ liệu vừa được người khác thay đổi. Vui lòng tải lại chi tiết trước khi xác nhận."),
+                ArgumentException => (StatusCodes.Status400BadRequest, exception.Message),
                 // Lỗi validation FluentValidation — gom danh sách message rõ ràng cho client
                 ValidationException validationEx => (StatusCodes.Status400BadRequest,
                     string.Join("; ", validationEx.Errors
@@ -55,7 +65,7 @@ namespace Quanlycongviec.Api.Middleware
                         .Distinct())),
 
                 // Xác thực thất bại (sai mật khẩu, token hết hạn...)
-                UnauthorizedAccessException => (StatusCodes.Status401Unauthorized,
+                UnauthorizedAccessException => (context.User.Identity?.IsAuthenticated == true ? StatusCodes.Status403Forbidden : StatusCodes.Status401Unauthorized,
                     string.IsNullOrWhiteSpace(exception.Message) ? "Xác thực không thành công." : exception.Message),
 
                 // Không tìm thấy tài nguyên

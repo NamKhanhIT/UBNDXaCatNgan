@@ -155,11 +155,9 @@ namespace Quanlycongviec.Api.IntegrationTests
                 .Any(a => a.Policy == "LeaderOnly");
             adminLeaderOnly.Should().BeTrue("AdminController.seed-demo phải đặt dưới policy LeaderOnly (Audit C3)");
 
-            var tasksManagerPlus = RequireController("TasksController")
-                .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-                .SelectMany(m => m.GetCustomAttributes<AuthorizeAttribute>())
-                .Any(a => a.Policy == "ManagerPlus");
-            tasksManagerPlus.Should().BeTrue("các endpoint quản lý task phải có policy ManagerPlus");
+            // Task actions use the shared object policy, including rank-4 deputies and exact reviewers.
+            // The application role matrix verifies those decisions; the class-level authentication
+            // guard above still prevents public task endpoints.
 
             var ratingLeaderOnly = RequireController("RatingHistoryController")
                 .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)

@@ -13,6 +13,7 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocuments
     public class GetInboxDocumentsQuery : IRequest<List<InboxDocumentDto>>
     {
         public string? Channel { get; set; }
+        public Guid CurrentUserId { get; set; }
     }
 
     public class GetInboxDocumentsQueryHandler : IRequestHandler<GetInboxDocumentsQuery, List<InboxDocumentDto>>
@@ -26,7 +27,11 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocuments
 
         public async Task<List<InboxDocumentDto>> Handle(GetInboxDocumentsQuery request, CancellationToken cancellationToken)
         {
-            var query = _context.InboxDocuments.Where(d => !d.IsDeleted);
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId, cancellationToken);
+            if (actor == null) return new();
+            var query = access.Inbox(actor);
+            var visibleTasks = access.Tasks(actor).Select(t => t.Id);
 
             if (!string.IsNullOrWhiteSpace(request.Channel))
             {
@@ -48,13 +53,14 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocuments
                     ReceivedDate = d.ReceivedDate,
                     IsUrgent = d.IsUrgent,
                     Channel = d.Channel.ToString(),
-                    CitizenName = d.CitizenName,
-                    CitizenPhone = d.CitizenPhone,
+                    CitizenName = null,
+                    CitizenPhone = null,
                     ServiceCode = d.ServiceCode,
-                    IsScheduled = d.IsScheduled,
+                    IsScheduled = _context.TaskDocumentLinks.Any(l => l.InboxDocumentId == d.Id && !l.IsDeleted && visibleTasks.Contains(l.TaskItemId)),
                     ScheduledDate = d.ScheduledDate,
                     ScheduledShift = d.ScheduledShift,
-                    ScheduledTaskId = d.ScheduledTaskId,
+                    ScheduledTaskId = _context.TaskDocumentLinks.Where(l => l.InboxDocumentId == d.Id && !l.IsDeleted && visibleTasks.Contains(l.TaskItemId))
+                        .OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).Select(l => (Guid?)l.TaskItemId).FirstOrDefault(),
                     DocumentSymbol = d.DocumentSymbol,
                     IssuingAgency = d.IssuingAgency,
                     SignerName = d.SignerName,
@@ -67,4 +73,3 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocuments
         }
     }
 }
-

@@ -11,7 +11,7 @@ using Quanlycongviec.Domain.Enums;
 
 namespace Quanlycongviec.Application.Features.TaskAnnotations.Queries.GetTaskReviewAnnotations
 {
-    public record GetTaskReviewAnnotationsQuery(Guid TaskItemId) : IRequest<List<TaskReviewAnnotationDto>>;
+    public record GetTaskReviewAnnotationsQuery(Guid TaskItemId, Guid CurrentUserId = default) : IRequest<List<TaskReviewAnnotationDto>>;
 
     public class GetTaskReviewAnnotationsQueryHandler : IRequestHandler<GetTaskReviewAnnotationsQuery, List<TaskReviewAnnotationDto>>
     {
@@ -24,10 +24,14 @@ namespace Quanlycongviec.Application.Features.TaskAnnotations.Queries.GetTaskRev
 
         public async Task<List<TaskReviewAnnotationDto>> Handle(GetTaskReviewAnnotationsQuery request, CancellationToken cancellationToken)
         {
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId, cancellationToken);
+            if (actor == null || !await access.Tasks(actor).AnyAsync(t => t.Id == request.TaskItemId, cancellationToken))
+                throw new UnauthorizedAccessException("Không được truy cập chú thích công việc ngoài phạm vi quyền.");
             var annotations = await _context.TaskReviewAnnotations
                 .Include(a => a.CreatedByUser)
                 .Include(a => a.ResolvedByUser)
-                .Where(a => a.TaskItemId == request.TaskItemId)
+                .Where(a => a.TaskItemId == request.TaskItemId && !a.IsDeleted)
                 .OrderBy(a => a.CreatedAt)
                 .ToListAsync(cancellationToken);
 

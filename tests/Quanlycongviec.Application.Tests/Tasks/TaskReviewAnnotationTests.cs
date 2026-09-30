@@ -125,7 +125,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
             var queryHandler = new GetTaskReviewAnnotationsQueryHandler(_context);
 
             // Act
-            var list = await queryHandler.Handle(new GetTaskReviewAnnotationsQuery(task.Id), CancellationToken.None);
+            var list = await queryHandler.Handle(new GetTaskReviewAnnotationsQuery(task.Id, assigner.Id), CancellationToken.None);
 
             // Assert
             list.Should().HaveCount(2);

@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { isTaskActionable, isTaskOpen, isTaskOverdue } from '../../lib/task-workflow';
+import { taskLabel } from '../workflow/workflow.service';
 import { useAuth } from '../auth/AuthContext';
 import { getTasksApi, TaskItemDto } from '../../services/task.service';
 import { formatAdministrativeDate, formatDateShort } from '../../lib/formatters';
@@ -30,7 +32,7 @@ export function StaffDashboard({ onOpenTaskDetail }: StaffDashboardProps) {
         const items = res.data.items;
         // Lọc công việc được giao cho chuyên viên hiện tại
         const filtered = items.filter(
-          t => t.assigneeId === user?.userId || t.assigneeName === user?.fullName || items.length <= 5
+          t => t.assigneeId === user?.userId
         );
         setMyTasks(filtered);
       }
@@ -46,11 +48,11 @@ export function StaffDashboard({ onOpenTaskDetail }: StaffDashboardProps) {
     loadMyTasks();
   }, [user]);
 
-  const activeMyTasks = myTasks.filter(t => t.status === 'Dang_Xu_Ly' || t.status === 'Chua_Lam');
-  const pendingMyTasks = myTasks.filter(t => t.status === 'Cho_Duyet');
-  const completedMyTasks = myTasks.filter(t => t.status === 'Hoan_Thanh');
+  const activeMyTasks = myTasks.filter(isTaskActionable);
+  const pendingMyTasks = myTasks.filter(t => t.status === 'InReview');
+  const completedMyTasks = myTasks.filter(t => t.status === 'Completed');
   const overdueMyTasks = myTasks.filter(
-    t => t.status !== 'Hoan_Thanh' && t.dueDate && new Date(t.dueDate).getTime() < Date.now()
+    t => isTaskOverdue(t)
   );
 
   const currentDateText = formatAdministrativeDate();
@@ -127,7 +129,7 @@ export function StaffDashboard({ onOpenTaskDetail }: StaffDashboardProps) {
         <div className="kpi-card" style={{ borderLeft: '4px solid #16a34a' }}>
           <div className="kpi-label">Đã Hoàn Thành Nghiệm Thu</div>
           <div className="kpi-value" style={{ color: '#16a34a' }}>{completedMyTasks.length}</div>
-          <div className="kpi-hint">Đã tính điểm thi đua công vụ GRAD</div>
+          <div className="kpi-hint">Đã được người nghiệm thu xác nhận</div>
         </div>
       </div>
 
@@ -156,6 +158,7 @@ export function StaffDashboard({ onOpenTaskDetail }: StaffDashboardProps) {
             inProgress={activeMyTasks.length}
             pendingReview={pendingMyTasks.length}
             overdue={overdueMyTasks.length}
+            cancelled={myTasks.filter(t => t.status === 'Cancelled').length}
           />
         </ChartContainer>
 
@@ -174,7 +177,7 @@ export function StaffDashboard({ onOpenTaskDetail }: StaffDashboardProps) {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, color: '#0f172a' }}>
               <i className="fa-solid fa-medal" style={{ color: '#d97706' }} aria-hidden="true" />
-              <span>Chỉ Số Đánh Giá Thi Đua Cá Nhân (GRAD)</span>
+              <span>Đánh giá thi đua cá nhân</span>
             </div>
             <Link href="/evaluation" style={{ textDecoration: 'none' }}>
               <Button size="sm" variant="outline">
@@ -183,42 +186,7 @@ export function StaffDashboard({ onOpenTaskDetail }: StaffDashboardProps) {
             </Link>
           </div>
 
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '14px 16px',
-                borderRadius: 10,
-                backgroundColor: '#f0fdf4',
-                border: '1px solid #bbf7d0',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: '0.78rem', color: '#166534', fontWeight: 600 }}>
-                  ĐIỂM ĐÁNH GIÁ TRUNG BÌNH THÁNG
-                </div>
-                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#15803d', marginTop: 2 }}>
-                  9.2 / 10.0
-                </div>
-              </div>
-              <Badge variant="success" size="md">
-                XẾP LOẠI A (HOÀN THÀNH XUẤT SẮC)
-              </Badge>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                <span style={{ color: '#475569' }}>Điểm hệ thống tự động (Tối đa 3.0đ):</span>
-                <strong style={{ color: '#2563eb' }}>2.9 / 3.0đ</strong>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem' }}>
-                <span style={{ color: '#475569' }}>Điểm Lãnh đạo thẩm định (Tối đa 7.0đ):</span>
-                <strong style={{ color: '#7c3aed' }}>6.3 / 7.0đ</strong>
-              </div>
-            </div>
-          </div>
+          <div style={{ padding: 20 }}><p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>Xem kết quả đánh giá theo kỳ và bằng chứng công việc tại Đánh giá thi đua.</p></div>
         </div>
       </div>
 
@@ -261,9 +229,9 @@ export function StaffDashboard({ onOpenTaskDetail }: StaffDashboardProps) {
               </thead>
               <tbody>
                 {myTasks.slice(0, 5).map(task => {
-                  const isDone = task.status === 'Hoan_Thanh';
-                  const isPending = task.status === 'Cho_Duyet';
-                  const isOver = !isDone && task.dueDate && new Date(task.dueDate).getTime() < Date.now();
+                  const isDone = task.status === 'Completed';
+                  const isPending = task.status === 'InReview';
+                  const isOver = isTaskOverdue(task);
 
                   return (
                     <tr
@@ -300,13 +268,7 @@ export function StaffDashboard({ onOpenTaskDetail }: StaffDashboardProps) {
                         </Badge>
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        {isDone ? (
-                          <Badge variant="success" size="sm" dot>ĐÃ HOÀN THÀNH</Badge>
-                        ) : isPending ? (
-                          <Badge variant="warning" size="sm" dot>CHỜ DUYỆT</Badge>
-                        ) : (
-                          <Badge variant="info" size="sm" dot>ĐANG THỰC HIỆN</Badge>
-                        )}
+                        <Badge variant={isDone ? 'success' : isPending ? 'warning' : 'info'} size="sm" dot>{taskLabel(task)}</Badge>
                       </td>
                     </tr>
                   );

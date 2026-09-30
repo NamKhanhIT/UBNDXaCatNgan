@@ -48,45 +48,23 @@ namespace Quanlycongviec.Application.Tests.Resilience
         [MemberData(nameof(IdempotencyTokenMatrixData))]
         public async Task Tier3_01_InFlight_NetworkDrop_WithIdempotentRetry_ShouldNotCreateDuplicateTasks(string idempotencyKey, int retries)
         {
-            var user = new User { Username = "user_" + Guid.NewGuid().ToString("N")[..6], FullName = "Cán bộ Đồng bộ", Email = "sync@ubnd.gov.vn" };
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
-
-            // Mô phỏng bộ đệm Idempotency Cache phía máy chủ
-            var idempotencyCache = new ConcurrentDictionary<string, Guid>();
-
+            await using var fixture = await Tasks.UnifiedWorkflowTests.Fixture.New();
+            var request = fixture.Command();
+            request.RequestId = new Guid(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(idempotencyKey)).AsSpan(0, 16));
+            request.Title = $"Nhiệm vụ kiểm tra mạng chập chờn {idempotencyKey}";
             Guid? firstTaskId = null;
-
-            for (int attempt = 1; attempt <= retries; attempt++)
+            for (var attempt = 0; attempt < retries; attempt++)
             {
-                if (idempotencyCache.TryGetValue(idempotencyKey, out var existingId))
-                {
-                    // Server nhận retry có cùng token -> Trả lại ID cũ, KHÔNG tạo bản ghi mới
-                    firstTaskId.Should().Be(existingId);
-                    continue;
-                }
-
-                var command = new CreateTaskCommand
-                {
-                    Title = $"Nhiệm vụ kiểm tra mạng chập chờn {idempotencyKey}",
-                    AssignerId = user.Id,
-                    AssigneeId = user.Id,
-                    EstimatedEffortHours = 4.0
-                };
-
-                var handler = new CreateTaskCommandHandler(_context, new AllowAllTaskAuthorizationService());
-                var createdId = await handler.Handle(command, CancellationToken.None);
-
-                idempotencyCache.TryAdd(idempotencyKey, createdId);
-                firstTaskId = createdId;
+                // Every retry reaches the real handler; no simulated cache hides duplicate writes.
+                fixture.Db.ChangeTracker.Clear();
+                var handler = new CreateTaskCommandHandler(fixture.Db, fixture.Authorization);
+                var createdId = await handler.Handle(request, CancellationToken.None);
+                firstTaskId ??= createdId;
+                createdId.Should().Be(firstTaskId.Value);
             }
-
-            // Kiểm tra trong CSDL chỉ có DUY NHẤT 1 bản ghi
-            var matchedTasks = await _context.TaskItems
-                .Where(t => t.Title.Contains(idempotencyKey))
-                .ToListAsync();
-
-            matchedTasks.Should().HaveCount(1, $"IdempotencyKey {idempotencyKey} được retry {retries} lần chỉ được sinh ra đúng 1 Task");
+            (await fixture.Db.TaskItems.CountAsync()).Should().Be(1);
+            (await fixture.Db.WorkflowRequests.CountAsync()).Should().Be(1);
+            (await fixture.Db.Notifications.CountAsync()).Should().Be(1);
         }
 
         public static IEnumerable<object[]> ExponentialBackoffData()
@@ -130,39 +108,24 @@ namespace Quanlycongviec.Application.Tests.Resilience
         [MemberData(nameof(OfflineQueueBatchData))]
         public async Task Tier3_03_OfflineQueue_AutoDrainOnReconnect_ShouldProcessAllQueuedActions(int batchSize)
         {
-            var user = new User { Username = "offline_user_" + Guid.NewGuid().ToString("N")[..6], FullName = "Cán bộ Offline", Email = "offline@ubnd.gov.vn" };
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
-
-            // Mô phỏng hàng đợi ngoại tuyến lưu trữ trong IndexedDB
-            var offlineQueue = new List<CreateTaskCommand>();
-            for (int i = 1; i <= batchSize; i++)
+            await using var fixture = await Tasks.UnifiedWorkflowTests.Fixture.New();
+            var offlineQueue = Enumerable.Range(1, batchSize).Select(i =>
             {
-                offlineQueue.Add(new CreateTaskCommand
-                {
-                    Title = $"Offline Task #{i} - Batch {batchSize}",
-                    AssignerId = user.Id,
-                    AssigneeId = user.Id,
-                    EstimatedEffortHours = 2.0
-                });
-            }
-
-            // KHI CÓ MẠNG TRỞ LẠI -> Drain toàn bộ hàng đợi
-            var handler = new CreateTaskCommandHandler(_context, new AllowAllTaskAuthorizationService());
+                var command = fixture.Command();
+                command.Title = $"Offline Task #{i} - Batch {batchSize}";
+                return command;
+            }).ToList();
+            var handler = new CreateTaskCommandHandler(fixture.Db, fixture.Authorization);
             var results = new List<Guid>();
-
-            foreach (var cmd in offlineQueue)
-            {
-                var id = await handler.Handle(cmd, CancellationToken.None);
-                results.Add(id);
-            }
-
-            results.Should().HaveCount(batchSize);
-            results.All(id => id != Guid.Empty).Should().BeTrue();
-
-            var countInDb = await _context.TaskItems
-                .CountAsync(t => t.Title.Contains($"Batch {batchSize}"));
-            countInDb.Should().Be(batchSize);
+            foreach (var command in offlineQueue)
+                results.Add(await handler.Handle(command, CancellationToken.None));
+            // Replaying an already drained queue after reconnect must also be safe.
+            fixture.Db.ChangeTracker.Clear();
+            foreach (var command in offlineQueue)
+                (await handler.Handle(command, CancellationToken.None)).Should().Be(results[offlineQueue.IndexOf(command)]);
+            results.Distinct().Should().HaveCount(batchSize);
+            (await fixture.Db.TaskItems.CountAsync()).Should().Be(batchSize);
+            (await fixture.Db.WorkflowRequests.CountAsync()).Should().Be(batchSize);
         }
     }
 }

@@ -12,44 +12,17 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Commands.RevokeT
     public class RevokeToDraftCommand : IRequest<bool>
     {
         public Guid Id { get; set; }
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
         public Guid UserId { get; set; }
     }
 
-    public class RevokeToDraftCommandHandler : IRequestHandler<RevokeToDraftCommand, bool>
+    public class RevokeToDraftCommandHandler(IApplicationDbContext context, INotificationDispatcher? dispatcher = null) : IRequestHandler<RevokeToDraftCommand, bool>
     {
-        private readonly IApplicationDbContext _context;
-
-        public RevokeToDraftCommandHandler(IApplicationDbContext context)
+        public async Task<bool> Handle(RevokeToDraftCommand request, CancellationToken ct)
         {
-            _context = context;
-        }
-
-        public async Task<bool> Handle(RevokeToDraftCommand request, CancellationToken cancellationToken)
-        {
-            var doc = await _context.OutgoingDocuments.FirstOrDefaultAsync(o => o.Id == request.Id, cancellationToken);
-            if (doc == null)
-            {
-                throw new InvalidOperationException($"Không tìm thấy văn bản đi có Id = {request.Id}");
-            }
-
-            if (doc.Status != OutgoingDocumentStatusEnum.PendingSignature)
-            {
-                throw new InvalidOperationException("Chỉ có thể thu hồi về nháp đối với văn bản đang Chờ ký duyệt.");
-            }
-
-            doc.Status = OutgoingDocumentStatusEnum.Draft;
-
-            _context.AuditLogs.Add(new AuditLog
-            {
-                Id = Guid.NewGuid(),
-                UserId = request.UserId,
-                Action = "RevokeToDraft",
-                EntityName = nameof(OutgoingDocument),
-                EntityId = doc.Id.ToString(),
-                Details = $"Thu hồi văn bản đi về trạng thái bản nháp: {doc.Title}"
-            });
-
-            await _context.SaveChangesAsync(cancellationToken);
+            var id = await new Quanlycongviec.Application.Common.Services.OutgoingDocumentWorkflow(context, dispatcher)
+                .ActAsync(request.UserId, request.Id, "revoke", new() { RequestId = request.RequestId, Version = request.Version }, ct);
             return true;
         }
     }

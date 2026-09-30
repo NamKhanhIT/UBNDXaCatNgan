@@ -6,6 +6,7 @@ namespace Quanlycongviec.Domain.Entities
 {
     public class OutgoingDocument : BaseEntity
     {
+        public Guid Version { get; set; } = Guid.NewGuid();
         /// <summary>
         /// Số hiệu chính thức (VD: "45/QĐ-UBND"). Chỉ có giá trị khi Status = Issued.
         /// </summary>
@@ -83,7 +84,7 @@ namespace Quanlycongviec.Domain.Entities
         /// <summary>
         /// Tự động tạo & giao việc vào Trung tâm điều hành cho đơn vị/cán bộ nhận khi gửi cấp dưới
         /// </summary>
-        public bool AutoCreateTask { get; set; } = true;
+        public bool AutoCreateTask { get; set; } = false;
 
         /// <summary>
         /// Độ mật ("Normal" | "Confidential" | "Secret")

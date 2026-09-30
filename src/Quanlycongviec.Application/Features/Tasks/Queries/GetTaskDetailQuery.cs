@@ -30,6 +30,15 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTaskDetail
         public List<TaskDetailAttachmentDto> Attachments { get; set; } = new();
         public List<TaskTimelineEntryDto> Timeline { get; set; } = new();
         public bool CanSubmit { get; set; }
+        public List<SubmissionDetailDto> Submissions { get; set; } = new();
+        public List<TaskItemDto> CoordinationTasks { get; set; } = new();
+        public List<LinkedDocumentDto> Documents { get; set; } = new();
+        public List<WorkflowChangeDto> Changes { get; set; } = new();
+        public bool CanStart { get; set; }
+        public bool CanCancel { get; set; }
+        public bool CanAmend { get; set; }
+        public bool CanAddCoordination { get; set; }
+        public string? SubmissionBlockedReason { get; set; }
         public bool CanAccept { get; set; }
         public bool CanReturn { get; set; }
     }
@@ -98,6 +107,7 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTaskDetail
                 .Include(t => t.Assigner)
                 .Include(t => t.Assignee)
                 .Include(t => t.Department)
+                .Include(t => t.Reviewer)
                 .FirstOrDefaultAsync(
                     t => t.Id == request.TaskId && !t.IsDeleted,
                     cancellationToken);
@@ -164,6 +174,37 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTaskDetail
                 })
                 .ToListAsync(cancellationToken);
 
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId, cancellationToken);
+            if (actor == null) return null;
+            var coordination = await access.Tasks(actor).AsNoTracking().Where(t => t.ParentTaskId == task.Id)
+                .OrderBy(t => t.DueDate).Select(TaskProjection.Summary).ToListAsync(cancellationToken);
+            var unfinishedCoordination = await _context.TaskItems.AnyAsync(t => t.ParentTaskId == task.Id && !t.IsDeleted
+                && t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled, cancellationToken);
+            var canManage = await access.CanManageTaskAsync(actor, task, cancellationToken);
+            var submissions = await _context.TaskSubmissions.AsNoTracking().Where(s => s.TaskItemId == task.Id && !s.IsDeleted)
+                .OrderByDescending(s => s.CreatedAt).ThenByDescending(s => s.Id).Select(s => new SubmissionDetailDto
+                {
+                    Id = s.Id, SubmittedById = s.SubmittedById, Note = s.Note, SubmittedAt = s.SubmittedAt,
+                    DueDateAtSubmission = s.DueDateAtSubmission, IsLegacy = s.IsLegacy,
+                    WasLate = s.SubmittedAt.HasValue && s.DueDateAtSubmission.HasValue ? s.SubmittedAt > s.DueDateAtSubmission : null,
+                    Decision = s.Decision, ReviewNote = s.ReviewNote, ReviewedById = s.ReviewedById, ReviewedAt = s.ReviewedAt,
+                    Files = s.Attachments.Where(a => !a.IsDeleted && !a.Attachment.IsDeleted).Select(a => new SubmissionFileDto
+                    { Id = a.AttachmentId, Name = a.Attachment.OriginalFileName, Size = a.Attachment.FileSize }).ToList()
+                }).ToListAsync(cancellationToken);
+            var documents = await _context.TaskDocumentLinks.AsNoTracking().Where(l => l.TaskItemId == task.Id && !l.IsDeleted
+                && ((l.InboxDocument != null && !l.InboxDocument.IsDeleted) || (l.OutgoingDocument != null && !l.OutgoingDocument.IsDeleted)))
+                .Select(l => new LinkedDocumentDto { Id = l.InboxDocumentId ?? l.OutgoingDocumentId!.Value,
+                    Kind = l.InboxDocumentId.HasValue ? "Inbox" : "Outgoing",
+                    Title = l.InboxDocument != null ? l.InboxDocument.Subject : l.OutgoingDocument!.Title,
+                    Number = l.InboxDocument != null ? l.InboxDocument.DocumentNumber : l.OutgoingDocument!.DocumentNumber }).ToListAsync(cancellationToken);
+            var changes = await _context.TaskWorkflowChanges.AsNoTracking().Where(c => c.TaskItemId == task.Id && !c.IsDeleted)
+                .OrderByDescending(c => c.CreatedAt).Select(c => new WorkflowChangeDto { Id = c.Id, UserId = c.UserId,
+                    Kind = c.Kind, OldValue = c.OldValue, NewValue = c.NewValue, Reason = c.Reason, CreatedAt = c.CreatedAt }).ToListAsync(cancellationToken);
+            var blocked = task.RequiresWorkflowReview || !task.DueDate.HasValue || !task.ReviewerId.HasValue || string.IsNullOrWhiteSpace(task.Requirements)
+                ? "Cần người có thẩm quyền bổ sung thông tin công việc cũ."
+                : unfinishedCoordination ? "Còn phần phối hợp chưa được xác nhận hoặc hủy có lý do." : null;
+
             var canSubmit = task.AssigneeId == request.CurrentUserId
                 && task.Status == TaskStatusEnum.InProgress
                 && await _authorization.CanUpdateTaskStatusAsync(
@@ -213,7 +254,15 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.GetTaskDetail
                 Comments = comments,
                 Attachments = attachments,
                 Timeline = timeline,
-                CanSubmit = canSubmit,
+                ReviewerId = task.ReviewerId, ReviewerName = task.Reviewer?.FullName,
+                ParentTaskId = task.ParentTaskId, Version = task.Version, RequiresWorkflowReview = task.RequiresWorkflowReview,
+                Submissions = submissions, Documents = documents, CoordinationTasks = coordination, Changes = changes,
+                CanStart = actor.Id == task.AssigneeId && task.Status == TaskStatusEnum.Todo,
+                CanCancel = canManage && task.Status != TaskStatusEnum.Completed && task.Status != TaskStatusEnum.Cancelled,
+                CanAmend = canManage && task.Status != TaskStatusEnum.Completed && task.Status != TaskStatusEnum.Cancelled,
+                CanAddCoordination = canManage && !task.ParentTaskId.HasValue && (task.Status == TaskStatusEnum.Todo || task.Status == TaskStatusEnum.InProgress),
+                SubmissionBlockedReason = blocked,
+                CanSubmit = canSubmit && blocked == null,
                 CanAccept = canAccept,
                 CanReturn = canReturn
             };

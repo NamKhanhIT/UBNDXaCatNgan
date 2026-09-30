@@ -104,16 +104,19 @@ export function storeRefreshToken(token: string): void {
 // Xóa access & refresh token khỏi localStorage
 export function clearToken(): void {
   if (typeof window === 'undefined') return;
+  authGeneration++;
   localStorage.removeItem(REMOTE_TOKEN_KEY);
   localStorage.removeItem(REMOTE_REFRESH_TOKEN_KEY);
 }
 
 const CACHED_USER_KEY = 'ubnd_cached_user';
 const ACTIVE_ROLE_KEY = 'ubnd_active_role';
+let authGeneration = 0;
 
 // BẢO MẬT (Audit Mục 3): Dọn sạch toàn bộ session storage & cookie marker
 export function clearSessionStorage(): void {
   if (typeof window === 'undefined') return;
+  authGeneration++;
   localStorage.removeItem(REMOTE_TOKEN_KEY);
   localStorage.removeItem(REMOTE_REFRESH_TOKEN_KEY);
   localStorage.removeItem(CACHED_USER_KEY);
@@ -128,6 +131,7 @@ export const API_BASE_URL = getApiBaseUrl();
 
 export interface ApiResponse<T = any> {
   success: boolean;
+  status?: number;
   data?: T;
   token?: string;
   refreshToken?: string;
@@ -135,12 +139,50 @@ export interface ApiResponse<T = any> {
   error?: string;
 }
 
+/** Download through the authenticated API; protected files are never exposed as public URLs. */
+export async function apiFileBlob(endpoint: string, signal?: AbortSignal): Promise<ApiResponse<Blob>> {
+  const scope = sessionScope();
+  const initialToken = getStoredToken();
+  const request = () => fetch(`${getApiBaseUrl()}${endpoint}`, {
+    credentials: 'include', signal,
+    headers: getStoredToken() ? { Authorization: `Bearer ${getStoredToken()}` } : {},
+  });
+  try {
+    let response = await request();
+    if (response.status === 401 && await retrySession(scope, initialToken)) response = await request();
+    if (!response.ok) return { success: false, status: response.status, error: 'Không thể mở tệp trong phạm vi quyền hiện tại.' };
+    return { success: true, data: await response.blob() };
+  } catch (error) {
+    return { success: false, status: 0, error: error instanceof Error ? error.message : 'Không thể tải tệp.' };
+  }
+}
+
 // Tự động refresh access token qua refresh endpoint khi nhận HTTP 401
-async function tryRefreshAccessToken(): Promise<boolean> {
+type SessionScope = { generation: number; userId: string | null };
+function sessionScope(): SessionScope {
+  let userId: string | null = null;
+  try { userId = JSON.parse(typeof localStorage === 'undefined' ? 'null' : localStorage.getItem(CACHED_USER_KEY) || 'null')?.userId || null; } catch {}
+  return { generation: authGeneration, userId };
+}
+function sameSession(scope: SessionScope): boolean {
+  const current = sessionScope();
+  return current.generation === scope.generation && current.userId === scope.userId;
+}
+let refreshing: { refreshToken: string; promise: Promise<boolean> } | undefined;
+async function retrySession(scope: SessionScope, initialToken: string | null): Promise<boolean> {
+  if (!sameSession(scope)) return false;
+  const current = getStoredToken();
+  if (current && current !== initialToken) return true;
   const refreshToken = getStoredRefreshToken();
   if (!refreshToken) return false;
-
-  try {
+  if (refreshing?.refreshToken === refreshToken) return refreshing.promise;
+  const promise = performRefresh(scope, refreshToken).finally(() => {
+    if (refreshing?.promise === promise) refreshing = undefined;
+  });
+  refreshing = { refreshToken, promise };
+  return promise;
+}
+async function performRefresh(scope: SessionScope, refreshToken: string): Promise<boolean> {
     const response = await fetch(`${getApiBaseUrl()}/api/v1/Auth/refresh`, {
       method: 'POST',
       credentials: 'include',
@@ -148,8 +190,9 @@ async function tryRefreshAccessToken(): Promise<boolean> {
       body: JSON.stringify({ refreshToken }),
     });
 
+    if (!sameSession(scope) || getStoredRefreshToken() !== refreshToken) return false;
     if (!response.ok) {
-      clearSessionStorage();
+      if (response.status === 401 || response.status === 403) clearSessionStorage();
       return false;
     }
 
@@ -161,17 +204,13 @@ async function tryRefreshAccessToken(): Promise<boolean> {
       } catch {}
     }
 
-    if (data?.token) {
-      storeToken(data.token);
-    }
-    if (data?.refreshToken) {
-      storeRefreshToken(data.refreshToken);
-    }
+    if (!sameSession(scope) || getStoredRefreshToken() !== refreshToken) return false;
+    const token = data?.token || data?.data?.token;
+    const nextRefresh = data?.refreshToken || data?.data?.refreshToken;
+    if (typeof token !== 'string' || !token) return false;
+    storeToken(token);
+    if (typeof nextRefresh === 'string' && nextRefresh) storeRefreshToken(nextRefresh);
     return true;
-  } catch {
-    clearSessionStorage();
-    return false;
-  }
 }
 
 // Wrapper fetch tập trung: tự động đính kèm Bearer token, xử lý cookie & auto-retry 401
@@ -184,6 +223,8 @@ export async function apiFetch<T = any>(
 
   const isLocalDemo = typeof window !== 'undefined' && localStorage.getItem('isLocalDemoMode') === 'true';
   const storedToken = getStoredToken();
+
+  const scope = sessionScope();
 
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -204,11 +245,11 @@ export async function apiFetch<T = any>(
   };
 
   const doFetch = async (): Promise<ApiResponse<T>> => {
-    const response = await fetch(url, config);
+    let response = await fetch(url, config);
 
     // Access token hết hạn → thử refresh 1 lần rồi gọi lại request ban đầu
     if (response.status === 401 && !endpoint.includes('/Auth/login') && !endpoint.includes('/Auth/refresh')) {
-      const refreshed = await tryRefreshAccessToken();
+      const refreshed = await retrySession(scope, storedToken);
       if (refreshed) {
         const newToken = getStoredToken();
         if (newToken) {
@@ -216,22 +257,7 @@ export async function apiFetch<T = any>(
             ...config.headers,
             Authorization: `Bearer ${newToken}`,
           };
-          const retryResponse = await fetch(url, config);
-          if (retryResponse.status === 204) {
-            return { success: true } as ApiResponse<T>;
-          }
-          const retryText = await retryResponse.text();
-          let retryData: any = null;
-          if (retryText && retryText.trim()) {
-            try {
-              retryData = JSON.parse(retryText);
-            } catch {
-              retryData = { message: retryText };
-            }
-          }
-          if (retryResponse.ok) {
-            return retryData ?? ({ success: true } as ApiResponse<T>);
-          }
+          response = await fetch(url, config);
         }
       }
     }
@@ -260,6 +286,7 @@ export async function apiFetch<T = any>(
 
       return {
         success: false,
+        status: response.status,
         error: data?.message || data?.error || defaultMsg,
       };
     }
@@ -276,6 +303,7 @@ export async function apiFetch<T = any>(
   } catch (err: any) {
     return {
       success: false,
+      status: 0,
       error: err.message || 'Không thể kết nối đến máy chủ API backend. Vui lòng kiểm tra lại kết nối mạng.',
     };
   }
@@ -294,6 +322,7 @@ export async function apiUpload<T = any>(
     'X-Demo-Mode': isLocalDemo ? 'true' : 'false',
   };
   const storedToken = getStoredToken();
+  const scope = sessionScope();
   if (storedToken) {
     headers['Authorization'] = `Bearer ${storedToken}`;
   }
@@ -310,8 +339,11 @@ export async function apiUpload<T = any>(
 
     // Hết hạn access token → refresh 1 lần và thử lại
     if (response.status === 401) {
-      const refreshed = await tryRefreshAccessToken();
+      const refreshed = await retrySession(scope, storedToken);
       if (refreshed) {
+        const refreshedToken = getStoredToken();
+        if (refreshedToken) headers['Authorization'] = `Bearer ${refreshedToken}`;
+        else delete headers['Authorization'];
         response = await send();
       }
     }
@@ -325,6 +357,7 @@ export async function apiUpload<T = any>(
     if (!response.ok || data?.success === false) {
       return {
         success: false,
+        status: response.status,
         error: data?.error || data?.message || `Lỗi tải lên tệp (Mã HTTP ${response.status})`,
       };
     }
@@ -333,6 +366,7 @@ export async function apiUpload<T = any>(
   } catch (err: any) {
     return {
       success: false,
+      status: 0,
       error: err.message || 'Lỗi mạng khi tải lên tệp.',
     };
   }

@@ -37,6 +37,10 @@ export interface UpdateTaskStatusPayload {
 
 export interface TaskItemDto {
   id: string;
+  reviewerId?: string;
+  reviewerName?: string;
+  parentTaskId?: string;
+  version?: string;
   title: string;
   description: string;
   requirements?: string;

@@ -7,17 +7,20 @@ import { WorkProfileAiTab } from './components/WorkProfileAiTab';
 import { NotificationsSettingsTab } from './components/NotificationsSettingsTab';
 import { SecuritySettingsTab } from './components/SecuritySettingsTab';
 import { AppearanceSettingsTab } from './components/AppearanceSettingsTab';
+import { WorkflowAdmin } from '../workflow/WorkflowAdmin';
+import { useWorkflowPermissions } from '../workflow/useWorkflow';
 
-export type SettingsTab = 'account' | 'work-profile' | 'notifications' | 'security' | 'appearance';
+export type SettingsTab = 'account' | 'work-profile' | 'notifications' | 'security' | 'appearance' | 'workflow';
 
 export function SettingsFeature() {
+  const workflowPermissions = useWorkflowPermissions();
   const searchParams = useSearchParams();
   const urlTab = searchParams.get('tab') as SettingsTab | null;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('account');
 
   useEffect(() => {
-    if (urlTab && ['account', 'work-profile', 'notifications', 'security', 'appearance'].includes(urlTab)) {
+    if (urlTab && ['account', 'work-profile', 'notifications', 'security', 'appearance', 'workflow'].includes(urlTab)) {
       setActiveTab(urlTab);
     }
   }, [urlTab]);
@@ -159,6 +162,8 @@ export function SettingsFeature() {
 
       {/* ── SETTINGS CONTENT PANEL ── */}
       <div>
+        {workflowPermissions.data?.canManageWorkflowPermissions && <button type="button" className="btn btn-outline" onClick={() => setActiveTab('workflow')}>Quản trị quyền tiếp nhận / trình văn bản</button>}
+        {activeTab === 'workflow' && <WorkflowAdmin />}
         {activeTab === 'account' && <AccountSettingsTab />}
         {activeTab === 'work-profile' && <WorkProfileAiTab />}
         {activeTab === 'notifications' && <NotificationsSettingsTab />}

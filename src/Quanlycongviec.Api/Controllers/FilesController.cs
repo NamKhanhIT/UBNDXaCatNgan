@@ -161,7 +161,8 @@ namespace Quanlycongviec.Api.Controllers
             [FromForm] IFormFile file,
             [FromForm] Guid documentId,
             [FromForm] string targetType = "Inbox",
-            [FromForm] string attachmentType = "MainDocument")
+            [FromForm] string attachmentType = "MainDocument",
+            [FromForm] Guid? requestId = null)
         {
             var validation = ValidateFile(file);
             if (validation != null) return validation;
@@ -174,6 +175,19 @@ namespace Quanlycongviec.Api.Controllers
             {
                 return NotFound();
             }
+
+            var ops = new Quanlycongviec.Application.Common.Services.WorkflowOperations(_context);
+            var operationId = requestId ?? Guid.NewGuid();
+            string contentHash;
+            await using (var input = file.OpenReadStream())
+                contentHash = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(input, HttpContext.RequestAborted));
+            var fingerprint = Quanlycongviec.Application.Common.Services.WorkflowOperations.Fingerprint("UploadFile",
+                new { documentId, targetType, attachmentType, file.FileName, file.Length, contentHash });
+            var replay = await ops.ReplayAsync(CurrentUserId, operationId, fingerprint, HttpContext.RequestAborted);
+            if (replay.HasValue) return Ok(new { success = true, data = replay.Value });
+            if (!await new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context)
+                    .GuardFileWriteAsync(CurrentUserId, documentId, targetType, HttpContext.RequestAborted))
+                return StatusCode(403, new { success = false, error = "Bạn được xem nhưng không có quyền thêm tệp vào đối tượng này." });
 
             string ext = Path.GetExtension(file!.FileName).TrimStart('.').ToLower();
             string storageDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "documents");
@@ -210,148 +224,84 @@ namespace Quanlycongviec.Api.Controllers
             };
 
             _context.DocumentAttachments.Add(att);
-            await _context.SaveChangesAsync();
-
-            return Ok(new { success = true, data = att.Id, message = "Tải file đính kèm thành công." });
+            Guid attachmentId;
+            try { attachmentId = await ops.CommitAsync(CurrentUserId, operationId, fingerprint, att.Id, HttpContext.RequestAborted); }
+            catch
+            {
+                // Only this attempt's newly generated file is removed; existing attachments are untouched.
+                System.IO.File.Delete(fullPath);
+                throw;
+            }
+            if (attachmentId != att.Id) System.IO.File.Delete(fullPath);
+            return Ok(new { success = true, data = attachmentId, message = "Tải file đính kèm thành công." });
         }
 
-        // Upload file và phân tích tự động bằng AI (OCR -> AI Extraction -> lưu nháp)
+        // Compatibility upload route delegates to the same durable upload before optional OCR/AI.
         [HttpPost("upload-and-analyze")]
-        public async Task<IActionResult> UploadAndAnalyze(
-            [FromForm] IFormFile file,
-            [FromForm] Guid documentId,
-            CancellationToken ct)
+        public async Task<IActionResult> UploadAndAnalyze([FromForm] IFormFile file, [FromForm] Guid documentId,
+            CancellationToken ct, [FromForm] Guid? requestId = null)
         {
-            // 1. Validate file
-            var validation = ValidateFile(file);
-            if (validation != null) return validation;
+            var uploaded = await UploadFile(file, documentId, "Inbox", "MainDocument", requestId);
+            if (uploaded is not OkObjectResult ok) return uploaded;
+            var attachmentId = JsonSerializer.SerializeToElement(ok.Value).GetProperty("data").GetGuid();
+            return await AnalyzeStoredFile(attachmentId, ct);
+        }
 
-            var magicValidation = await ValidateMagicBytesAsync(file);
-            if (magicValidation != null) return magicValidation;
+        [HttpPost("{id:guid}/analyze")]
+        public Task<IActionResult> AnalyzeFile(Guid id, CancellationToken ct) => AnalyzeStoredFile(id, ct);
 
-            if (!await _documentAccessService.CanAccessDocumentAsync(
-                    CurrentUserId, documentId, "Inbox", ct))
-            {
-                return NotFound();
-            }
+        private async Task<IActionResult> AnalyzeStoredFile(Guid attachmentId, CancellationToken ct)
+        {
+            var attachment = await _context.DocumentAttachments.FirstOrDefaultAsync(a => a.Id == attachmentId && !a.IsDeleted, ct);
+            if (attachment == null || attachment.TargetType != "Inbox"
+                || !await _documentAccessService.CanAccessAttachmentAsync(CurrentUserId, attachment, ct)) return NotFound();
+            var documentId = attachment.DocumentId;
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            if (!await access.GuardFileWriteAsync(CurrentUserId, documentId, "Inbox", ct))
+                return Ok(new { success = true, data = new { attachmentId, documentId },
+                    aiError = "Tệp đã lưu. Văn bản đã chuyển bước xử lý nên không ghi đè gợi ý AI.", analysisResult = (DocumentAnalysisResult?)null });
 
-            // 2. Lưu file vào đĩa
-            string ext = Path.GetExtension(file!.FileName).TrimStart('.').ToLower();
-            string storageDir = Path.Combine(Directory.GetCurrentDirectory(), "uploads", "documents");
-            if (!Directory.Exists(storageDir)) Directory.CreateDirectory(storageDir);
-
-            // BẢO MẬT (Đợt 4 - N1): Path.GetFileName loại thành phần điều hướng ../ do client kiểm soát
-            string safeFileName = $"{Guid.NewGuid()}_{Path.GetFileName(file.FileName)}";
-            string fullPath = Path.Combine(storageDir, safeFileName);
-
-            using (var stream = new FileStream(fullPath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream, ct);
-            }
-
-            // Lưu DocumentAttachment
-            var att = new DocumentAttachment
-            {
-                Id = Guid.NewGuid(),
-                DocumentId = documentId,
-                TargetType = "Inbox",
-                FileName = safeFileName,
-                OriginalFileName = file.FileName,
-                FilePath = fullPath,
-                FileType = ext,
-                FileSize = file.Length,
-                AttachmentType = "MainDocument",
-                IsMainDocument = true,
-                UploadedAt = DateTime.UtcNow,
-                UploadedByUserId = CurrentUserId
-            };
-            _context.DocumentAttachments.Add(att);
-
-            // 3. OCR / Extract text
-            string extractedText;
-            using (var fileStream = new FileStream(fullPath, FileMode.Open, FileAccess.Read))
-            {
-                extractedText = await _ocrService.ExtractTextAsync(fileStream, ext, ct);
-            }
-
-            _logger.LogInformation("Trích xuất text thành công: {Length} ký tự từ {FileName}",
-                extractedText.Length, file.FileName);
-
-            // 4. Lấy danh sách Department thật từ database
-            var departments = await _context.Departments
-                .Where(d => !d.IsDeleted)
-                .Select(d => new DepartmentOption { Id = d.Id, Name = d.Name })
-                .ToListAsync(ct);
-
-            // 5. Gọi AI phân tích
             DocumentAnalysisResult analysisResult;
             try
             {
+                await using var stream = new FileStream(attachment.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                var extractedText = await _ocrService.ExtractTextAsync(stream, attachment.FileType, ct);
+                var departments = await _context.Departments.Where(d => !d.IsDeleted)
+                    .Select(d => new DepartmentOption { Id = d.Id, Name = d.Name }).ToListAsync(ct);
                 analysisResult = await _aiService.AnalyzeDocumentAsync(extractedText, departments, ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Lỗi gọi AI phân tích văn bản cho documentId={DocumentId}", documentId);
-                // Vẫn lưu file, trả về lỗi AI riêng — không mất file đã upload
-                await _context.SaveChangesAsync(ct);
-                return Ok(new
+                if (analysisResult.SuggestedDepartmentId.HasValue && !departments.Any(d => d.Id == analysisResult.SuggestedDepartmentId))
                 {
-                    success = true,
-                    data = new { attachmentId = att.Id },
-                    aiError = $"AI phân tích thất bại: {ex.Message}. File đã được lưu, bạn có thể phân tích lại sau.",
-                    analysisResult = (DocumentAnalysisResult?)null
-                });
-            }
-
-            // 6. Validate SuggestedDepartmentId trả về
-            if (analysisResult.SuggestedDepartmentId.HasValue)
-            {
-                var deptExists = departments.Any(d => d.Id == analysisResult.SuggestedDepartmentId.Value);
-                if (!deptExists)
-                {
-                    _logger.LogWarning(
-                        "AI trả về SuggestedDepartmentId={DeptId} không khớp Department thật → set null.",
-                        analysisResult.SuggestedDepartmentId);
-                    analysisResult.SuggestedDepartmentId = null;
-                    analysisResult.SuggestedDepartmentName = null;
-                    analysisResult.ValidationWarnings.Add("Phòng ban gợi ý không tồn tại trong hệ thống, đã bỏ qua.");
+                    analysisResult.SuggestedDepartmentId = null; analysisResult.SuggestedDepartmentName = null;
+                    analysisResult.ValidationWarnings.Add("Phòng ban gợi ý không còn hợp lệ, đã bỏ qua.");
                 }
             }
-
-            // 7. Ghi kết quả AI vào InboxDocument
-            var inboxDoc = await _context.InboxDocuments.FindAsync(new object[] { documentId }, ct);
-            if (inboxDoc != null)
+            catch (Exception exception) when (!ct.IsCancellationRequested)
             {
-                inboxDoc.AiCategory = analysisResult.Category.ToString();
-                inboxDoc.AiTitle = analysisResult.Title;
-                inboxDoc.AiSummary = analysisResult.Summary;
-                inboxDoc.AiExtractedDeadline = analysisResult.DeadlineDate;
-                inboxDoc.AiExtractedSubjects = analysisResult.Subjects.Count > 0
-                    ? JsonSerializer.Serialize(analysisResult.Subjects)
-                    : null;
-                inboxDoc.AiObjectives = analysisResult.Objectives;
-                inboxDoc.AiSuggestedDepartmentId = analysisResult.SuggestedDepartmentId;
-                inboxDoc.AiConfidenceScore = analysisResult.Confidence;
-                inboxDoc.AiEventStartDateTime = analysisResult.EventStartDateTime;
-                inboxDoc.AiEventEndDateTime = analysisResult.EventEndDateTime;
-                inboxDoc.AiProcessingStatus = "Analyzed";
-                inboxDoc.AiReviewedByUserId = null; // Chưa duyệt
-                inboxDoc.UpdatedAt = DateTime.UtcNow;
+                _logger.LogWarning("OCR/AI không hoàn tất cho văn bản {DocumentId}; loại lỗi {ErrorType}", documentId, exception.GetType().Name);
+                return Ok(new { success = true, data = new { attachmentId, documentId },
+                    aiError = "Chưa phân tích được nội dung. Tệp đã được lưu; bạn vẫn có thể giao việc thủ công hoặc thử phân tích lại.",
+                    analysisResult = (DocumentAnalysisResult?)null });
             }
 
-            await _context.SaveChangesAsync(ct);
-
-            return Ok(new
+            var doc = await _context.InboxDocuments.FindAsync(new object[] { documentId }, ct);
+            if (doc == null) return NotFound();
+            doc.AiCategory = analysisResult.Category.ToString(); doc.AiTitle = analysisResult.Title;
+            doc.AiSummary = analysisResult.Summary; doc.AiObjectives = analysisResult.Objectives;
+            doc.AiExtractedDeadline = analysisResult.DeadlineDate;
+            doc.AiExtractedSubjects = analysisResult.Subjects.Count > 0 ? JsonSerializer.Serialize(analysisResult.Subjects) : null;
+            doc.AiSuggestedDepartmentId = analysisResult.SuggestedDepartmentId; doc.AiConfidenceScore = analysisResult.Confidence;
+            doc.AiEventStartDateTime = analysisResult.EventStartDateTime; doc.AiEventEndDateTime = analysisResult.EventEndDateTime;
+            doc.AiProcessingStatus = "Analyzed"; doc.AiReviewedByUserId = null; doc.AiReviewedAt = null;
+            doc.Version = Guid.NewGuid(); doc.UpdatedAt = DateTime.UtcNow;
+            try { await _context.SaveChangesAsync(ct); }
+            catch (DbUpdateConcurrencyException)
             {
-                success = true,
-                data = new
-                {
-                    attachmentId = att.Id,
-                    documentId = documentId
-                },
-                analysisResult = analysisResult,
-                message = "File đã được tải lên và phân tích bởi AI. Vui lòng kiểm duyệt kết quả."
-            });
+                return Ok(new { success = true, data = new { attachmentId, documentId },
+                    aiError = "Tệp đã lưu. Văn bản vừa thay đổi nên gợi ý AI không được ghi đè. Vui lòng tải lại chi tiết.",
+                    analysisResult = (DocumentAnalysisResult?)null });
+            }
+            return Ok(new { success = true, data = new { attachmentId, documentId }, analysisResult,
+                message = "Đã lưu gợi ý. Vui lòng kiểm tra nội dung trước khi giao việc hoặc tạo lịch." });
         }
 
         #region Validation

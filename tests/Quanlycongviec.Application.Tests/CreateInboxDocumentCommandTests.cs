@@ -21,11 +21,16 @@ namespace Quanlycongviec.Application.Tests
                 .Options);
 
             var userId = Guid.NewGuid();
+            var user = new User { Id = userId, Username = "intake_test", Email = "intake@example.invalid" };
+            WorkflowTestData.AddAssignmentRoles(context, new User { Username = "leader_test", Email = "leader@example.invalid" }, user);
+            context.WorkflowPermissions.Add(new WorkflowPermission { UserId = userId, CanReceiveDocuments = true });
+            await context.SaveChangesAsync();
             var handler = new CreateInboxDocumentCommandHandler(context);
 
             var command = new CreateInboxDocumentCommand
             {
                 ReceivedByUserId = userId,
+                RequestId = Guid.NewGuid(),
                 DocumentNumber = "123/UBND-VP",
                 DocumentSymbol = "UBND-VP",
                 Subject = "Chỉ đạo phòng chống thiên tai",

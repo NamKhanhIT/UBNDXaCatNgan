@@ -15,6 +15,11 @@ namespace Quanlycongviec.Domain.Entities
         public Guid? CalendarEventId { get; set; }
         public CalendarEvent? CalendarEvent { get; set; }
 
+        public Guid? InboxDocumentId { get; set; }
+        public Guid? OutgoingDocumentId { get; set; }
+        public DateTime? RealtimeDeliveredAt { get; set; }
+        public bool RequiresRealtimeDelivery { get; set; }
+
         public NotificationType Type { get; set; }
         public NotificationChannel Channel { get; set; } = NotificationChannel.InApp;
 

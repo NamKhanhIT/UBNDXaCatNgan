@@ -148,7 +148,7 @@ namespace Quanlycongviec.Application.Tests.Resilience
                 {
                     bool expected;
                     if (m == "chutich" || m == "pct" || m == "chanh_vp") expected = (t != m);
-                    else if (m == "tp_kt" || m == "pp_kt") expected = (t == "cv_kt1" || t == "cv_kt2" || (m == "tp_kt" && t == "pp_kt"));
+                    else if (m == "tp_kt") expected = (t == "cv_kt1" || t == "cv_kt2" || t == "pp_kt");
                     else expected = false;
 
                     yield return new object[] { m, "cv_kt1", t, expected };
@@ -191,7 +191,7 @@ namespace Quanlycongviec.Application.Tests.Resilience
                     bool expected;
                     if (s == TaskStatusEnum.Completed)
                     {
-                        expected = (u != "cv_kt1" && u != "cv_vh1"); // Chuyên viên không tự duyệt Completed
+                        expected = u == "tp_kt"; // Only the designated reviewer may accept.
                     }
                     else if (s == TaskStatusEnum.Cancelled)
                     {
@@ -199,8 +199,7 @@ namespace Quanlycongviec.Application.Tests.Resilience
                     }
                     else
                     {
-                        // InProgress, InReview: Người được giao việc (cv_kt1) hoặc Assigner (tp_kt) hoặc Lãnh đạo cấp cao (chutich, pct)
-                        expected = (u == "cv_kt1" || u == "tp_kt" || u == "chutich" || u == "pct");
+                        expected = u == "cv_kt1"; // Only the assignee starts and submits their work.
                     }
 
                     yield return new object[] { u, s, expected };
@@ -219,7 +218,9 @@ namespace Quanlycongviec.Application.Tests.Resilience
                 AssignerId = _users["tp_kt"].Id,
                 AssigneeId = _users["cv_kt1"].Id,
                 DepartmentId = _depKinhTe.Id,
-                Status = TaskStatusEnum.InReview
+                ReviewerId = _users["tp_kt"].Id,
+                Status = status == TaskStatusEnum.InProgress ? TaskStatusEnum.Todo
+                    : status == TaskStatusEnum.Completed ? TaskStatusEnum.InReview : TaskStatusEnum.InProgress
             };
             _context.TaskItems.Add(task);
             await _context.SaveChangesAsync();

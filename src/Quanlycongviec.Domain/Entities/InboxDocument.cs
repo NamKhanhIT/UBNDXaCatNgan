@@ -6,6 +6,8 @@ namespace Quanlycongviec.Domain.Entities
 {
     public class InboxDocument : BaseEntity
     {
+        public string BusinessStatus { get; set; } = "New";
+        public Guid Version { get; set; } = Guid.NewGuid();
         public string DocumentNumber { get; set; } = string.Empty; // Mã công văn: 88/UBND-VP
         public string Subject { get; set; } = string.Empty; // Tiêu đề công văn
         public string Category { get; set; } = string.Empty; // Chỉ đạo / Tờ trình / Công văn

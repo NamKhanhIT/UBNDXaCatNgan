@@ -19,6 +19,13 @@ namespace Quanlycongviec.Infrastructure.Persistence
         public DbSet<Delegation> Delegations => Set<Delegation>();
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
         public DbSet<TaskItem> TaskItems => Set<TaskItem>();
+        public DbSet<TaskDocumentLink> TaskDocumentLinks => Set<TaskDocumentLink>();
+        public DbSet<TaskSubmission> TaskSubmissions => Set<TaskSubmission>();
+        public DbSet<TaskSubmissionAttachment> TaskSubmissionAttachments => Set<TaskSubmissionAttachment>();
+        public DbSet<TaskWorkflowChange> TaskWorkflowChanges => Set<TaskWorkflowChange>();
+        public DbSet<DocumentPresentation> DocumentPresentations => Set<DocumentPresentation>();
+        public DbSet<WorkflowPermission> WorkflowPermissions => Set<WorkflowPermission>();
+        public DbSet<WorkflowRequest> WorkflowRequests => Set<WorkflowRequest>();
         public DbSet<SubTask> SubTasks => Set<SubTask>();
         public DbSet<TaskComment> TaskComments => Set<TaskComment>();
         public DbSet<WorkloadCapacity> WorkloadCapacities => Set<WorkloadCapacity>();
@@ -45,6 +52,49 @@ namespace Quanlycongviec.Infrastructure.Persistence
         {
             base.OnModelCreating(modelBuilder);
 
+            modelBuilder.ApplyConfiguration(new WorkflowTaskConfiguration());
+            modelBuilder.Entity<InboxDocument>().Property(x => x.Version).IsConcurrencyToken();
+            modelBuilder.Entity<InboxDocument>().Property(x => x.BusinessStatus).HasMaxLength(30);
+            modelBuilder.Entity<CalendarEvent>().Property(x => x.Version).IsConcurrencyToken();
+            modelBuilder.Entity<CalendarEvent>().HasOne(x => x.SourceInboxDocument).WithMany()
+                .HasForeignKey(x => x.SourceInboxDocumentId).OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<TaskDocumentLink>(e =>
+            {
+                e.HasOne(x => x.TaskItem).WithMany(x => x.DocumentLinks).HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.InboxDocument).WithMany().HasForeignKey(x => x.InboxDocumentId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.OutgoingDocument).WithMany().HasForeignKey(x => x.OutgoingDocumentId).OnDelete(DeleteBehavior.Restrict);
+                e.HasIndex(x => new { x.TaskItemId, x.InboxDocumentId }).IsUnique();
+                e.HasIndex(x => new { x.TaskItemId, x.OutgoingDocumentId }).IsUnique();
+                e.ToTable("TaskDocumentLinks", t => t.HasCheckConstraint("CK_TaskDocumentLink_Source", "(\"InboxDocumentId\" IS NULL) <> (\"OutgoingDocumentId\" IS NULL)"));
+            });
+            modelBuilder.Entity<TaskSubmission>(e =>
+            {
+                e.HasOne(x => x.TaskItem).WithMany(x => x.Submissions).HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
+                e.HasIndex(x => new { x.TaskItemId, x.CreatedAt });
+                e.Property(x => x.Decision).HasMaxLength(30);
+            });
+            modelBuilder.Entity<TaskSubmissionAttachment>(e =>
+            {
+                e.HasOne(x => x.Submission).WithMany(x => x.Attachments).HasForeignKey(x => x.SubmissionId).OnDelete(DeleteBehavior.Restrict);
+                e.HasOne(x => x.Attachment).WithMany().HasForeignKey(x => x.AttachmentId).OnDelete(DeleteBehavior.Restrict);
+                e.HasIndex(x => x.AttachmentId).IsUnique();
+            });
+            modelBuilder.Entity<TaskWorkflowChange>().HasOne(x => x.TaskItem).WithMany().HasForeignKey(x => x.TaskItemId).OnDelete(DeleteBehavior.Restrict);
+            modelBuilder.Entity<DocumentPresentation>(e =>
+            {
+                e.HasOne(x => x.InboxDocument).WithMany().HasForeignKey(x => x.InboxDocumentId).OnDelete(DeleteBehavior.Restrict);
+                e.Property(x => x.Status).HasMaxLength(30);
+                e.HasIndex(x => new { x.InboxDocumentId, x.Status });
+                e.HasIndex(x => new { x.RecipientId, x.Status });
+            });
+            modelBuilder.Entity<WorkflowPermission>(e =>
+            {
+                e.HasIndex(x => x.UserId).IsUnique();
+                e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+                e.Property(x => x.Version).IsConcurrencyToken();
+            });
+            modelBuilder.Entity<WorkflowRequest>().HasIndex(x => new { x.UserId, x.RequestId }).IsUnique();
+
             // ── DocumentVersion: Indexes cho tra cứu lịch sử phiên bản ──
             modelBuilder.Entity<DocumentVersion>(entity =>
             {
@@ -62,6 +112,7 @@ namespace Quanlycongviec.Infrastructure.Persistence
             // ── DocumentNumberSequence: Unique constraint chống trùng số theo (Year + Symbol) ──
             modelBuilder.Entity<DocumentNumberSequence>(entity =>
             {
+                entity.Property(s => s.CurrentNumber).IsConcurrencyToken();
                 entity.HasIndex(s => new { s.Year, s.Symbol })
                     .IsUnique();
             });
@@ -86,6 +137,7 @@ namespace Quanlycongviec.Infrastructure.Persistence
             // ── OutgoingDocument: Enum conversions & Indexes ──
             modelBuilder.Entity<OutgoingDocument>(entity =>
             {
+                entity.Property(o => o.Version).IsConcurrencyToken();
                 entity.Property(o => o.DocumentType)
                     .HasConversion<string>()
                     .HasMaxLength(30);

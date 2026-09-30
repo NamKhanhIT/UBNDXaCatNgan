@@ -11,6 +11,7 @@ namespace Quanlycongviec.Application.Features.Inbox.Commands.CreateInboxDocument
 {
     public sealed class CreateInboxDocumentCommand : IRequest<Guid>
     {
+        public Guid RequestId { get; set; }
         public Guid ReceivedByUserId { get; set; }
         public string DocumentNumber { get; set; } = string.Empty;
         public string? DocumentSymbol { get; set; }
@@ -43,6 +44,15 @@ namespace Quanlycongviec.Application.Features.Inbox.Commands.CreateInboxDocument
             if (string.IsNullOrWhiteSpace(request.Sender))
                 throw new ArgumentException("Document sender is required.", nameof(request.Sender));
 
+            var actor = await new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context).ActorAsync(request.ReceivedByUserId, cancellationToken);
+            if (actor == null) throw new UnauthorizedAccessException("Phiên làm việc không hợp lệ.");
+            var ops = new Quanlycongviec.Application.Common.Services.WorkflowOperations(_context);
+            var fingerprint = Quanlycongviec.Application.Common.Services.WorkflowOperations.Fingerprint("CreateInbox", request);
+            var replay = await ops.ReplayAsync(actor.Id, request.RequestId, fingerprint, cancellationToken);
+            if (replay.HasValue) return replay.Value;
+            if (!await new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context).CanReceiveInboxAsync(actor, cancellationToken))
+                throw new UnauthorizedAccessException("Bạn chưa được chỉ định quyền tiếp nhận văn bản.");
+
             var document = new InboxDocument
             {
                 Id = Guid.NewGuid(),
@@ -68,8 +78,7 @@ namespace Quanlycongviec.Application.Features.Inbox.Commands.CreateInboxDocument
                 EntityId = document.Id.ToString(),
                 Details = $"Tiếp nhận văn bản đến [{document.Subject}]"
             });
-            await _context.SaveChangesAsync(cancellationToken);
-            return document.Id;
+            return await ops.CommitAsync(actor.Id, request.RequestId, fingerprint, document.Id, cancellationToken);
         }
     }
 }

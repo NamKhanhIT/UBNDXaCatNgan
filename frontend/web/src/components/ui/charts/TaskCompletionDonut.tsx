@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { taskStatusDistribution } from '../../../lib/task-workflow';
 
 export interface DonutSegment {
   label: string;
@@ -14,6 +15,7 @@ export interface TaskCompletionDonutProps {
   inProgress: number;
   pendingReview: number;
   overdue: number;
+  cancelled?: number;
 }
 
 export const TaskCompletionDonut: React.FC<TaskCompletionDonutProps> = ({
@@ -21,10 +23,12 @@ export const TaskCompletionDonut: React.FC<TaskCompletionDonutProps> = ({
   inProgress,
   pendingReview,
   overdue,
+  cancelled = 0,
 }) => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  const total = completed + inProgress + pendingReview + overdue;
+  const counts = taskStatusDistribution({ completed, active: inProgress, pendingReview, overdue, cancelled });
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
 
   if (total === 0) {
     return null;
@@ -33,10 +37,11 @@ export const TaskCompletionDonut: React.FC<TaskCompletionDonutProps> = ({
   const completionRate = Math.round((completed / total) * 100);
 
   const segments: DonutSegment[] = [
-    { label: 'Đã hoàn thành đúng hạn', count: completed, color: '#16a34a', percentage: Math.round((completed / total) * 100) },
-    { label: 'Đang thực hiện đúng tiến độ', count: inProgress, color: '#2563eb', percentage: Math.round((inProgress / total) * 100) },
-    { label: 'Chờ lãnh đạo duyệt nghiệm thu', count: pendingReview, color: '#7c3aed', percentage: Math.round((pendingReview / total) * 100) },
+    { label: 'Đã nghiệm thu', count: completed, color: '#16a34a', percentage: Math.round((completed / total) * 100) },
+    { label: 'Cần xử lý', count: counts.active, color: '#2563eb', percentage: Math.round((counts.active / total) * 100) },
+    { label: 'Chờ nghiệm thu', count: pendingReview, color: '#7c3aed', percentage: Math.round((pendingReview / total) * 100) },
     { label: 'Chậm tiến độ (Quá hạn)', count: overdue, color: '#dc2626', percentage: Math.round((overdue / total) * 100) },
+    { label: 'Đã hủy', count: cancelled, color: '#64748b', percentage: Math.round((cancelled / total) * 100) },
   ].filter(s => s.count > 0);
 
   // SVG Donut geometry

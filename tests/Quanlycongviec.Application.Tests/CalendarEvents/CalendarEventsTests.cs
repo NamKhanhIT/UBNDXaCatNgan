@@ -53,6 +53,7 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             // Query khoảng ngày giao ở giữa (ví dụ: ngày 11/08 - 12/08)
             var query = new GetCalendarEventsQuery
             {
+                CurrentUserId = organizer.Id,
                 From = new DateTime(2026, 8, 11, 0, 0, 0, DateTimeKind.Utc),
                 To = new DateTime(2026, 8, 12, 23, 59, 59, DateTimeKind.Utc)
             };
@@ -67,7 +68,7 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
         }
 
         [Fact]
-        public async Task CreateCalendarEvent_ShouldAddDefault30MinReminderOffset()
+        public async Task CreateCalendarEvent_ShouldNotAddAnUnselectedReminder()
         {
             // Arrange
             using var context = GetInMemoryDbContext();
@@ -78,12 +79,13 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             var handler = new CreateCalendarEventCommandHandler(context);
             var command = new CreateCalendarEventCommand
             {
+                RequestId = Guid.NewGuid(),
                 Title = "Họp triển khai công tác tháng 8",
                 EventType = EventTypeEnum.Meeting,
                 StartDateTime = DateTime.UtcNow.AddDays(1),
                 EndDateTime = DateTime.UtcNow.AddDays(1).AddHours(2),
                 OrganizerId = organizer.Id,
-                ReminderOffsetsMinutes = new List<int>() // Rỗng -> Mặc định 30 phút
+                ReminderOffsetsMinutes = new List<int>() // No reminders selected
             };
 
             // Act
@@ -95,8 +97,7 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
                 .FirstOrDefaultAsync(e => e.Id == eventId);
 
             Assert.NotNull(createdEvt);
-            Assert.Single(createdEvt.ReminderOffsets);
-            Assert.Equal(30, createdEvt.ReminderOffsets.First().MinutesBefore);
+            Assert.Empty(createdEvt.ReminderOffsets);
         }
 
         [Fact]
@@ -107,12 +108,16 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             var organizer = new User { Id = Guid.NewGuid(), FullName = "Nguyễn Văn C", Username = "user_c", PasswordHash = "hash" };
             var participant1 = new User { Id = Guid.NewGuid(), FullName = "Lê Văn D", Username = "user_d", PasswordHash = "hash" };
             var participant2 = new User { Id = Guid.NewGuid(), FullName = "Phạm Văn E", Username = "user_e", PasswordHash = "hash" };
+            var role = new Role { Code = "LEADER", Name = "Lãnh đạo", RankLevel = 1 };
+            organizer.ActiveRoleCode = role.Code;
+            organizer.UserRoles.Add(new UserRole { User = organizer, Role = role, IsPrimary = true });
             context.Users.AddRange(organizer, participant1, participant2);
             await context.SaveChangesAsync();
 
             var handler = new CreateCalendarEventCommandHandler(context);
             var command = new CreateCalendarEventCommand
             {
+                RequestId = Guid.NewGuid(),
                 Title = "Tập huấn nghiệp vụ công chức",
                 EventType = EventTypeEnum.Training,
                 StartDateTime = DateTime.UtcNow.AddDays(2),
@@ -146,6 +151,9 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             var organizer = new User { Id = Guid.NewGuid(), FullName = "Nguyễn Văn C", Username = "user_c", PasswordHash = "hash" };
             var user1 = new User { Id = Guid.NewGuid(), FullName = "Lê Văn D", Username = "user_d", PasswordHash = "hash" };
             var user2 = new User { Id = Guid.NewGuid(), FullName = "Phạm Văn E", Username = "user_e", PasswordHash = "hash" };
+            var role = new Role { Code = "LEADER", Name = "Lãnh đạo", RankLevel = 1 };
+            organizer.ActiveRoleCode = role.Code;
+            organizer.UserRoles.Add(new UserRole { User = organizer, Role = role, IsPrimary = true });
             context.Users.AddRange(organizer, user1, user2);
 
             var evt = new CalendarEvent
@@ -164,7 +172,7 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             var updateHandler = new Quanlycongviec.Application.Features.CalendarEvents.Commands.UpdateCalendarEvent.UpdateCalendarEventCommandHandler(context);
             var updateCmd = new Quanlycongviec.Application.Features.CalendarEvents.Commands.UpdateCalendarEvent.UpdateCalendarEventCommand
             {
-                Id = evt.Id,
+                Id = evt.Id, RequestId = Guid.NewGuid(), Version = evt.Version,
                 Title = "Họp ban chỉ đạo MỞ RỘNG (Đã cập nhật)",
                 EventType = EventTypeEnum.Conference,
                 StartDateTime = DateTime.UtcNow.AddDays(1),
@@ -217,7 +225,7 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             var deleteHandler = new Quanlycongviec.Application.Features.CalendarEvents.Commands.DeleteCalendarEvent.DeleteCalendarEventCommandHandler(context);
             var deleteCmd = new Quanlycongviec.Application.Features.CalendarEvents.Commands.DeleteCalendarEvent.DeleteCalendarEventCommand
             {
-                Id = evt.Id,
+                Id = evt.Id, RequestId = Guid.NewGuid(), Version = evt.Version,
                 UserId = organizer.Id
             };
 
@@ -245,12 +253,13 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
             var handler = new CreateCalendarEventCommandHandler(context);
             var command = new CreateCalendarEventCommand
             {
+                RequestId = Guid.NewGuid(),
                 Title = "Họp giao ban toàn cơ quan",
                 EventType = EventTypeEnum.Meeting,
                 StartDateTime = DateTime.UtcNow.AddDays(3),
                 EndDateTime = DateTime.UtcNow.AddDays(3).AddHours(2),
                 OrganizerId = organizer.Id,
-                ParticipantUserIds = new List<Guid>(), // empty = "Toàn cơ quan" scope
+                ParticipantUserIds = new List<Guid>(), // empty means no invited participants
                 ReminderOffsetsMinutes = new List<int> { 30, 1440 }
             };
 
@@ -265,7 +274,7 @@ namespace Quanlycongviec.Application.Tests.CalendarEvents
 
             Assert.NotNull(createdEvt);
             Assert.Equal("Họp giao ban toàn cơ quan", createdEvt.Title);
-            Assert.Empty(createdEvt.Participants); // no explicit rows = invite all downstream
+            Assert.Empty(createdEvt.Participants); // No implicit invitation to the whole organization
             Assert.Equal(2, createdEvt.ReminderOffsets.Count);
         }
     }

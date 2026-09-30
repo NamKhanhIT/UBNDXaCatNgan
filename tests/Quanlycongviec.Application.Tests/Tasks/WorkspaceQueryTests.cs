@@ -34,7 +34,7 @@ public class WorkspaceQueryTests
             result.Items.Should().ContainSingle(t => t.Title == title);
         }
         var today = await handler.Handle(new GetTasksQuery(user.Id, 5) { WorkspaceTab = "today" }, CancellationToken.None);
-        today.Items.Select(t => t.Title).Should().BeEquivalentTo("InProgress", "InReview");
+        today.Items.Select(t => t.Title).Should().BeEquivalentTo("InProgress"); // Submitted work has its own review tab.
         var invalidScope = await handler.Handle(new GetTasksQuery(user.Id, 5) { Scope = "accessible", WorkspaceTab = "all" }, CancellationToken.None);
         invalidScope.Items.Should().NotContain(t => t.Title == "Other private work");
     }
@@ -51,6 +51,7 @@ public class WorkspaceQueryTests
         db.TaskItems.Add(task);
         var doc = new InboxDocument { Subject = "Directive", ReceivedByUserId = owner.Id, ScheduledTaskId = task.Id, AiProcessingStatus = "Confirmed" };
         db.InboxDocuments.AddRange(doc, new InboxDocument { Subject = "Other private", ReceivedByUserId = stranger.Id });
+        db.TaskDocumentLinks.Add(new TaskDocumentLink { TaskItemId = task.Id, InboxDocumentId = doc.Id });
         await db.SaveChangesAsync();
         var handler = new GetInboxDocumentsPaginatedQueryHandler(db);
         foreach (var caller in new[] { owner, staff })

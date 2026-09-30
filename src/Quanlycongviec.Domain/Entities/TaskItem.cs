@@ -17,6 +17,16 @@ namespace Quanlycongviec.Domain.Entities
         public Guid AssigneeId { get; set; } // Người chủ trì (chuyên viên)
         public User Assignee { get; set; } = null!;
 
+        public Guid? ReviewerId { get; set; }
+        public User? Reviewer { get; set; }
+        public Guid? ParentTaskId { get; set; }
+        public TaskItem? ParentTask { get; set; }
+        public Guid Version { get; set; } = Guid.NewGuid();
+        public bool RequiresWorkflowReview { get; set; }
+        public ICollection<TaskItem> CoordinationTasks { get; set; } = new List<TaskItem>();
+        public ICollection<TaskDocumentLink> DocumentLinks { get; set; } = new List<TaskDocumentLink>();
+        public ICollection<TaskSubmission> Submissions { get; set; } = new List<TaskSubmission>();
+
         public Guid? DepartmentId { get; set; }
         public Department? Department { get; set; }
 

@@ -85,76 +85,23 @@ export function AppSidebar({ isMobileOpen, onCloseMobile }: AppSidebarProps) {
             <span style={{ flex: 1 }}>TỔNG QUAN</span>
           </Link>
 
-          {/* 2. TRUNG TÂM ĐIỀU HÀNH */}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Link
-                href="/workcenter"
-                className={`sidebar-item ${isActive('/workcenter') ? 'active' : ''}`}
-                style={{ flex: 1, borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
-                onClick={onCloseMobile}
-              >
-                <i className="fa-solid fa-briefcase" style={{ fontSize: 16 }} aria-hidden="true" />
-                <span style={{ flex: 1 }}>TRUNG TÂM ĐIỀU HÀNH</span>
+          <div>
+            <button type="button" className="sidebar-item" style={{ width: '100%', border: 0, textAlign: 'left' }}
+              aria-expanded={isWorkcenterExpanded} aria-controls="operations-navigation" onClick={() => setIsWorkcenterExpanded(value => !value)}>
+              <i className="fa-solid fa-briefcase" aria-hidden="true" />
+              <span style={{ flex: 1 }}>TRUNG TÂM ĐIỀU HÀNH</span>
+              <i className={isWorkcenterExpanded ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'} aria-hidden="true" />
+            </button>
+            {isWorkcenterExpanded && <div id="operations-navigation" style={{ paddingLeft: 20 }}>
+              <Link href="/documents" className={`sidebar-item sub-item ${isActive('/documents') ? 'active' : ''}`}
+                aria-current={isActive('/documents') ? 'page' : undefined} onClick={onCloseMobile}>
+                <i className="fa-solid fa-folder-open" aria-hidden="true" /><span>Kho văn bản</span>
               </Link>
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs"
-                onClick={() => setIsWorkcenterExpanded(prev => !prev)}
-                title={isWorkcenterExpanded ? 'Thu gọn menu con' : 'Mở rộng menu con'}
-                style={{
-                  height: 40,
-                  width: 32,
-                  padding: 0,
-                  borderRadius: 0,
-                  borderTopRightRadius: 8,
-                  borderBottomRightRadius: 8,
-                  background: isActive('/workcenter') ? 'var(--sidebar-active-bg, #eff6ff)' : 'transparent',
-                  color: isActive('/workcenter') ? '#1d4ed8' : 'var(--text-muted)',
-                }}
-              >
-                <i
-                  className={`fa-solid ${isWorkcenterExpanded ? 'fa-chevron-down' : 'fa-chevron-right'}`}
-                  style={{ fontSize: 11 }}
-                  aria-hidden="true"
-                />
-              </button>
-            </div>
-
-            {/* Submenu Trung tâm điều hành */}
-            {isWorkcenterExpanded && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                  paddingLeft: 18,
-                  marginTop: 2,
-                  marginBottom: 6,
-                  borderLeft: '2px solid #e2e8f0',
-                  marginLeft: 20,
-                }}
-              >
-                <Link
-                  href="/workcenter?tab=today"
-                  className={`sidebar-item sub-item ${isActive('/workcenter') && pathname.includes('tab=today') ? 'active' : ''}`}
-                  onClick={onCloseMobile}
-                  style={{ fontSize: '0.82rem', padding: '6px 12px', minHeight: 32 }}
-                >
-                  <i className="fa-solid fa-list-check" style={{ fontSize: 13 }} aria-hidden="true" />
-                  <span>Công việc trong ngày</span>
-                </Link>
-                <Link
-                  href="/workcenter?tab=scheduled"
-                  className={`sidebar-item sub-item ${isActive('/workcenter') && pathname.includes('tab=scheduled') ? 'active' : ''}`}
-                  onClick={onCloseMobile}
-                  style={{ fontSize: '0.82rem', padding: '6px 12px', minHeight: 32 }}
-                >
-                  <i className="fa-solid fa-hourglass-half" style={{ fontSize: 13 }} aria-hidden="true" />
-                  <span>Văn bản chờ xử lý</span>
-                </Link>
-              </div>
-            )}
+              <Link href="/workcenter" className={`sidebar-item sub-item ${isActive('/workcenter') ? 'active' : ''}`}
+                aria-current={isActive('/workcenter') ? 'page' : undefined} onClick={onCloseMobile}>
+                <i className="fa-solid fa-list-check" aria-hidden="true" /><span>Công việc hôm nay</span>
+              </Link>
+            </div>}
           </div>
 
           {/* 3. LỊCH CÔNG TÁC */}

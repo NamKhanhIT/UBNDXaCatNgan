@@ -13,6 +13,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
             return new CreateTaskCommand
             {
                 Title = "Demo task",
+                RequestId = Guid.NewGuid(),
                 AssignerId = assignerId ?? Guid.NewGuid(),
                 AssigneeId = assigneeId ?? Guid.NewGuid(),
                 Priority = TaskPriority.Medium,

@@ -6,6 +6,7 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.DTOs
     public class OutgoingDocumentDto
     {
         public Guid Id { get; set; }
+        public Guid Version { get; set; }
         public string? DocumentNumber { get; set; }
         public DocumentTypeEnum DocumentType { get; set; }
         public string DocumentTypeName { get; set; } = string.Empty;

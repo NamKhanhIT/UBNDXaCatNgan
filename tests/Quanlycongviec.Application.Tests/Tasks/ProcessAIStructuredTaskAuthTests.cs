@@ -10,6 +10,7 @@ using Quanlycongviec.Domain.Entities;
 using Quanlycongviec.Domain.Enums;
 using Quanlycongviec.Infrastructure.Persistence;
 using Xunit;
+using Quanlycongviec.Application.AI.Models;
 
 namespace Quanlycongviec.Application.Tests.Tasks
 {
@@ -29,6 +30,9 @@ namespace Quanlycongviec.Application.Tests.Tasks
         {
             using var ctx = new ApplicationDbContext(_dbOptions);
             var user = new User { Username = name, FullName = name, Email = $"{name}@test.local", IsDeleted = deleted };
+            var role = new Role { Code = name, Name = name, RankLevel = 1 };
+            user.ActiveRoleCode = role.Code;
+            user.UserRoles.Add(new UserRole { User = user, Role = role, IsPrimary = true });
             ctx.Users.Add(user);
             ctx.SaveChanges();
             return user.Id;
@@ -48,7 +52,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
             );
 
             var act = async () => await handler.Handle(command, CancellationToken.None);
-            await act.Should().ThrowAsync<ArgumentException>("FallbackAssignee must exist in the user store");
+            await act.Should().ThrowAsync<UnauthorizedAccessException>("FallbackAssignee must exist in the user store");
         }
 
         [Fact]
@@ -88,11 +92,11 @@ namespace Quanlycongviec.Application.Tests.Tasks
             );
 
             var act = async () => await handler.Handle(command, CancellationToken.None);
-            await act.Should().ThrowAsync<ArgumentException>("Deleted users must not be selectable as FallbackAssignee");
+            await act.Should().ThrowAsync<UnauthorizedAccessException>("Deleted users must not be selectable as FallbackAssignee");
         }
 
         [Fact]
-        public async Task Handle_ShouldCreateTask_WhenAuthorizedAndAssigneeValid()
+        public async Task Handle_ShouldReturnSuggestionsWithoutCreatingTask_WhenAuthorized()
         {
             using var ctx = new ApplicationDbContext(_dbOptions);
             var assignor = SeedUser("auth1");
@@ -102,7 +106,10 @@ namespace Quanlycongviec.Application.Tests.Tasks
                 .Setup(s => s.CanAssignTaskAsync(assignor, assignee, It.IsAny<Guid?>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync(true);
 
-            var handler = new ProcessAIStructuredTaskCommandHandler(ctx, _authMock.Object);
+            var ai = new Mock<IDocumentAiService>();
+            ai.Setup(x => x.AnalyzeDocumentAsync(It.IsAny<string>(), It.IsAny<System.Collections.Generic.IEnumerable<DepartmentOption>>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new DocumentAnalysisResult { Title = "Gợi ý có thể sửa", Summary = "Tóm tắt từ văn bản" });
+            var handler = new ProcessAIStructuredTaskCommandHandler(ctx, _authMock.Object, ai.Object);
             var command = new ProcessAIStructuredTaskCommand(
                 MeetingNotesOrDocumentText: "Cuộc họp chỉ đạo",
                 AssignerId: assignor,
@@ -111,9 +118,12 @@ namespace Quanlycongviec.Application.Tests.Tasks
 
             var result = await handler.Handle(command, CancellationToken.None);
 
-            result.CreatedTaskId.Should().NotBe(Guid.Empty);
-            ctx.TaskItems.Should().ContainSingle(t =>
-                t.AssignerId == assignor && t.AssigneeId == assignee);
+            result.CreatedTaskId.Should().BeNull();
+            result.Title.Should().Be("Gợi ý có thể sửa");
+            result.DeadlineDate.Should().BeEmpty();
+            result.PassedVerification.Should().BeFalse();
+            ctx.TaskItems.Should().BeEmpty();
+            ctx.Notifications.Should().BeEmpty();
         }
     }
 }

@@ -20,6 +20,8 @@ namespace Quanlycongviec.Application.Tests
                 .UseInMemoryDatabase(Guid.NewGuid().ToString())
                 .Options);
             var received = DateTime.UtcNow;
+            var leader = new User { Username = "inbox_leader", Email = "leader@example.invalid" };
+            WorkflowTestData.AddAssignmentRoles(context, leader, new User { Username = "inbox_officer", Email = "officer@example.invalid" });
             var olderId = Guid.Parse("00000000-0000-0000-0000-000000000001");
             var newerId = Guid.Parse("00000000-0000-0000-0000-000000000002");
             context.InboxDocuments.AddRange(
@@ -32,7 +34,7 @@ namespace Quanlycongviec.Application.Tests
                 {
                     Page = 1,
                     PageSize = 10,
-                    CurrentUserId = Guid.NewGuid(),
+                    CurrentUserId = leader.Id,
                     UserRankLevel = 1
                 }, CancellationToken.None);
 

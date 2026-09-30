@@ -1,42 +1,27 @@
 'use client';
 
 import React, { useMemo } from 'react';
+import { formatDateShort, formatTimeShort, vietnamDateTimeToUtc } from '../lib/formatters';
 
 export interface VnDateTimeInputProps {
   value: string;
   onChange: (iso: string) => void;
   disabled?: boolean;
+  dateOnly?: boolean;
   id?: string;
 }
 
 const isoToLocalTuple = (
   iso: string | null | undefined,
 ): { y: number; m: number; d: number; hh: number; mm: number } => {
-  if (iso) {
-    const d = new Date(iso);
-    if (!isNaN(d.getTime())) {
-      return {
-        y: d.getFullYear(),
-        m: d.getMonth() + 1,
-        d: d.getDate(),
-        hh: d.getHours(),
-        mm: d.getMinutes(),
-      };
-    }
-  }
-  const now = new Date();
-  return {
-    y: now.getFullYear(),
-    m: now.getMonth() + 1,
-    d: now.getDate(),
-    hh: now.getHours(),
-    mm: now.getMinutes(),
-  };
+  const value = iso || new Date();
+  const [d, m, y] = formatDateShort(value).split('-').map(Number);
+  const [hh, mm] = formatTimeShort(value).split(':').map(Number);
+  return { y, m, d, hh, mm };
 };
 
 const buildIso = (y: number, m: number, d: number, hh: number, mm: number): string => {
-  const dt = new Date(y, m - 1, d, hh, mm, 0, 0);
-  return dt.toISOString();
+  return vietnamDateTimeToUtc(`${pad2(d)}-${pad2(m)}-${y}`, `${pad2(hh)}:${pad2(mm)}`) || '';
 };
 
 // Helper pad số → 2 chữ số
@@ -47,12 +32,13 @@ const daysInMonth = (year: number, month1to12: number): number => {
   return new Date(year, month1to12, 0).getDate();
 };
 
-export function VnDateTimeInput({ value, onChange, disabled, id }: VnDateTimeInputProps) {
+export function VnDateTimeInput({ value, onChange, disabled, dateOnly = false, id }: VnDateTimeInputProps) {
   const t = useMemo(() => isoToLocalTuple(value), [value]);
 
   // Cập nhật 1 phần của tuple rồi build lại ISO
   const update = (part: Partial<{ y: number; m: number; d: number; hh: number; mm: number }>) => {
     const merged = { ...t, ...part };
+    merged.d = Math.min(merged.d, daysInMonth(merged.y, merged.m));
     onChange(buildIso(merged.y, merged.m, merged.d, merged.hh, merged.mm));
   };
 
@@ -148,6 +134,7 @@ export function VnDateTimeInput({ value, onChange, disabled, id }: VnDateTimeInp
       </select>
 
       {/* HH */}
+      {!dateOnly && <>
       <select
         aria-label="Giờ"
         disabled={disabled}
@@ -176,6 +163,7 @@ export function VnDateTimeInput({ value, onChange, disabled, id }: VnDateTimeInp
           </option>
         ))}
       </select>
+      </>}
     </div>
   );
 }

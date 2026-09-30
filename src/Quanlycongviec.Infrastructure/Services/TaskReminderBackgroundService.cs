@@ -63,21 +63,21 @@ namespace Quanlycongviec.Infrastructure.Services
                 var zaloService = scope.ServiceProvider.GetService<IZaloNotificationService>();
 
                 var nowUtc = _clock.GetUtcNow().UtcDateTime;
-                // New clients send ISO-8601 UTC. Enable the compatibility switch only for legacy wall-clock data.
-                var vnNow = _configuration.GetValue<bool>("Reminder:UseLegacyVietnamWallClock") ? nowUtc.AddHours(7) : nowUtc;
+                // Workflow timestamps are UTC; legacy values require an explicit per-record migration audit.
+                var vnNow = nowUtc;
 
                 // Lấy các task đang mở (chưa completed/cancelled) có DueDate hoặc đang chờ nghiệm thu
                 var openTasks = await context.TaskItems
                     .Include(t => t.Assigner)
                     .Include(t => t.Assignee)
-                    .Where(t => !t.IsDeleted && t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled && (t.DueDate.HasValue || t.Status == TaskStatusEnum.InReview || t.Status == TaskStatusEnum.PendingUBMTTQReview))
+                    .Where(t => !t.IsDeleted && t.Status != TaskStatusEnum.Completed && t.Status != TaskStatusEnum.Cancelled && (t.DueDate.HasValue || t.Status == TaskStatusEnum.InReview))
                     .ToListAsync(cancellationToken);
 
                 foreach (var task in openTasks)
                 {
                     try
                     {
-                        if (task.Status == TaskStatusEnum.InReview || task.Status == TaskStatusEnum.PendingUBMTTQReview)
+                        if (task.Status == TaskStatusEnum.InReview)
                         {
                             await TrySendReminderAsync(context, dispatcher, null, task, "PendingReview",
                                 NotificationType.BeforeDeadline, $"Chờ nghiệm thu: {task.Title}",
@@ -101,7 +101,7 @@ namespace Quanlycongviec.Infrastructure.Services
                                 typeEnum,
                                 $"Nhắc việc sắp tới hạn ({task.Title})",
                                 $"Công việc [{task.Title}] sẽ hết hạn trong vòng {(timeUntilDue.TotalHours <= 12 ? "12 giờ" : timeUntilDue.TotalHours <= 24 ? "24 giờ" : "48 giờ")}. Vui lòng kiểm tra tiến độ.",
-                                notifyAssigner: true, notifyAssignee: true, cancellationToken);
+                                notifyAssigner: false, notifyAssignee: true, cancellationToken);
                         }
 
                         // 2. Nhắc nhở quá hạn
@@ -111,12 +111,12 @@ namespace Quanlycongviec.Infrastructure.Services
                                 context, dispatcher, zaloService, task, "Overdue",
                                 NotificationType.Overdue,
                                 $"CẢNH BÁO TRỄ HẠN: {task.Title}",
-                                $"Công việc [{task.Title}] đã quá hạn từ ngày {task.DueDate:dd/MM/yyyy HH:mm}. Cần xử lý ngay!",
-                                notifyAssigner: true, notifyAssignee: true, cancellationToken);
+                                $"Công việc [{task.Title}] đã quá hạn từ ngày {task.DueDate.Value.AddHours(7):HH:mm, dd-MM-yyyy}. Cần xử lý ngay!",
+                                notifyAssigner: false, notifyAssignee: true, cancellationToken);
                         }
 
                         // 3. Leo thang công việc khẩn (Urgent + Quá hạn + chưa Leo thang)
-                        if (task.Priority == TaskPriority.Urgent && vnNow > dueDateVn && !task.IsEscalated)
+                        if (task.Priority == TaskPriority.Urgent && vnNow > dueDateVn)
                         {
                             await HandleEscalationAsync(context, dispatcher, task, cancellationToken);
                         }
@@ -142,93 +142,31 @@ namespace Quanlycongviec.Infrastructure.Services
             }
         }
 
-        private async Task ProcessDailyDigestAsync(
-            ApplicationDbContext context,
-            INotificationDispatcher dispatcher,
-            DateTime nowUtc,
-            CancellationToken cancellationToken)
+        private async Task ProcessDailyDigestAsync(ApplicationDbContext context, INotificationDispatcher dispatcher,
+            DateTime nowUtc, CancellationToken cancellationToken)
         {
-            var digestEnabled = _configuration.GetValue<bool>("DailyDigest:Enabled", true);
-            if (!digestEnabled) return;
-
-            // Giờ Việt Nam (UTC+7)
-            var vnTime = nowUtc.AddHours(7);
-            var todayStr = vnTime.ToString("yyyy-MM-dd");
-
-            var targetHour = _configuration.GetValue<int>("DailyDigest:Hour", 7);
-            var targetMinute = _configuration.GetValue<int>("DailyDigest:Minute", 30);
-            var windowMinutes = _configuration.GetValue<int>("DailyDigest:WindowMinutes", 15);
-            if (windowMinutes <= 0) windowMinutes = 15;
-
-            // Chỉ chạy trong khung giờ chính xác (tránh gửi trễ lệch giờ)
-            bool isTargetTime = vnTime.Hour == targetHour
-                && vnTime.Minute >= targetMinute
-                && vnTime.Minute < targetMinute + windowMinutes;
-
-            if (!isTargetTime) return;
-
-            // Marker lưu trong DB để chống gửi trùng kể cả khi server khởi động lại
-            var markerType = $"DailyDigest_{todayStr}";
-            bool alreadySent = await context.ReminderLogs
-                .AnyAsync(r => r.ReminderType == markerType && r.TaskItemId == null, cancellationToken);
-
-            if (alreadySent) return;
-
-            _logger.LogInformation("Đang chạy tiến trình gửi Bản tóm tắt nhắc việc mỗi ngày (Daily Digest) cho ngày {Date}...", todayStr);
-
-            // Đánh dấu đã gửi TRƯỚC khi gửi để phòng trường hợp gửi lỗi nửa chừng
-            var markerLog = new ReminderLog
-            {
-                TaskItemId = null,
-                ReminderType = markerType,
-                SentAt = nowUtc
-            };
-            context.ReminderLogs.Add(markerLog);
-            try
-            {
-                await context.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateException)
-            {
-                context.Entry(markerLog).State = EntityState.Detached;
-                return;
-            }
-
-            var allUsersWithTasks = await context.TaskItems
-                .Where(t => !t.IsDeleted && t.Status != TaskStatusEnum.Completed)
-                .Select(t => t.AssigneeId)
-                .Distinct()
+            if (!_configuration.GetValue<bool>("DailyDigest:Enabled", true)) return;
+            var local = nowUtc.AddHours(7);
+            var target = TimeSpan.FromHours(Math.Clamp(_configuration.GetValue<int>("DailyDigest:Hour", 7), 0, 23))
+                + TimeSpan.FromMinutes(Math.Clamp(_configuration.GetValue<int>("DailyDigest:Minute", 30), 0, 59));
+            var window = TimeSpan.FromMinutes(Math.Clamp(_configuration.GetValue<int>("DailyDigest:WindowMinutes", 15), 1, 60));
+            if (local.TimeOfDay < target || local.TimeOfDay >= target + window) return;
+            var items = await context.TaskItems.AsNoTracking().Where(t => !t.IsDeleted
+                && (t.Status == TaskStatusEnum.Todo || t.Status == TaskStatusEnum.InProgress || (t.Status == TaskStatusEnum.InReview && t.ReviewerId.HasValue)))
+                .Select(t => new { Recipient = t.Status == TaskStatusEnum.InReview ? t.ReviewerId!.Value : t.AssigneeId, t.Status, t.DueDate })
                 .ToListAsync(cancellationToken);
-
-            foreach (var userId in allUsersWithTasks)
+            var activeUsers = await context.Users.Where(u => !u.IsDeleted).Select(u => u.Id).ToListAsync(cancellationToken);
+            foreach (var group in items.Where(t => activeUsers.Contains(t.Recipient)).GroupBy(t => t.Recipient))
             {
-                var userTasks = await context.TaskItems
-                    .Where(t => !t.IsDeleted && t.AssigneeId == userId && t.Status != TaskStatusEnum.Completed)
-                    .ToListAsync(cancellationToken);
-
-                var pendingCount = userTasks.Count;
-                var overdueCount = userTasks.Count(t => t.DueDate.HasValue && t.DueDate.Value < vnTime);
-
-                if (pendingCount > 0)
-                {
-                    string digestTitle = "Tóm Tắt Nhiệm Vụ Hôm Nay - Hệ Thống Quản Lý Công Việc";
-                    string digestMessage = overdueCount > 0
-                        ? $"Chào buổi sáng! Bạn có {pendingCount} việc cần xử lý hôm nay, trong đó có {overdueCount} việc quá hạn. Bấm để xem chi tiết."
-                        : $"Chào buổi sáng! Bạn có {pendingCount} việc cần xử lý hôm nay. Chúc bạn một ngày làm việc hiệu quả!";
-
-                    var notification = new Notification
-                    {
-                        UserId = userId,
-                        Type = NotificationType.WeeklySummary,
-                        Channel = NotificationChannel.InApp,
-                        Title = digestTitle,
-                        Message = digestMessage,
-                        SentAt = DateTime.UtcNow,
-                        IsRead = false
-                    };
-
-                    await dispatcher.DispatchAsync(notification, cancellationToken);
-                }
+                var key = $"DailyDigest:{local:yyyyMMdd}:{group.Key}";
+                var marker = new ReminderLog { Id = ReminderId(key), ReminderType = key, UserId = group.Key, SentAt = nowUtc };
+                var overdue = group.Count(t => t.Status != TaskStatusEnum.InReview && t.DueDate < nowUtc);
+                var review = group.Count(t => t.Status == TaskStatusEnum.InReview);
+                var notification = new Notification { UserId = group.Key, Type = NotificationType.WeeklySummary,
+                    Title = "Công việc đang đến lượt bạn",
+                    Message = $"Bạn có {group.Count() - review} việc cần thực hiện ({overdue} việc quá hạn) và {review} kết quả cần nghiệm thu.",
+                    SentAt = nowUtc };
+                await DeliverReminderAsync(context, dispatcher, marker, new[] { notification }, cancellationToken);
             }
         }
 
@@ -245,89 +183,43 @@ namespace Quanlycongviec.Infrastructure.Services
             bool notifyAssignee,
             CancellationToken cancellationToken)
         {
-            var now = _clock.GetUtcNow().UtcDateTime;
-            // Completed markers suppress duplicate scans. Overdue/review reminders recur after the configured interval.
-            var repeatHours = Math.Clamp(_configuration.GetValue<int>("Reminder:RepeatHours", 24), 1, 168);
-            var recurring = reminderType == "Overdue" || reminderType == "PendingReview";
-            var latest = await context.ReminderLogs
-                .Where(r => r.TaskItemId == task.Id && (r.ReminderType == reminderType || r.ReminderType.StartsWith(reminderType + "_")))
-                .OrderByDescending(r => r.SentAt).FirstOrDefaultAsync(cancellationToken);
-            if (latest != null && latest.SentAt > DateTime.UnixEpoch
-                && (!recurring || now - latest.SentAt < TimeSpan.FromHours(repeatHours))) return;
-
-            var key = latest == null || latest.SentAt == DateTime.UnixEpoch ? latest?.ReminderType ?? reminderType
-                : reminderType + "_" + ((long)(now - DateTime.UnixEpoch).TotalHours / (int)repeatHours);
-            var reminderLog = await context.ReminderLogs.FirstOrDefaultAsync(r => r.TaskItemId == task.Id && r.ReminderType == key, cancellationToken);
-            if (reminderLog?.SentAt > DateTime.UnixEpoch) return;
-            if (reminderLog == null)
-            {
-                reminderLog = new ReminderLog { TaskItemId = task.Id, ReminderType = key, SentAt = DateTime.UnixEpoch };
-                context.ReminderLogs.Add(reminderLog);
-                try { await context.SaveChangesAsync(cancellationToken); }
-                catch (DbUpdateException) { context.Entry(reminderLog).State = EntityState.Detached; return; }
-            }
-
-            var recipients = new HashSet<Guid>();
-            if (notifyAssignee) recipients.Add(task.AssigneeId);
-            if (notifyAssigner) recipients.Add(task.AssignerId);
-
-            foreach (var userId in recipients)
-            {
-                // Stable IDs make retry after a partial delivery idempotent in the notification store.
-                var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{reminderLog.Id}:{userId}"));
-                var notification = new Notification
-                {
-                    Id = new Guid(bytes.AsSpan(0, 16)),
-                    UserId = userId,
-                    TaskItemId = task.Id,
-                    Type = notificationType,
-                    Channel = NotificationChannel.InApp,
-                    Title = title,
-                    Message = message,
-                    SentAt = now,
-                    IsRead = false
-                };
-
-                await dispatcher.DispatchAsync(notification, cancellationToken);
-
-                // Optional external channel must not prevent durable in-app reminders.
-                if (zaloService != null)
-                {
-                    try
-                    {
-                        var user = await context.Users.FindAsync(new object[] { userId }, cancellationToken);
-                        if (user != null && !string.IsNullOrWhiteSpace(user.ZaloPhoneNumber))
-                        {
-                            await zaloService.SendZnsAsync(user.ZaloPhoneNumber, "REMINDER_TEMPLATE", new { title, message });
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Kênh Zalo không gửi được nhắc việc {TaskId}", task.Id);
-                    }
-                }
-            }
-
-            reminderLog.SentAt = now;
-            await context.SaveChangesAsync(cancellationToken);
+            await WorkflowTaskReminder.SendAsync(context, dispatcher, task, _clock.GetUtcNow().UtcDateTime,
+                _configuration.GetValue<int>("Reminder:RepeatHours", 24), reminderType, notificationType,
+                title, message, cancellationToken);
         }
 
-        private async Task DeliverReminderAsync(
-            ApplicationDbContext context,
-            INotificationDispatcher dispatcher,
-            ReminderLog marker,
-            IEnumerable<Notification> notifications,
-            CancellationToken cancellationToken)
+        private static Guid ReminderId(string value)
         {
-            // Marker is completed only after all notifications are durable. IDs stay stable on retry.
-            foreach (var notification in notifications)
+            var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value));
+            return new Guid(hash.AsSpan(0, 16));
+        }
+
+        private async Task DeliverReminderAsync(ApplicationDbContext context, INotificationDispatcher dispatcher,
+            ReminderLog marker, IEnumerable<Notification> notifications, CancellationToken cancellationToken)
+        {
+            if (await context.ReminderLogs.AnyAsync(r => r.Id == marker.Id, cancellationToken)) return;
+            var pending = notifications.ToList();
+            foreach (var notification in pending)
             {
-                var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{marker.Id}:{notification.UserId}"));
-                notification.Id = new Guid(bytes.AsSpan(0, 16));
-                await dispatcher.DispatchAsync(notification, cancellationToken);
+                notification.Id = pending.Count == 1 ? marker.Id : ReminderId($"{marker.Id}:{notification.UserId}");
+                notification.RequiresRealtimeDelivery = true;
+                context.Notifications.Add(notification);
             }
-            marker.SentAt = _clock.GetUtcNow().UtcDateTime;
-            await context.SaveChangesAsync(cancellationToken);
+            context.ReminderLogs.Add(marker);
+            try { await context.SaveChangesAsync(cancellationToken); }
+            catch (DbUpdateException)
+            {
+                context.Entry(marker).State = EntityState.Detached;
+                foreach (var notification in pending) context.Entry(notification).State = EntityState.Detached;
+                // A concurrent scan or changed object may win; the next scan reloads current state.
+                throw;
+            }
+            foreach (var notification in pending)
+            {
+                try { await dispatcher.DispatchAsync(notification, cancellationToken); }
+                catch (Exception) when (!cancellationToken.IsCancellationRequested)
+                { /* Durable delivery worker owns retries; continue saving the other recipients. */ }
+            }
         }
 
         private async Task HandleEscalationAsync(
@@ -336,235 +228,74 @@ namespace Quanlycongviec.Infrastructure.Services
             TaskItem task,
             CancellationToken cancellationToken)
         {
-            // Kiểm tra xem đã leo thang chưa
-            bool alreadyEscalated = await context.ReminderLogs
-                .AnyAsync(r => r.TaskItemId == task.Id && r.ReminderType == "Escalation", cancellationToken);
-
-            if (alreadyEscalated) return;
-
+            if (!await context.Users.AnyAsync(u => u.Id == task.AssignerId && !u.IsDeleted, cancellationToken)) return;
+            var key = $"Escalation:{task.AssignerId}:{task.DueDate?.Ticks}";
+            var id = ReminderId($"{task.Id}:{key}");
+            if (await context.ReminderLogs.AnyAsync(r => r.Id == id, cancellationToken)) return;
+            // The named assigner owns escalation. A department label must never broadcast task data.
             task.IsEscalated = true;
-            context.TaskItems.Update(task);
-
-            var reminderLog = new ReminderLog
+            context.Entry(task).Property(t => t.Version).IsModified = true;
+            var now = _clock.GetUtcNow().UtcDateTime;
+            var marker = new ReminderLog { Id = id, TaskItemId = task.Id, UserId = task.AssignerId, ReminderType = key, SentAt = now };
+            await DeliverReminderAsync(context, dispatcher, marker, new[] { new Notification
             {
-                TaskItemId = task.Id,
-                ReminderType = "Escalation",
-                SentAt = DateTime.UtcNow
-            };
-            context.ReminderLogs.Add(reminderLog);
+                UserId = task.AssignerId, TaskItemId = task.Id, Type = NotificationType.Escalation,
+                Title = $"CÔNG VIỆC KHẨN TRỄ HẠN: {task.Title}",
+                Message = $"Công việc khẩn [{task.Title}] do bạn giao đã quá hạn. Vui lòng kiểm tra tiến độ.", SentAt = now
+            } }, cancellationToken);
+        }
 
-            try
+        private async Task ProcessWeeklySummaryAsync(ApplicationDbContext context, INotificationDispatcher dispatcher,
+            DateTime nowUtc, CancellationToken cancellationToken)
+        {
+            var local = nowUtc.AddHours(7);
+            if (local.DayOfWeek != DayOfWeek.Monday || local.Hour != 7) return;
+            var tasks = await context.TaskItems.AsNoTracking().Where(t => !t.IsDeleted && t.Type == TaskType.BAU
+                && (t.Status == TaskStatusEnum.Todo || t.Status == TaskStatusEnum.InProgress))
+                .Select(t => t.AssigneeId).ToListAsync(cancellationToken);
+            var activeUsers = await context.Users.Where(u => !u.IsDeleted).Select(u => u.Id).ToListAsync(cancellationToken);
+            foreach (var group in tasks.Where(activeUsers.Contains).GroupBy(id => id))
             {
-                await context.SaveChangesAsync(cancellationToken);
-            }
-            catch (DbUpdateException)
-            {
-                context.Entry(reminderLog).State = EntityState.Detached;
-                return;
-            }
-
-            var recipients = new HashSet<Guid> { task.AssignerId };
-
-            // Tìm Trưởng phòng / Lãnh đạo cao nhất trong phòng ban của Task
-            if (task.DepartmentId.HasValue)
-            {
-                var deptLeaders = await context.UserRoles
-                    .Include(ur => ur.Role)
-                    .Where(ur => ur.DepartmentId == task.DepartmentId.Value)
-                    .OrderBy(ur => ur.Role.RankLevel)
-                    .Select(ur => ur.UserId)
-                    .ToListAsync(cancellationToken);
-
-                if (deptLeaders.Any())
+                var key = $"WeeklySummary:{local:yyyyMMdd}:{group.Key}";
+                var marker = new ReminderLog { Id = ReminderId(key), UserId = group.Key, ReminderType = key, SentAt = nowUtc };
+                await DeliverReminderAsync(context, dispatcher, marker, new[] { new Notification
                 {
-                    recipients.Add(deptLeaders.First());
-                }
-            }
-
-            // Nếu không xác định được trưởng phòng, gửi cho Lãnh đạo RankLevel <= 2
-            if (recipients.Count == 1)
-            {
-                var leaders = await context.UserRoles
-                    .Include(ur => ur.Role)
-                    .Where(ur => ur.Role.RankLevel <= 2)
-                    .Select(ur => ur.UserId)
-                    .ToListAsync(cancellationToken);
-
-                foreach (var lId in leaders) recipients.Add(lId);
-            }
-
-            foreach (var userId in recipients)
-            {
-                var notification = new Notification
-                {
-                    UserId = userId,
-                    TaskItemId = task.Id,
-                    Type = NotificationType.Escalation,
-                    Channel = NotificationChannel.InApp,
-                    Title = $"CÔNG VIỆC KHẨN TRỄ HẠN: {task.Title}",
-                    Message = $"Nhiệm vụ KHẨN CẤP [{task.Title}] đã trễ hạn và được tự động leo thang tới Lãnh đạo quản lý trực tiếp.",
-                    SentAt = DateTime.UtcNow,
-                    IsRead = false
-                };
-
-                await dispatcher.DispatchAsync(notification, cancellationToken);
+                    UserId = group.Key, Type = NotificationType.WeeklySummary, Title = "Công việc thường xuyên trong tuần",
+                    Message = $"Bạn có {group.Count()} công việc thường xuyên chưa hoàn thành.", SentAt = nowUtc
+                } }, cancellationToken);
             }
         }
 
-        private async Task ProcessWeeklySummaryAsync(
-            ApplicationDbContext context,
-            INotificationDispatcher dispatcher,
-            DateTime nowUtc,
-            CancellationToken cancellationToken)
+        private async Task ProcessEventRemindersAsync(ApplicationDbContext context, INotificationDispatcher dispatcher,
+            DateTime nowUtc, CancellationToken cancellationToken)
         {
-            // Chuyển sang giờ Việt Nam (Asia/Ho_Chi_Minh hoặc SE Asia Standard Time)
-            TimeZoneInfo vnTimeZone;
-            try
+            var events = await context.CalendarEvents.Include(e => e.Participants).Include(e => e.ReminderOffsets)
+                .Where(e => !e.IsDeleted && e.EndDateTime >= nowUtc).ToListAsync(cancellationToken);
+            foreach (var evt in events)
             {
-                vnTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time");
-            }
-            catch
-            {
-                vnTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
-            }
-
-            var vnNow = TimeZoneInfo.ConvertTimeFromUtc(nowUtc, vnTimeZone);
-
-            // Chỉ chạy vào sáng thứ Hai trong khung giờ 07:00 - 08:00 (tránh gửi lúc nửa đêm / cả ngày)
-            if (vnNow.DayOfWeek != DayOfWeek.Monday) return;
-            if (vnNow.Hour < 7 || vnNow.Hour >= 8) return;
-
-            int calendarWeek = CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(vnNow, CalendarWeekRule.FirstFourDayWeek, DayOfWeek.Monday);
-            string weeklyKey = $"WeeklySummary_{vnNow.Year}_W{calendarWeek}";
-
-            // Lấy tất cả user có BAU tasks đang mở
-            var openBauTasks = await context.TaskItems
-                .Where(t => !t.IsDeleted && t.Type == TaskType.BAU && t.Status != TaskStatusEnum.Completed)
-                .ToListAsync(cancellationToken);
-
-            var userTaskGroups = openBauTasks.GroupBy(t => t.AssigneeId);
-
-            foreach (var group in userTaskGroups)
-            {
-                var userId = group.Key;
-                bool alreadySent = await context.ReminderLogs
-                    .AnyAsync(r => r.UserId == userId && r.ReminderType == weeklyKey, cancellationToken);
-
-                if (alreadySent) continue;
-
-                var reminderLog = new ReminderLog
+                foreach (var offset in evt.ReminderOffsets.Where(o => !o.IsDeleted && o.MinutesBefore >= 0))
                 {
-                    UserId = userId,
-                    ReminderType = weeklyKey,
-                    SentAt = DateTime.UtcNow
-                };
-                context.ReminderLogs.Add(reminderLog);
-
-                try
-                {
-                    await context.SaveChangesAsync(cancellationToken);
-                }
-                catch (DbUpdateException)
-                {
-                    context.Entry(reminderLog).State = EntityState.Detached;
-                    continue;
-                }
-
-                int taskCount = group.Count();
-                var notification = new Notification
-                {
-                    UserId = userId,
-                    Type = NotificationType.WeeklySummary,
-                    Channel = NotificationChannel.InApp,
-                    Title = $"Tóm tắt công việc thường xuyên tuần {calendarWeek}",
-                    Message = $"Đồng chí hiện có {taskCount} nhiệm vụ thường xuyên cần tập trung hoàn thành trong tuần này.",
-                    SentAt = DateTime.UtcNow,
-                    IsRead = false
-                };
-
-                await dispatcher.DispatchAsync(notification, cancellationToken);
-            }
-        }
-
-        private async Task ProcessEventRemindersAsync(
-            ApplicationDbContext context,
-            INotificationDispatcher dispatcher,
-            DateTime vnNow,
-            CancellationToken cancellationToken)
-        {
-            var activeEvents = await context.CalendarEvents
-                .Include(e => e.Participants)
-                .Include(e => e.ReminderOffsets)
-                .Where(e => !e.IsDeleted && e.EndDateTime >= vnNow)
-                .ToListAsync(cancellationToken);
-
-            foreach (var evt in activeEvents)
-            {
-                // Quy ước: StartDateTime lưu theo giờ VN (Kind=Utc) => so sánh trực tiếp với giờ VN
-                var startVn = evt.StartDateTime;
-
-                foreach (var offset in evt.ReminderOffsets)
-                {
-                    var triggerTime = startVn.AddMinutes(-offset.MinutesBefore);
-
-                    if (vnNow >= triggerTime && vnNow <= startVn.AddMinutes(30))
+                    if (nowUtc < evt.StartDateTime.AddMinutes(-offset.MinutesBefore) || nowUtc > evt.StartDateTime.AddMinutes(30)) continue;
+                    var recipients = evt.Participants.Where(p => !p.IsDeleted).Select(p => p.UserId).Append(evt.OrganizerId).Distinct().ToList();
+                    recipients = await context.Users.Where(u => recipients.Contains(u.Id) && !u.IsDeleted).Select(u => u.Id).ToListAsync(cancellationToken);
+                    foreach (var userId in recipients)
                     {
-                        string reminderType = $"EventReminder_{evt.Id}_{offset.MinutesBefore}m";
-
-                        bool exists = await context.ReminderLogs
-                            .AnyAsync(r => r.CalendarEventId == evt.Id && r.ReminderType == reminderType, cancellationToken);
-
-                        if (exists) continue;
-
-                        var reminderLog = new ReminderLog
-                        {
-                            CalendarEventId = evt.Id,
-                            ReminderType = reminderType,
-                            SentAt = DateTime.UtcNow
-                        };
-                        context.ReminderLogs.Add(reminderLog);
-
+                        var key = $"EventReminder:{evt.Id}:{evt.Version}:{evt.StartDateTime.Ticks}:{offset.MinutesBefore}:{userId}";
+                        var marker = new ReminderLog { Id = ReminderId(key), CalendarEventId = evt.Id, UserId = userId, ReminderType = key, SentAt = nowUtc };
+                        context.Entry(evt).Property(e => e.Version).IsModified = true;
                         try
                         {
-                            await context.SaveChangesAsync(cancellationToken);
+                            await DeliverReminderAsync(context, dispatcher, marker, new[] { new Notification
+                            {
+                                UserId = userId, CalendarEventId = evt.Id, Type = NotificationType.EventReminder,
+                                Title = "Sắp diễn ra: " + evt.Title,
+                                Message = $"Bắt đầu {evt.StartDateTime.AddHours(7):HH:mm, dd-MM-yyyy}. Địa điểm: {evt.Location ?? "Chưa xác định"}.", SentAt = nowUtc
+                            } }, cancellationToken);
                         }
                         catch (DbUpdateException)
                         {
-                            context.Entry(reminderLog).State = EntityState.Detached;
-                            continue;
-                        }
-
-                        // Danh sách người nhận: Ban tổ chức + Tất cả người tham gia
-                        var recipients = new HashSet<Guid> { evt.OrganizerId };
-                        foreach (var p in evt.Participants)
-                        {
-                            recipients.Add(p.UserId);
-                        }
-
-                        string timeText = offset.MinutesBefore >= 1440
-                            ? $"{offset.MinutesBefore / 1440} ngày"
-                            : offset.MinutesBefore >= 60
-                                ? $"{offset.MinutesBefore / 60} giờ"
-                                : $"{offset.MinutesBefore} phút";
-
-                        string title = $"SẮP DIỄN RA SỰ KIỆN: {evt.Title}";
-                        string message = $"Sự kiện [{evt.Title}] sẽ diễn ra trong vòng {timeText} tới ({evt.StartDateTime:dd/MM/yyyy HH:mm}). Địa điểm: {evt.Location ?? "Trụ sở đơn vị"}.";
-
-                        foreach (var userId in recipients)
-                        {
-                            var notification = new Notification
-                            {
-                                UserId = userId,
-                                CalendarEventId = evt.Id,
-                                Type = NotificationType.EventReminder,
-                                Channel = NotificationChannel.InApp,
-                                Title = title,
-                                Message = message,
-                                SentAt = DateTime.UtcNow,
-                                IsRead = false
-                            };
-
-                            await dispatcher.DispatchAsync(notification, cancellationToken);
+                            context.Entry(evt).State = EntityState.Detached;
+                            break;
                         }
                     }
                 }

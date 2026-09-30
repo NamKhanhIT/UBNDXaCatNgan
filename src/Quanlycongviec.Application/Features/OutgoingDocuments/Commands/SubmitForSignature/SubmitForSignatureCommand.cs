@@ -12,45 +12,17 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Commands.SubmitF
     public class SubmitForSignatureCommand : IRequest<bool>
     {
         public Guid Id { get; set; }
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
         public Guid UserId { get; set; }
     }
 
-    public class SubmitForSignatureCommandHandler : IRequestHandler<SubmitForSignatureCommand, bool>
+    public class SubmitForSignatureCommandHandler(IApplicationDbContext context, INotificationDispatcher? dispatcher = null) : IRequestHandler<SubmitForSignatureCommand, bool>
     {
-        private readonly IApplicationDbContext _context;
-
-        public SubmitForSignatureCommandHandler(IApplicationDbContext context)
+        public async Task<bool> Handle(SubmitForSignatureCommand request, CancellationToken ct)
         {
-            _context = context;
-        }
-
-        public async Task<bool> Handle(SubmitForSignatureCommand request, CancellationToken cancellationToken)
-        {
-            var doc = await _context.OutgoingDocuments.FirstOrDefaultAsync(o => o.Id == request.Id, cancellationToken);
-            if (doc == null)
-            {
-                throw new InvalidOperationException($"Không tìm thấy văn bản đi có Id = {request.Id}");
-            }
-
-            if (doc.Status != OutgoingDocumentStatusEnum.Draft && doc.Status != OutgoingDocumentStatusEnum.Rejected)
-            {
-                throw new InvalidOperationException("Chỉ có thể trình ký văn bản đang ở trạng thái Nháp hoặc Bị từ chối.");
-            }
-
-            doc.Status = OutgoingDocumentStatusEnum.PendingSignature;
-            doc.RejectionReason = null; // Clear old rejection reason if re-submitted
-
-            _context.AuditLogs.Add(new AuditLog
-            {
-                Id = Guid.NewGuid(),
-                UserId = request.UserId,
-                Action = "SubmitForSignature",
-                EntityName = nameof(OutgoingDocument),
-                EntityId = doc.Id.ToString(),
-                Details = $"Trình ký duyệt văn bản đi: {doc.Title}"
-            });
-
-            await _context.SaveChangesAsync(cancellationToken);
+            var id = await new Quanlycongviec.Application.Common.Services.OutgoingDocumentWorkflow(context, dispatcher)
+                .ActAsync(request.UserId, request.Id, "submit", new() { RequestId = request.RequestId, Version = request.Version }, ct);
             return true;
         }
     }

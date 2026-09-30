@@ -13,6 +13,8 @@ namespace Quanlycongviec.Application.Features.CalendarEvents.Queries.GetCalendar
 {
     public class GetCalendarEventsQuery : IRequest<List<CalendarEventDto>>
     {
+        public Guid CurrentUserId { get; set; }
+        public Guid? EventId { get; set; }
         public DateTime? From { get; set; }
         public DateTime? To { get; set; }
         public Guid? DepartmentId { get; set; }
@@ -30,13 +32,17 @@ namespace Quanlycongviec.Application.Features.CalendarEvents.Queries.GetCalendar
 
         public async Task<List<CalendarEventDto>> Handle(GetCalendarEventsQuery request, CancellationToken cancellationToken)
         {
-            var query = _context.CalendarEvents
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId, cancellationToken);
+            if (actor == null) return new();
+            var query = access.Events(actor)
                 .Include(e => e.Organizer)
                 .Include(e => e.Department)
                 .Include(e => e.Participants)
                     .ThenInclude(p => p.User)
                 .Include(e => e.ReminderOffsets)
                 .Where(e => !e.IsDeleted);
+            if (request.EventId.HasValue) query = query.Where(e => e.Id == request.EventId);
 
             if (request.From.HasValue)
             {
@@ -57,7 +63,7 @@ namespace Quanlycongviec.Application.Features.CalendarEvents.Queries.GetCalendar
 
             if (request.UserId.HasValue)
             {
-                query = query.Where(e => e.OrganizerId == request.UserId.Value || e.Participants.Any(p => p.UserId == request.UserId.Value));
+                query = query.Where(e => e.OrganizerId == request.UserId.Value || e.Participants.Any(p => !p.IsDeleted && p.UserId == request.UserId.Value));
             }
 
             var events = await query
@@ -67,6 +73,9 @@ namespace Quanlycongviec.Application.Features.CalendarEvents.Queries.GetCalendar
             return events.Select(e => new CalendarEventDto
             {
                 Id = e.Id,
+                Version = e.Version,
+                SourceInboxDocumentId = e.SourceInboxDocumentId,
+                CanEdit = e.OrganizerId == actor.Id,
                 Title = e.Title,
                 Description = e.Description,
                 EventType = e.EventType.ToString(),
@@ -81,14 +90,14 @@ namespace Quanlycongviec.Application.Features.CalendarEvents.Queries.GetCalendar
                 DepartmentName = e.Department != null ? e.Department.Name : string.Empty,
                 ColorTag = e.ColorTag,
                 RelatedTaskItemId = e.RelatedTaskItemId,
-                Participants = e.Participants.Select(p => new EventParticipantDto
+                Participants = e.Participants.Where(p => !p.IsDeleted).Select(p => new EventParticipantDto
                 {
                     UserId = p.UserId,
                     UserName = p.User != null ? p.User.FullName : string.Empty,
                     HasResponded = p.HasResponded,
                     ResponseStatus = p.ResponseStatus.ToString()
                 }).ToList(),
-                ReminderOffsetsMinutes = e.ReminderOffsets.Select(r => r.MinutesBefore).ToList()
+                ReminderOffsetsMinutes = e.ReminderOffsets.Where(r => !r.IsDeleted).Select(r => r.MinutesBefore).ToList()
             }).ToList();
         }
 

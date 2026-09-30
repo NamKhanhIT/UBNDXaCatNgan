@@ -16,6 +16,7 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
     {
         public Guid TaskId { get; set; }
         public Guid UserId { get; set; }
+        public Guid RequestId { get; set; }
         public string Content { get; set; } = string.Empty;
     }
 
@@ -61,6 +62,12 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
             if (user == null)
                 return new CreateTaskCommentResult { Success = false, Message = "Người dùng không hợp lệ." };
 
+            var ops = new Quanlycongviec.Application.Common.Services.WorkflowOperations(_context, _notificationDispatcher);
+            var fingerprint = Quanlycongviec.Application.Common.Services.WorkflowOperations.Fingerprint("CreateTaskComment", request);
+            var replay = await ops.ReplayAsync(request.UserId, request.RequestId, fingerprint, cancellationToken);
+            if (replay.HasValue) return new CreateTaskCommentResult { Success = true, CommentId = replay.Value, Message = "Đã thêm bình luận." };
+            if (string.IsNullOrWhiteSpace(request.Content)) throw new ArgumentException("Vui lòng nhập nội dung trao đổi.");
+
             // 1. Tạo comment
             var comment = new TaskComment
             {
@@ -82,6 +89,10 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
                 var allUsers = await _context.Users
                     .Where(u => !u.IsDeleted)
                     .ToListAsync(cancellationToken);
+                var permitted = new List<User>();
+                foreach (var candidate in allUsers)
+                    if (await _authorizationService.CanAccessTaskAsync(candidate.Id, task.Id, cancellationToken)) permitted.Add(candidate);
+                allUsers = permitted;
 
                 foreach (var mention in mentionedUsernames)
                 {
@@ -140,12 +151,11 @@ namespace Quanlycongviec.Application.Features.Comments.Commands.CreateComment
                     + (mentionedUsers.Count > 0 ? $" (nhắc: {string.Join(", ", mentionedUsers)})" : "")
             });
 
-            await _context.SaveChangesAsync(cancellationToken);
-
-            if (_notificationDispatcher != null && notificationsToSend.Count > 0)
-            {
-                await _notificationDispatcher.DispatchBatchAsync(notificationsToSend, cancellationToken);
-            }
+            notificationsToSend = notificationsToSend.DistinctBy(n => n.UserId).ToList();
+            foreach (var notification in notificationsToSend) notification.RequiresRealtimeDelivery = true;
+            _context.Notifications.AddRange(notificationsToSend);
+            await ops.CommitAsync(request.UserId, request.RequestId, fingerprint, comment.Id, cancellationToken);
+            await ops.PublishAsync(notificationsToSend, cancellationToken);
 
             return new CreateTaskCommentResult
             {

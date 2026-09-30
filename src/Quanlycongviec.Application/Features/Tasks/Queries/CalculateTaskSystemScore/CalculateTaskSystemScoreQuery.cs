@@ -8,7 +8,7 @@ using Quanlycongviec.Application.Common.Interfaces;
 
 namespace Quanlycongviec.Application.Features.Tasks.Queries.CalculateTaskSystemScore
 {
-    public record CalculateTaskSystemScoreQuery(Guid TaskItemId) : IRequest<SystemScoreBreakdown>;
+    public record CalculateTaskSystemScoreQuery(Guid TaskItemId, Guid CurrentUserId = default) : IRequest<SystemScoreBreakdown>;
 
     public class CalculateTaskSystemScoreQueryHandler : IRequestHandler<CalculateTaskSystemScoreQuery, SystemScoreBreakdown>
     {
@@ -25,13 +25,16 @@ namespace Quanlycongviec.Application.Features.Tasks.Queries.CalculateTaskSystemS
 
         public async Task<SystemScoreBreakdown> Handle(CalculateTaskSystemScoreQuery request, CancellationToken cancellationToken)
         {
-            var task = await _context.TaskItems
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId, cancellationToken)
+                ?? throw new UnauthorizedAccessException("Phiên làm việc không hợp lệ.");
+            var task = await access.Tasks(actor)
                 .Include(t => t.SubTasks)
                 .FirstOrDefaultAsync(t => t.Id == request.TaskItemId, cancellationToken);
 
             if (task == null)
             {
-                throw new InvalidOperationException("Công việc không tồn tại.");
+                throw new UnauthorizedAccessException("Không được truy cập công việc ngoài phạm vi quyền.");
             }
 
             // Đếm số lần bị trả lại từ ActivityLog

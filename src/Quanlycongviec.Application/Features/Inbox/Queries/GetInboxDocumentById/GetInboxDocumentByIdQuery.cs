@@ -40,6 +40,12 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocumentById
                 .FirstOrDefaultAsync(d => d.Id == request.Id && !d.IsDeleted, cancellationToken);
 
             if (doc == null) return null;
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId, cancellationToken);
+            if (actor == null) return null;
+            var visibleTasks = access.Tasks(actor).Select(t => t.Id);
+            var relatedTask = await _context.TaskDocumentLinks.Where(l => l.InboxDocumentId == doc.Id && !l.IsDeleted && visibleTasks.Contains(l.TaskItemId))
+                .OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).Select(l => (Guid?)l.TaskItemId).FirstOrDefaultAsync(cancellationToken);
 
             return new InboxDocumentDto
             {
@@ -67,10 +73,10 @@ namespace Quanlycongviec.Application.Features.Inbox.Queries.GetInboxDocumentById
                 CitizenName = doc.CitizenName,
                 CitizenPhone = doc.CitizenPhone,
                 ServiceCode = doc.ServiceCode,
-                IsScheduled = doc.IsScheduled,
+                IsScheduled = relatedTask.HasValue,
                 ScheduledDate = doc.ScheduledDate,
                 ScheduledShift = doc.ScheduledShift,
-                ScheduledTaskId = doc.ScheduledTaskId,
+                ScheduledTaskId = relatedTask,
                 DocumentSymbol = doc.DocumentSymbol,
                 IssuingAgency = doc.IssuingAgency,
                 SignerName = doc.SignerName,

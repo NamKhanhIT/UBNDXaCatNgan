@@ -17,6 +17,7 @@ using Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetDocumentV
 using Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgoingDocumentById;
 using Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgoingDocumentsPaginated;
 using Quanlycongviec.Domain.Enums;
+using Quanlycongviec.Application.Common.Services;
 
 namespace Quanlycongviec.Api.Controllers
 {
@@ -108,10 +109,7 @@ namespace Quanlycongviec.Api.Controllers
         public async Task<IActionResult> Update(Guid id, [FromBody] UpdateOutgoingDocumentCommand command)
         {
             command.Id = id;
-            if (command.UserId == Guid.Empty)
-            {
-                command.UserId = GetCurrentUserId();
-            }
+            command.UserId = GetCurrentUserId();
 
             var success = await _mediator.Send(command);
             return Ok(new { success });
@@ -121,10 +119,10 @@ namespace Quanlycongviec.Api.Controllers
         /// Trình ký duyệt văn bản (Draft -> PendingSignature)
         /// </summary>
         [HttpPost("{id}/submit-for-signature")]
-        public async Task<IActionResult> SubmitForSignature(Guid id)
+        public async Task<IActionResult> SubmitForSignature(Guid id, [FromBody] OutgoingActionInput request)
         {
             var userId = GetCurrentUserId();
-            var success = await _mediator.Send(new SubmitForSignatureCommand { Id = id, UserId = userId });
+            var success = await _mediator.Send(new SubmitForSignatureCommand { Id = id, UserId = userId, RequestId = request.RequestId, Version = request.Version });
             return Ok(new { success });
         }
 
@@ -132,7 +130,7 @@ namespace Quanlycongviec.Api.Controllers
         /// Ký & Ban hành văn bản (Dành cho Lãnh đạo - Tự động cấp số hiệu chính thức)
         /// </summary>
         [HttpPost("{id}/sign")]
-        public async Task<IActionResult> SignAndIssue(Guid id)
+        public async Task<IActionResult> SignAndIssue(Guid id, [FromBody] OutgoingActionInput request)
         {
             var userId = GetCurrentUserId();
             var rankLevel = GetUserRankLevel();
@@ -142,6 +140,7 @@ namespace Quanlycongviec.Api.Controllers
                 Id = id,
                 UserId = userId,
                 UserRankLevel = rankLevel
+                , RequestId = request.RequestId, Version = request.Version
             });
 
             return Ok(new { success = true, documentNumber = docNumber });
@@ -160,6 +159,7 @@ namespace Quanlycongviec.Api.Controllers
             {
                 Id = id,
                 RejectionReason = request.RejectionReason,
+                RequestId = request.RequestId, Version = request.Version,
                 UserId = userId,
                 UserRankLevel = rankLevel
             });
@@ -171,10 +171,10 @@ namespace Quanlycongviec.Api.Controllers
         /// Thu hồi văn bản chờ ký về nháp
         /// </summary>
         [HttpPost("{id}/revoke")]
-        public async Task<IActionResult> Revoke(Guid id)
+        public async Task<IActionResult> Revoke(Guid id, [FromBody] OutgoingActionInput request)
         {
             var userId = GetCurrentUserId();
-            var success = await _mediator.Send(new RevokeToDraftCommand { Id = id, UserId = userId });
+            var success = await _mediator.Send(new RevokeToDraftCommand { Id = id, UserId = userId, RequestId = request.RequestId, Version = request.Version });
             return Ok(new { success });
         }
 
@@ -190,6 +190,7 @@ namespace Quanlycongviec.Api.Controllers
                 Id = id,
                 UserId = userId,
                 Reason = request.Reason
+                , RequestId = request.RequestId, Version = request.Version
             });
             return Ok(new { success });
         }
@@ -206,6 +207,7 @@ namespace Quanlycongviec.Api.Controllers
                 Id = id,
                 UserId = userId,
                 Reason = request.Reason
+                , RequestId = request.RequestId, Version = request.Version
             });
             return Ok(new { success });
         }
@@ -220,6 +222,7 @@ namespace Quanlycongviec.Api.Controllers
             var versionId = await _mediator.Send(new CreateDocumentVersionCommand
             {
                 DocumentId = id,
+                RequestId = request.RequestId, Version = request.Version,
                 UserId = userId,
                 Title = request.Title,
                 Content = request.Content,
@@ -235,28 +238,36 @@ namespace Quanlycongviec.Api.Controllers
         [HttpGet("{id}/versions")]
         public async Task<IActionResult> GetVersions(Guid id)
         {
-            var versions = await _mediator.Send(new GetDocumentVersionsQuery { DocumentId = id });
+            var versions = await _mediator.Send(new GetDocumentVersionsQuery { DocumentId = id, CurrentUserId = GetCurrentUserId() });
             return Ok(new { success = true, data = versions });
         }
     }
 
     public class RejectDocumentRequest
     {
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
         public string RejectionReason { get; set; } = string.Empty;
     }
 
     public class RevokeIssuedDocumentRequest
     {
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
         public string Reason { get; set; } = string.Empty;
     }
 
     public class CancelDocumentRequest
     {
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
         public string Reason { get; set; } = string.Empty;
     }
 
     public class CreateVersionRequest
     {
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
         public string Title { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
         public string? AttachmentUrl { get; set; }

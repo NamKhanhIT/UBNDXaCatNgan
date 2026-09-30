@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Quanlycongviec.Application;
@@ -15,7 +16,8 @@ namespace Quanlycongviec.Api.IntegrationTests
         [Fact]
         public void DependencyInjection_WebApplicationBuilder_ShouldBuildSuccessfully()
         {
-            var builder = WebApplication.CreateBuilder(new string[0]);
+            var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+            builder.WebHost.UseKestrel();
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 { "Jwt:Secret", "ThisIsASecretKeyForTestingPurposesOnly1234567890!" },

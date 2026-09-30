@@ -34,14 +34,18 @@ namespace Quanlycongviec.Application.Tests.Notifications
         {
             var services = new ServiceCollection();
             services.AddSingleton(context);
+            services.AddSingleton<IApplicationDbContext>(context);
 
             var dispatcherMock = new Mock<INotificationDispatcher>();
             dispatcherMock
                 .Setup(d => d.DispatchAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>()))
                 .Returns<Notification, CancellationToken>(async (notif, ct) =>
                 {
-                    context.Notifications.Add(notif);
-                    await context.SaveChangesAsync(ct);
+                    if (!await context.Notifications.AnyAsync(n => n.Id == notif.Id, ct))
+                    {
+                        context.Notifications.Add(notif);
+                        await context.SaveChangesAsync(ct);
+                    }
                 });
             services.AddSingleton(dispatcher ?? dispatcherMock.Object);
             
@@ -95,7 +99,7 @@ namespace Quanlycongviec.Application.Tests.Notifications
             await service.ProcessRemindersAsync(CancellationToken.None);
 
             // Assert 1: Đã tạo ReminderLog cho Overdue
-            var logCountFirst = await context.ReminderLogs.CountAsync(r => r.TaskItemId == overdueTask.Id && r.ReminderType == "Overdue");
+            var logCountFirst = await context.ReminderLogs.CountAsync(r => r.TaskItemId == overdueTask.Id && r.ReminderType.StartsWith("Overdue:"));
             logCountFirst.Should().Be(1);
 
             var notificationsFirst = await context.Notifications.CountAsync(n => n.TaskItemId == overdueTask.Id);
@@ -105,7 +109,7 @@ namespace Quanlycongviec.Application.Tests.Notifications
             await service.ProcessRemindersAsync(CancellationToken.None);
 
             // Assert 2: Không được tạo thêm ReminderLog hay Notification trùng lặp
-            var logCountSecond = await context.ReminderLogs.CountAsync(r => r.TaskItemId == overdueTask.Id && r.ReminderType == "Overdue");
+            var logCountSecond = await context.ReminderLogs.CountAsync(r => r.TaskItemId == overdueTask.Id && r.ReminderType.StartsWith("Overdue:"));
             logCountSecond.Should().Be(1);
 
             var notificationsSecond = await context.Notifications.CountAsync(n => n.TaskItemId == overdueTask.Id);
@@ -153,14 +157,14 @@ namespace Quanlycongviec.Application.Tests.Notifications
             var taskInDb = await context.TaskItems.FindAsync(urgentOverdueTask.Id);
             taskInDb!.IsEscalated.Should().BeTrue();
 
-            var escalationLogsCount1 = await context.ReminderLogs.CountAsync(r => r.TaskItemId == urgentOverdueTask.Id && r.ReminderType == "Escalation");
+            var escalationLogsCount1 = await context.ReminderLogs.CountAsync(r => r.TaskItemId == urgentOverdueTask.Id && r.ReminderType.StartsWith("Escalation:"));
             escalationLogsCount1.Should().Be(1);
 
             // Act 2: Chạy quét lần 2
             await service.ProcessRemindersAsync(CancellationToken.None);
 
             // Assert 2: IsEscalated vẫn true, không tạo thêm log leo thang
-            var escalationLogsCount2 = await context.ReminderLogs.CountAsync(r => r.TaskItemId == urgentOverdueTask.Id && r.ReminderType == "Escalation");
+            var escalationLogsCount2 = await context.ReminderLogs.CountAsync(r => r.TaskItemId == urgentOverdueTask.Id && r.ReminderType.StartsWith("Escalation:"));
             escalationLogsCount2.Should().Be(1);
         }
 
@@ -191,7 +195,7 @@ namespace Quanlycongviec.Application.Tests.Notifications
 
             await service.ProcessRemindersAsync(CancellationToken.None);
 
-            (await context.ReminderLogs.AnyAsync(r => r.TaskItemId == task.Id && r.ReminderType == "BeforeDeadline48h"))
+            (await context.ReminderLogs.AnyAsync(r => r.TaskItemId == task.Id && r.ReminderType.StartsWith("BeforeDeadline48h:")))
                 .Should().BeTrue();
             (await context.ReminderLogs.AnyAsync(r => r.TaskItemId == task.Id && r.ReminderType == "BeforeDeadline3d"))
                 .Should().BeFalse();
@@ -262,10 +266,10 @@ namespace Quanlycongviec.Application.Tests.Notifications
             dispatcher.Setup(d => d.DispatchAsync(It.IsAny<Notification>(), It.IsAny<CancellationToken>()))
                 .Returns<Notification, CancellationToken>(async (notification, ct) =>
                 {
-                    if (notification.UserId == leader.Id && failOnce)
+                    if (notification.UserId == staff.Id && failOnce)
                     {
                         failOnce = false;
-                        throw new InvalidOperationException("Temporary persistence failure");
+                        throw new InvalidOperationException("Temporary delivery failure");
                     }
                     await real.DispatchAsync(notification, ct);
                 });
@@ -273,11 +277,15 @@ namespace Quanlycongviec.Application.Tests.Notifications
             await new TaskReminderBackgroundService(CreateServiceProvider(context, dispatcher.Object),
                 NullLogger<TaskReminderBackgroundService>.Instance, config, clock).ProcessRemindersAsync();
             (await context.Notifications.CountAsync()).Should().Be(1);
-            (await context.ReminderLogs.SingleAsync()).SentAt.Should().Be(DateTime.UnixEpoch);
+            (await context.ReminderLogs.SingleAsync()).SentAt.Should().Be(clock.Now.UtcDateTime);
+            (await context.Notifications.SingleAsync()).RequiresRealtimeDelivery.Should().BeTrue();
             context.ChangeTracker.Clear();
-            await new TaskReminderBackgroundService(CreateServiceProvider(context, dispatcher.Object),
-                NullLogger<TaskReminderBackgroundService>.Instance, config, clock).ProcessRemindersAsync();
-            (await context.Notifications.CountAsync()).Should().Be(2);
+            var retryServices = CreateServiceProvider(context, dispatcher.Object);
+            await new WorkflowNotificationDeliveryService(retryServices.GetRequiredService<IServiceScopeFactory>(),
+                NullLogger<WorkflowNotificationDeliveryService>.Instance).DeliverPendingAsync();
+            (await context.Notifications.CountAsync()).Should().Be(1);
+            (await context.Notifications.SingleAsync()).RequiresRealtimeDelivery.Should().BeFalse();
+            (await context.Notifications.SingleAsync()).RealtimeDeliveredAt.Should().NotBeNull();
             (await context.ReminderLogs.SingleAsync()).SentAt.Should().Be(clock.Now.UtcDateTime);
         }
 
@@ -289,7 +297,7 @@ namespace Quanlycongviec.Application.Tests.Notifications
             var leader = new User { Username = "utc_leader", Email = "utc.leader@test.local" };
             var staff = new User { Username = "utc_staff", Email = "utc.staff@test.local" };
             context.Users.AddRange(leader, staff);
-            var review = new TaskItem { Title = "No deadline review", AssignerId = leader.Id, AssigneeId = staff.Id, Status = TaskStatusEnum.InReview };
+            var review = new TaskItem { Title = "No deadline review", AssignerId = leader.Id, AssigneeId = staff.Id, ReviewerId = leader.Id, Status = TaskStatusEnum.InReview };
             var due = new TaskItem
             {
                 Title = "Twelve hours",
@@ -299,11 +307,12 @@ namespace Quanlycongviec.Application.Tests.Notifications
                 Status = TaskStatusEnum.InProgress
             };
             context.TaskItems.AddRange(review, due);
+            context.TaskSubmissions.Add(new TaskSubmission { TaskItemId = review.Id, SubmittedById = staff.Id, IsLegacy = true, Note = "Kết quả cũ" });
             await context.SaveChangesAsync();
             await new TaskReminderBackgroundService(CreateServiceProvider(context), NullLogger<TaskReminderBackgroundService>.Instance,
                 new ConfigurationBuilder().Build(), clock).ProcessRemindersAsync();
             (await context.Notifications.SingleAsync(n => n.TaskItemId == review.Id)).UserId.Should().Be(leader.Id);
-            (await context.ReminderLogs.SingleAsync(r => r.TaskItemId == due.Id)).ReminderType.Should().Be("BeforeDeadline12h");
+            (await context.ReminderLogs.SingleAsync(r => r.TaskItemId == due.Id)).ReminderType.Should().StartWith("BeforeDeadline12h:");
             (await context.Notifications.AnyAsync(n => n.Type == NotificationType.Overdue)).Should().BeFalse();
         }
 
@@ -322,23 +331,25 @@ namespace Quanlycongviec.Application.Tests.Notifications
             var config = new ConfigurationBuilder().AddInMemoryCollection(new[] { new System.Collections.Generic.KeyValuePair<string, string?>("DailyDigest:Enabled", "false") }).Build();
             var service = new TaskReminderBackgroundService(CreateServiceProvider(context), NullLogger<TaskReminderBackgroundService>.Instance, config, clock);
             await service.ProcessRemindersAsync();
-            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(2);
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(1);
             (await context.Notifications.CountAsync(n => n.TaskItemId == cancelled.Id)).Should().Be(0);
             await service.ProcessRemindersAsync();
-            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(2);
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(1);
             clock.Now = clock.Now.AddHours(25);
             await service.ProcessRemindersAsync();
-            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(4);
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(2);
             task.Status = TaskStatusEnum.InReview;
+            task.ReviewerId = assigner.Id;
+            context.TaskSubmissions.Add(new TaskSubmission { TaskItemId = task.Id, SubmittedById = assignee.Id, SubmittedAt = clock.Now.UtcDateTime, Note = "Báo cáo" });
             await context.SaveChangesAsync();
             await service.ProcessRemindersAsync();
-            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(5);
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(3);
             (await context.Notifications.Where(n => n.Title.StartsWith("Chờ nghiệm thu")).SingleAsync()).UserId.Should().Be(assigner.Id);
             task.Status = TaskStatusEnum.Completed;
             await context.SaveChangesAsync();
             clock.Now = clock.Now.AddHours(25);
             await service.ProcessRemindersAsync();
-            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(5);
+            (await context.Notifications.CountAsync(n => n.TaskItemId == task.Id)).Should().Be(3);
         }
     }
 }

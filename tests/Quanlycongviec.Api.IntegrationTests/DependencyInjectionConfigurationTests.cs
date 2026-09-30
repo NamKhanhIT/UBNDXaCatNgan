@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Quanlycongviec.Application;
@@ -23,7 +24,8 @@ namespace Quanlycongviec.Api.IntegrationTests
             // AddInMemoryCollection can override existing values, but the in-memory collection
             // is checked BEFORE the disk-based appsettings.json. To make the throw fire, we
             // configure the connection string to be null/empty explicitly.
-            var builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(new string[0]);
+            var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+            builder.WebHost.UseKestrel();
             // Explicitly blank out the connection string at the highest priority
             builder.Configuration["ConnectionStrings:DefaultConnection"] = string.Empty;
 
@@ -39,7 +41,8 @@ namespace Quanlycongviec.Api.IntegrationTests
         [Fact]
         public void AddInfrastructure_ShouldNotThrow_WhenConnectionStringProvided()
         {
-            var builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(new string[0]);
+            var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+            builder.WebHost.UseKestrel();
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 { "Jwt:Secret", "ThisIsASecretKeyForTestingPurposesOnly1234567890!" },
@@ -57,7 +60,8 @@ namespace Quanlycongviec.Api.IntegrationTests
         [Fact]
         public void DependencyInjection_WebApplicationBuilder_ShouldBuildSuccessfully()
         {
-            var builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(new string[0]);
+            var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+            builder.WebHost.UseKestrel();
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 { "Jwt:Secret", "ThisIsASecretKeyForTestingPurposesOnly1234567890!" },

@@ -23,75 +23,30 @@ namespace Quanlycongviec.Application.Features.Tasks.Commands.ProcessAIStructured
         public string DeadlineDate { get; set; } = string.Empty;
         public string SourceCitation { get; set; } = string.Empty;
         public bool PassedVerification { get; set; } = true;
-        public Guid CreatedTaskId { get; set; }
+        public Guid? CreatedTaskId { get; set; }
     }
 
-    public class ProcessAIStructuredTaskCommandHandler : IRequestHandler<ProcessAIStructuredTaskCommand, AIGeneratedTaskResultDto>
+    public class ProcessAIStructuredTaskCommandHandler(IApplicationDbContext context,
+        ITaskAuthorizationService? authorizationService = null, IDocumentAiService? aiService = null)
+        : IRequestHandler<ProcessAIStructuredTaskCommand, AIGeneratedTaskResultDto>
     {
-        private readonly IApplicationDbContext _context;
-        private readonly ITaskAuthorizationService? _authorizationService;
-
-        public ProcessAIStructuredTaskCommandHandler(
-            IApplicationDbContext context,
-            ITaskAuthorizationService? authorizationService = null)
+        public async Task<AIGeneratedTaskResultDto> Handle(ProcessAIStructuredTaskCommand request, CancellationToken ct)
         {
-            _context = context;
-            _authorizationService = authorizationService;
-        }
-
-        public async Task<AIGeneratedTaskResultDto> Handle(ProcessAIStructuredTaskCommand request, CancellationToken cancellationToken)
-        {
-            // BẢO MẬT (Audit 04-09-2026): Validate FallbackAssigneeId tồn tại + chưa bị xóa.
-            var assignee = await _context.Users
-                .FirstOrDefaultAsync(u => u.Id == request.FallbackAssigneeId && !u.IsDeleted, cancellationToken);
-            if (assignee == null)
+            var actor = await new Quanlycongviec.Application.Common.Services.WorkflowAccess(context).ActorAsync(request.AssignerId, ct);
+            if (actor == null || actor.Rank > 4 || authorizationService == null) throw new UnauthorizedAccessException("Không có quyền chuẩn bị giao việc.");
+            if (request.FallbackAssigneeId != Guid.Empty && !await authorizationService.CanAssignTaskAsync(actor.Id, request.FallbackAssigneeId, null, ct))
+                throw new UnauthorizedAccessException("Người thực hiện không thuộc phạm vi giao việc.");
+            if (string.IsNullOrWhiteSpace(request.MeetingNotesOrDocumentText)) throw new ArgumentException("Vui lòng cung cấp nội dung cần phân tích.");
+            if (aiService == null) throw new InvalidOperationException("Dịch vụ AI chưa sẵn sàng. Bạn có thể nhập công việc thủ công.");
+            var departments = await context.Departments.Where(d => !d.IsDeleted)
+                .Select(d => new Quanlycongviec.Application.AI.Models.DepartmentOption { Id = d.Id, Name = d.Name }).ToListAsync(ct);
+            var analysis = await aiService.AnalyzeDocumentAsync(request.MeetingNotesOrDocumentText, departments, ct);
+            return new AIGeneratedTaskResultDto
             {
-                throw new ArgumentException(
-                    "FallbackAssigneeId không hợp lệ — cán bộ được chỉ định không tồn tại hoặc đã bị vô hiệu hóa.");
-            }
-
-            // BẢO MẬT (Audit 04-09-2026): Auth-gate — caller phải có quyền giao việc.
-            if (_authorizationService != null)
-            {
-                var canAssign = await _authorizationService.CanAssignTaskAsync(
-                    request.AssignerId, request.FallbackAssigneeId, departmentId: null, cancellationToken);
-                if (!canAssign)
-                {
-                    throw new UnauthorizedAccessException("Bạn không có quyền giao việc tới cán bộ này.");
-                }
-            }
-
-            // Simulate AI Engine RAG & Multi-Agent Verification (Triage -> Generator -> Verification Agent)
-            // Structured JSON Schema verification guardrail enforces non-hallucination outputs
-            var result = new AIGeneratedTaskResultDto
-            {
-                Title = "Tóm tắt & Hoàn thiện dự thảo báo cáo quý của đơn vị",
-                Description = $"Tác vụ sinh tự động từ văn bản chỉ đạo: {request.MeetingNotesOrDocumentText.Substring(0, Math.Min(100, request.MeetingNotesOrDocumentText.Length))}...",
-                Priority = "High",
-                DeadlineDate = DateTime.UtcNow.AddDays(3).ToString("yyyy-MM-dd"),
-                SourceCitation = "Theo biên bản họp chỉ đạo ngày " + DateTime.Now.ToString("dd/MM/yyyy"),
-                PassedVerification = true
+                Title = analysis.Title ?? string.Empty, Description = analysis.Summary ?? string.Empty,
+                Priority = string.Empty, DeadlineDate = analysis.DeadlineDate?.ToString("O") ?? string.Empty,
+                SourceCitation = string.Empty, PassedVerification = false, CreatedTaskId = null
             };
-
-            // Human-in-the-loop draft creation
-            var task = new Domain.Entities.TaskItem
-            {
-                Title = result.Title,
-                Description = $"{result.Description}\n\n[Nguồn trích dẫn AI]: {result.SourceCitation}",
-                AssignerId = request.AssignerId,
-                AssigneeId = request.FallbackAssigneeId,
-                Priority = TaskPriority.High,
-                Status = TaskStatusEnum.Todo,
-                Type = TaskType.AdHoc,
-                DueDate = DateTime.UtcNow.AddDays(3),
-                AISummary = result.SourceCitation
-            };
-
-            _context.TaskItems.Add(task);
-            await _context.SaveChangesAsync(cancellationToken);
-
-            result.CreatedTaskId = task.Id;
-            return result;
         }
     }
 }

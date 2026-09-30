@@ -14,6 +14,13 @@ namespace Quanlycongviec.Application.Common.Interfaces
         DbSet<Delegation> Delegations { get; }
         DbSet<AuditLog> AuditLogs { get; }
         DbSet<TaskItem> TaskItems { get; }
+        DbSet<TaskDocumentLink> TaskDocumentLinks { get; }
+        DbSet<TaskSubmission> TaskSubmissions { get; }
+        DbSet<TaskSubmissionAttachment> TaskSubmissionAttachments { get; }
+        DbSet<TaskWorkflowChange> TaskWorkflowChanges { get; }
+        DbSet<DocumentPresentation> DocumentPresentations { get; }
+        DbSet<WorkflowPermission> WorkflowPermissions { get; }
+        DbSet<WorkflowRequest> WorkflowRequests { get; }
         DbSet<SubTask> SubTasks { get; }
         DbSet<TaskComment> TaskComments { get; }
         DbSet<WorkloadCapacity> WorkloadCapacities { get; }

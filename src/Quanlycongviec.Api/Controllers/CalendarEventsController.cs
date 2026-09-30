@@ -44,56 +44,31 @@ namespace Quanlycongviec.Api.Controllers
         {
             var query = new GetCalendarEventsQuery
             {
+                CurrentUserId = GetCurrentUserId(),
                 From = from,
                 To = to,
                 DepartmentId = departmentId,
                 UserId = userId
             };
             var result = await _mediator.Send(query);
-            return Ok(result);
+            return Ok(new { success = true, data = result });
         }
 
         [HttpPost]
         public async Task<ActionResult<Guid>> Create([FromBody] CreateCalendarEventCommand command)
         {
-            if (command.OrganizerId == Guid.Empty)
-            {
-                command.OrganizerId = GetCurrentUserId();
-            }
-
+            command.OrganizerId = GetCurrentUserId();
             var id = await _mediator.Send(command);
+            return Ok(new { success = true, data = id });
+        }
 
-            // Gửi thông báo đến những người tham gia qua INotificationDispatcher (thay vì Broadcast dữ liệu nhạy cảm qua Clients.All)
-            if (command.ParticipantUserIds != null && command.ParticipantUserIds.Count > 0)
-            {
-                // Bugfix 10-09-2026: StartDateTime được lưu ở Kind=Utc, nếu format trực tiếp sẽ in giờ UTC.
-                // Convert sang giờ Việt Nam (UTC+7) trước khi hiển thị trong message thông báo.
-                var vietnamTz = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
-                    ?? TimeZoneInfo.CreateCustomTimeZone("VN", TimeSpan.FromHours(7), "Vietnam", "Vietnam");
-                var startLocal = TimeZoneInfo.ConvertTimeFromUtc(command.StartDateTime, vietnamTz);
-                var endLocal = TimeZoneInfo.ConvertTimeFromUtc(command.EndDateTime, vietnamTz);
-
-                var notifications = command.ParticipantUserIds
-                    .Where(uid => uid != command.OrganizerId)
-                    .Select(uid => new Notification
-                    {
-                        Id = Guid.NewGuid(),
-                        UserId = uid,
-                        Type = NotificationType.EventReminder,
-                        Title = $"Lịch mới: {command.Title}",
-                        Message = $"Đồng chí có lịch [{command.Title}] diễn ra từ {startLocal:dd-MM-yyyy HH:mm} đến {endLocal:dd-MM-yyyy HH:mm}.",
-                        SentAt = DateTime.UtcNow,
-                        IsRead = false
-                    })
-                    .ToList();
-
-                if (notifications.Count > 0)
-                {
-                    await _notificationDispatcher.DispatchBatchAsync(notifications);
-                }
-            }
-
-            return CreatedAtAction(nameof(GetCalendarEvents), new { id }, id);
+        [HttpGet("{id:guid}")]
+        public async Task<IActionResult> Detail(Guid id)
+        {
+            var items = await _mediator.Send(new GetCalendarEventsQuery { CurrentUserId = GetCurrentUserId(), EventId = id });
+            var result = items.SingleOrDefault();
+            return result == null ? NotFound(new { success = false, error = "Không tìm thấy lịch trong phạm vi quyền." })
+                : Ok(new { success = true, data = result });
         }
 
         [HttpPut("{id}")]
@@ -107,21 +82,21 @@ namespace Quanlycongviec.Api.Controllers
 
             var success = await _mediator.Send(command);
             if (!success) return NotFound();
-            return Ok(true);
+            return Ok(new { success = true, data = true });
         }
 
         [HttpDelete("{id}")]
-        public async Task<ActionResult<bool>> Delete(Guid id)
+        public async Task<ActionResult<bool>> Delete(Guid id, [FromBody] DeleteCalendarEventCommand input)
         {
             var command = new DeleteCalendarEventCommand
             {
                 Id = id,
-                UserId = GetCurrentUserId()
+                UserId = GetCurrentUserId(), RequestId = input.RequestId, Version = input.Version
             };
 
             var success = await _mediator.Send(command);
             if (!success) return NotFound();
-            return Ok(true);
+            return Ok(new { success = true, data = true });
         }
     }
 }

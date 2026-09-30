@@ -6,6 +6,9 @@ namespace Quanlycongviec.Application.Features.CalendarEvents.DTOs
     public class CalendarEventDto
     {
         public Guid Id { get; set; }
+        public Guid Version { get; set; }
+        public Guid? SourceInboxDocumentId { get; set; }
+        public bool CanEdit { get; set; }
         public string Title { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
         public string EventType { get; set; } = string.Empty;

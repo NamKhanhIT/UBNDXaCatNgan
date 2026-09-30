@@ -5,6 +5,8 @@ export interface NotificationItem {
   userId: string;
   taskItemId?: string;
   calendarEventId?: string;
+  inboxDocumentId?: string;
+  outgoingDocumentId?: string;
   type: string;
   channel: string;
   title: string;

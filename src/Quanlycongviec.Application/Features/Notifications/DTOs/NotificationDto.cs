@@ -7,6 +7,9 @@ namespace Quanlycongviec.Application.Features.Notifications.DTOs
         public Guid Id { get; set; }
         public Guid UserId { get; set; }
         public Guid? TaskItemId { get; set; }
+        public Guid? InboxDocumentId { get; set; }
+        public Guid? OutgoingDocumentId { get; set; }
+        public Guid? CalendarEventId { get; set; }
         public string Type { get; set; } = string.Empty;
         public string Channel { get; set; } = string.Empty;
         public string Title { get; set; } = string.Empty;

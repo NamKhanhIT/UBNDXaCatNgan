@@ -12,6 +12,7 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetDocum
     public class GetDocumentVersionsQuery : IRequest<List<DocumentVersionDto>>
     {
         public Guid DocumentId { get; set; }
+        public Guid CurrentUserId { get; set; }
     }
 
     public class DocumentVersionDto
@@ -42,8 +43,12 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetDocum
 
         public async Task<List<DocumentVersionDto>> Handle(GetDocumentVersionsQuery request, CancellationToken cancellationToken)
         {
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId, cancellationToken);
+            if (actor == null || !await access.Outgoing(actor).AnyAsync(d => d.Id == request.DocumentId, cancellationToken))
+                throw new UnauthorizedAccessException("Không được xem lịch sử văn bản ngoài quyền truy cập.");
             var versions = await _context.DocumentVersions
-                .Where(v => v.DocumentId == request.DocumentId && !v.IsDeleted)
+                .Where(v => v.DocumentId == request.DocumentId && v.TargetType == "Outgoing" && !v.IsDeleted)
                 .OrderByDescending(v => v.VersionNumber)
                 .ToListAsync(cancellationToken);
 

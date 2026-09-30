@@ -1,10 +1,11 @@
 import { apiFetch, ApiResponse } from './api.config';
 
 export type DocumentTypeEnum = 'QuyetDinh' | 'CongVan' | 'ThongBao' | 'BaoCao' | 'KeHoach' | 'ToTrinh' | 'CongDien';
-export type OutgoingDocumentStatusEnum = 'Draft' | 'PendingSignature' | 'Issued' | 'Sent' | 'Rejected';
+export type OutgoingDocumentStatusEnum = 'Draft' | 'PendingSignature' | 'Issued' | 'Sent' | 'Rejected' | 'Recalled' | 'Cancelled';
 
 export interface OutgoingDocumentDto {
   id: string;
+  version: string;
   documentNumber?: string;
   documentType: DocumentTypeEnum;
   documentTypeName: string;

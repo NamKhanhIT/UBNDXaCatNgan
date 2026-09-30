@@ -50,6 +50,7 @@ namespace Quanlycongviec.Application.Tests.OutgoingDocuments
             var updateHandler = new UpdateOutgoingDocumentCommandHandler(_context);
             var command = new UpdateOutgoingDocumentCommand
             {
+                RequestId = Guid.NewGuid(), Version = doc.Version,
                 Id = doc.Id,
                 Title = "Thử sửa nghị quyết",
                 DocumentType = DocumentTypeEnum.QuyetDinh,
@@ -68,7 +69,7 @@ namespace Quanlycongviec.Application.Tests.OutgoingDocuments
             // Arrange
             var leader = new User { Username = "chutich", FullName = "Nguyễn Đình Hùng", Email = "hung@ubnd.gov.vn", ActiveRoleCode = "ChuTichUBND" };
             var drafter = new User { Username = "namnv", FullName = "Nguyễn Văn Nam", Email = "nam@ubnd.gov.vn" };
-            _context.Users.AddRange(leader, drafter);
+            WorkflowTestData.AddAssignmentRoles(_context, leader, drafter);
 
             var doc1 = new OutgoingDocument { Id = Guid.NewGuid(), Title = "Quyết định 1", DocumentType = DocumentTypeEnum.QuyetDinh, Status = OutgoingDocumentStatusEnum.PendingSignature, DraftedByUserId = drafter.Id };
             var doc2 = new OutgoingDocument { Id = Guid.NewGuid(), Title = "Quyết định 2", DocumentType = DocumentTypeEnum.QuyetDinh, Status = OutgoingDocumentStatusEnum.PendingSignature, DraftedByUserId = drafter.Id };
@@ -79,10 +80,10 @@ namespace Quanlycongviec.Application.Tests.OutgoingDocuments
             var signHandler = new SignAndIssueOutgoingDocumentCommandHandler(_context);
 
             // Act 1: Sign first Quyết định
-            var num1 = await signHandler.Handle(new SignAndIssueOutgoingDocumentCommand { Id = doc1.Id, UserId = leader.Id, UserRankLevel = 1 }, CancellationToken.None);
+            var num1 = await signHandler.Handle(new SignAndIssueOutgoingDocumentCommand { Id = doc1.Id, UserId = leader.Id, UserRankLevel = 1, RequestId = Guid.NewGuid(), Version = doc1.Version }, CancellationToken.None);
 
             // Act 2: Sign second Quyết định
-            var num2 = await signHandler.Handle(new SignAndIssueOutgoingDocumentCommand { Id = doc2.Id, UserId = leader.Id, UserRankLevel = 1 }, CancellationToken.None);
+            var num2 = await signHandler.Handle(new SignAndIssueOutgoingDocumentCommand { Id = doc2.Id, UserId = leader.Id, UserRankLevel = 1, RequestId = Guid.NewGuid(), Version = doc2.Version }, CancellationToken.None);
 
             // Assert
             num1.Should().Be("01/QĐ-UBND");
@@ -105,7 +106,7 @@ namespace Quanlycongviec.Application.Tests.OutgoingDocuments
             await _context.SaveChangesAsync();
 
             var signHandler = new SignAndIssueOutgoingDocumentCommandHandler(_context);
-            var command = new SignAndIssueOutgoingDocumentCommand { Id = doc.Id, UserId = chuyenVien.Id, UserRankLevel = 5 }; // RankLevel 5 = Chuyên viên
+            var command = new SignAndIssueOutgoingDocumentCommand { Id = doc.Id, UserId = chuyenVien.Id, UserRankLevel = 1, RequestId = Guid.NewGuid(), Version = doc.Version }; // Claimed rank must not override database permissions.
 
             // Act & Assert
             var act = async () => await signHandler.Handle(command, CancellationToken.None);

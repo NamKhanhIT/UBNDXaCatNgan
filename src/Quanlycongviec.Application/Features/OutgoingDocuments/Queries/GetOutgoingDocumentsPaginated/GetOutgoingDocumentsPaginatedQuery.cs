@@ -34,18 +34,10 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
 
         public async Task<PaginatedResult<OutgoingDocumentDto>> Handle(GetOutgoingDocumentsPaginatedQuery request, CancellationToken cancellationToken)
         {
-            var query = _context.OutgoingDocuments
-                .AsNoTracking()
-                .Where(o => !o.IsDeleted)
-                .AsQueryable();
-
-            // Phân quyền RBAC theo RankLevel
-            // Lãnh đạo UBND/HĐND (RankLevel <= 2.5) được xem toàn bộ. Chuyên viên xem văn bản do mình soạn hoặc được giao.
-            if (request.UserRankLevel > 2.5 && request.CurrentUserId.HasValue)
-            {
-                query = query.Where(o => o.DraftedByUserId == request.CurrentUserId.Value ||
-                                         o.SignedByUserId == request.CurrentUserId.Value);
-            }
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId ?? Guid.Empty, cancellationToken);
+            if (actor == null) return new(new(), 0, Math.Max(1, request.Page), Math.Clamp(request.PageSize, 1, 100));
+            var query = access.Outgoing(actor).AsNoTracking();
 
             // Lọc theo từ khóa tìm kiếm (Title, DocumentNumber, RecipientNote)
             if (!string.IsNullOrWhiteSpace(request.Search))
@@ -90,9 +82,14 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
                 .Where(u => userIds.Contains(u.Id))
                 .ToDictionaryAsync(u => u.Id, u => u.FullName, cancellationToken);
 
+            var documentIds = rawItems.Select(o => o.Id).ToList();
+            var visibleTaskIds = access.Tasks(actor).Select(t => t.Id);
+            var relatedLinks = await _context.TaskDocumentLinks.Where(l => l.OutgoingDocumentId.HasValue && documentIds.Contains(l.OutgoingDocumentId.Value)
+                && !l.IsDeleted && visibleTaskIds.Contains(l.TaskItemId)).OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).ToListAsync(cancellationToken);
             var items = rawItems.Select(o => new OutgoingDocumentDto
             {
                 Id = o.Id,
+                Version = o.Version,
                 DocumentNumber = o.DocumentNumber,
                 DocumentType = o.DocumentType,
                 DocumentTypeName = GetDocumentTypeName(o.DocumentType),
@@ -110,7 +107,7 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
                 IssuedDate = o.IssuedDate,
                 RecipientNote = o.RecipientNote,
                 AttachmentUrl = o.AttachmentUrl,
-                RelatedTaskItemId = o.RelatedTaskItemId,
+                RelatedTaskItemId = relatedLinks.FirstOrDefault(l => l.OutgoingDocumentId == o.Id)?.TaskItemId,
                 IsUrgent = o.IsUrgent,
                 RejectionReason = o.RejectionReason,
                 IsCorrectionDocument = o.IsCorrectionDocument,
@@ -148,6 +145,8 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
             OutgoingDocumentStatusEnum.Issued => "Đã ban hành",
             OutgoingDocumentStatusEnum.Sent => "Đã gửi đi",
             OutgoingDocumentStatusEnum.Rejected => "Bị từ chối ký",
+            OutgoingDocumentStatusEnum.Recalled => "Đã thu hồi",
+            OutgoingDocumentStatusEnum.Cancelled => "Đã hủy",
             _ => status.ToString()
         };
     }

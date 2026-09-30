@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { isTaskActionable, isTaskOpen, isTaskOverdue } from '../../lib/task-workflow';
 import { useAuth } from '../auth/AuthContext';
 import { getNotifications, NotificationItem } from '../../services/notification.service';
 import { getTasksApi, TaskItemDto } from '../../services/task.service';
@@ -54,11 +55,11 @@ export function ExecutiveDashboard() {
 
   // 1. Task Metrics (Real data calculation)
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(t => t.status === 'Hoan_Thanh').length;
-  const inProgressTasks = tasks.filter(t => t.status === 'Dang_Xu_Ly' || t.status === 'Chua_Lam').length;
-  const pendingReviewTasks = tasks.filter(t => t.status === 'Cho_Duyet').length;
+  const completedTasks = tasks.filter(t => t.status === 'Completed').length;
+  const inProgressTasks = tasks.filter(isTaskActionable).length;
+  const pendingReviewTasks = tasks.filter(t => t.status === 'InReview').length;
   const overdueTasks = tasks.filter(
-    t => t.status !== 'Hoan_Thanh' && t.dueDate && new Date(t.dueDate).getTime() < Date.now()
+    t => isTaskOverdue(t)
   ).length;
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
@@ -85,10 +86,10 @@ export function ExecutiveDashboard() {
         return dept.keywords.some(kw => dName.includes(kw) || aName.includes(kw));
       });
 
-      const active = deptTasks.filter(t => t.status === 'Dang_Xu_Ly' || t.status === 'Chua_Lam').length;
-      const completed = deptTasks.filter(t => t.status === 'Hoan_Thanh').length;
+      const active = deptTasks.filter(isTaskActionable).length;
+      const completed = deptTasks.filter(t => t.status === 'Completed').length;
       const overdue = deptTasks.filter(
-        t => t.status !== 'Hoan_Thanh' && t.dueDate && new Date(t.dueDate).getTime() < Date.now()
+        t => isTaskOverdue(t)
       ).length;
       const total = deptTasks.length;
       const progressPercentage = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -96,7 +97,7 @@ export function ExecutiveDashboard() {
       return {
         name: dept.name,
         code: dept.code,
-        active,
+        active: Math.max(0, active - overdue),
         completed,
         overdue,
         total,
@@ -120,7 +121,7 @@ export function ExecutiveDashboard() {
     let normalPriority = 0;
 
     tasks.forEach(t => {
-      if (t.status === 'Hoan_Thanh') return;
+      if (!isTaskActionable(t)) return;
 
       const prio = (t.priority || '').toLowerCase();
       if (prio === 'urgent' || prio === 'khẩn cấp' || prio === 'khan_cap') urgentPriority++;
@@ -133,7 +134,7 @@ export function ExecutiveDashboard() {
 
         if (diffMs < 0) {
           overdue++;
-        } else if (diffMs <= oneDayMs) {
+        } else if (formatDateShort(t.dueDate) === formatDateShort(new Date(now))) {
           dueToday++;
         } else if (diffMs <= 3 * oneDayMs) {
           dueWithin3Days++;
@@ -223,7 +224,7 @@ export function ExecutiveDashboard() {
         </div>
 
         <div className="kpi-card" style={{ borderLeft: '4px solid #16a34a' }}>
-          <div className="kpi-label">Tỷ Lệ Hoàn Thành Đúng Hạn</div>
+          <div className="kpi-label">Tỷ Lệ Đã Nghiệm Thu</div>
           <div className="kpi-value" style={{ color: '#16a34a' }}>{completionRate}%</div>
           <div className="kpi-hint">Đã nghiệm thu đạt chuẩn {completedTasks} nhiệm vụ</div>
         </div>
@@ -267,7 +268,7 @@ export function ExecutiveDashboard() {
         {/* Biểu đồ Donut Hoàn thành đúng hạn */}
         <ChartContainer
           title="Cơ Cấu Trạng Thái Hoàn Thành"
-          subtitle="Tỷ lệ hoàn thành đúng hạn và phân loại tiến độ nhiệm vụ công vụ"
+          subtitle="Phân bố trạng thái công việc đã lưu trong hệ thống"
           icon={<i className="fa-solid fa-chart-pie" aria-hidden="true" />}
           isLoading={isLoading}
           isEmpty={tasks.length === 0}
@@ -281,6 +282,7 @@ export function ExecutiveDashboard() {
             inProgress={inProgressTasks}
             pendingReview={pendingReviewTasks}
             overdue={overdueTasks}
+            cancelled={tasks.filter(t => t.status === 'Cancelled').length}
           />
         </ChartContainer>
       </div>
@@ -424,7 +426,7 @@ export function ExecutiveDashboard() {
           </div>
 
           <div style={{ padding: 0, overflowX: 'auto' }}>
-            {tasks.filter(t => t.status !== 'Hoan_Thanh').length === 0 ? (
+            {tasks.filter(isTaskOpen).length === 0 ? (
               <div style={{ padding: '24px 16px', textAlign: 'center', color: '#64748b', fontSize: '0.84rem' }}>
                 <i className="fa-solid fa-circle-check" style={{ color: '#16a34a', marginRight: 6 }} aria-hidden="true" />
                 Tất cả nhiệm vụ trọng tâm đã được hoàn thành.
@@ -440,7 +442,7 @@ export function ExecutiveDashboard() {
                 </thead>
                 <tbody>
                   {tasks
-                    .filter(t => t.status !== 'Hoan_Thanh')
+                    .filter(isTaskOpen)
                     .slice(0, 4)
                     .map(t => {
                       const isOver = t.dueDate && new Date(t.dueDate).getTime() < Date.now();

@@ -179,6 +179,7 @@ namespace Quanlycongviec.Application.Tests.Tasks
             var task = new TaskItem
             {
                 Title = "Báo cáo số liệu quý",
+                ReviewerId = _userTruongPhongKinhTe.Id,
                 AssignerId = _userTruongPhongKinhTe.Id,
                 AssigneeId = _userChuyenVienKinhTe.Id,
                 DepartmentId = _depKinhTe.Id,

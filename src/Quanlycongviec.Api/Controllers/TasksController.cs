@@ -28,7 +28,7 @@ namespace Quanlycongviec.Api.Controllers
     [ApiController]
     [Route("api/v1/[controller]")]
     [Authorize]
-    public class TasksController : ControllerBase
+    public partial class TasksController : ControllerBase
     {
         private readonly ISender _mediator;
         private readonly Quanlycongviec.Application.Common.Interfaces.IRealtimePublisherService _realtimePublisher;
@@ -73,11 +73,14 @@ namespace Quanlycongviec.Api.Controllers
             [FromQuery] DateTime? dueDate = null,
             [FromQuery] DateTime? dueDateFrom = null,
             [FromQuery] DateTime? dueDateTo = null,
-            [FromQuery(Name = "today")] bool todayOnly = false)
+            [FromQuery(Name = "today")] bool todayOnly = false,
+            [FromQuery] string? tab = null, [FromQuery] string? scope = null,
+            [FromQuery] string? timeFilter = null, [FromQuery] string? searchField = null,
+            [FromQuery] string? reviewScope = null)
         {
             var query = new GetTasksQuery(CurrentUserId, CurrentRankLevel, status, departmentId, q, page, pageSize, dueDate, dueDateFrom, dueDateTo, todayOnly)
             {
-                PriorityFilter = priority
+                PriorityFilter = priority, WorkspaceTab = tab, Scope = scope, TimeFilter = timeFilter, SearchField = searchField, ReviewScope = reviewScope
             };
             var result = await _mediator.Send(query);
             return Ok(new
@@ -88,7 +91,7 @@ namespace Quanlycongviec.Api.Controllers
                     items = result.Items,
                     totalCount = result.TotalCount,
                     page = result.Page,
-                    pageSize = result.PageSize
+                    pageSize = result.PageSize, counts = result.Counts
                 }
             });
         }
@@ -105,137 +108,38 @@ namespace Quanlycongviec.Api.Controllers
         /// Khởi tạo thẻ công việc mới (Giao việc)
         /// </summary>
         [HttpPost]
-        [Authorize(Policy = "ManagerPlus")]
+        [Authorize]
         public async Task<IActionResult> CreateTask([FromBody] CreateTaskCommand command)
         {
-            // The authenticated principal is the only trusted assigner identity.
             command.AssignerId = CurrentUserId;
-            if (command.AssignerId == Guid.Empty) return Unauthorized(new { success = false, message = "Phiên làm việc không hợp lệ." });
-            if (command.AssigneeId == Guid.Empty)
-            {
-                return BadRequest(new { success = false, message = "Vui lòng chọn cán bộ thực hiện nhiệm vụ." });
-            }
-
-            var taskId = await _mediator.Send(command);
-
-            // Phát sự kiện SignalR TaskAssigned và ReceiveNotification tới các client realtime
-            await _realtimePublisher.PublishToUsersAsync(new[] { command.AssignerId, command.AssigneeId }, "TaskAssigned", new
-            {
-                taskId,
-                title = command.Title,
-                assigneeId = command.AssigneeId,
-                assignerId = command.AssignerId,
-                dueDate = command.DueDate,
-                priority = command.Priority.ToString(),
-                type = command.Type.ToString()
-            });
-
-            await _realtimePublisher.PublishToUserAsync(command.AssigneeId, "ReceiveNotification", new
-            {
-                id = $"notif-{taskId}",
-                userId = command.AssigneeId,
-                taskItemId = taskId,
-                type = "Assigned",
-                channel = "SignalR",
-                title = $"📌 Nhiệm vụ mới: {command.Title}",
-                message = $"Đồng chí được giao nhiệm vụ [{command.Title}].",
-                sentAt = DateTime.UtcNow,
-                isRead = false
-            });
-
-            return Ok(new { success = true, data = taskId, message = "Khởi tạo công việc thành công." });
+            var taskId = await _mediator.Send(command, HttpContext.RequestAborted);
+            var detail = await _mediator.Send(new GetTaskDetailQuery(taskId, CurrentUserId), HttpContext.RequestAborted);
+            return Ok(new { success = true, data = detail });
         }
-
         /// <summary>
         /// Cập nhật trạng thái công việc (Hoàn thành, Từ chối, Đang xử lý, Chờ duyệt) kèm đánh giá thang 10 điểm
         /// </summary>
         [HttpPatch("{id:guid}/status")]
         public async Task<IActionResult> UpdateStatus([FromRoute] Guid id, [FromBody] UpdateTaskStatusRequest request)
         {
-            var command = new UpdateTaskStatusCommand(
-                id,
-                request.Status,
-                CurrentUserId,
-                request.RatingScore,
-                request.RejectionReason,
-                request.NewExtendedDueDate,
-                request.SystemScore,
-                request.EvaluatorScore,
-                request.SubmissionNote);
-
-            var success = await _mediator.Send(command);
-            if (!success) return BadRequest(new { success = false, message = "Không thể cập nhật trạng thái nhiệm vụ." });
-
-            var taskParticipants = await _context.TaskItems
-                .Where(t => t.Id == id && !t.IsDeleted)
-                .Select(t => new { t.AssignerId, t.AssigneeId })
-                .FirstOrDefaultAsync(HttpContext.RequestAborted);
-            var recipientIds = taskParticipants == null
-                ? new[] { CurrentUserId }
-                : new[] { CurrentUserId, taskParticipants.AssignerId, taskParticipants.AssigneeId };
-
-            // Phát sự kiện TaskUpdated
-            await _realtimePublisher.PublishToUsersAsync(recipientIds, "TaskUpdated", new
+            var command = new UpdateTaskStatusCommand(id, request.Status, CurrentUserId,
+                rejectionReason: request.RejectionReason, newExtendedDueDate: request.NewExtendedDueDate,
+                submissionNote: request.SubmissionNote, approvalNote: request.ApprovalNote)
             {
-                taskId = id,
-                status = request.Status,
-                ratingScore = request.RatingScore,
-                submissionNote = request.SubmissionNote,
-                updatedBy = CurrentUserId
-            });
-
-            // Nếu gia hạn hạn chót
-            if (request.NewExtendedDueDate.HasValue)
-            {
-                await _realtimePublisher.PublishToUsersAsync(recipientIds, "TaskDeadlineChanged", new
-                {
-                    taskId = id,
-                    newDueDate = request.NewExtendedDueDate.Value
-                });
-            }
-
-            // Phát sự kiện trạng thái nghiệp vụ báo cáo
-            if (string.Equals(request.Status, "Cho_Duyet", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(request.Status, "PendingReview", StringComparison.OrdinalIgnoreCase))
-            {
-                await _realtimePublisher.PublishToUsersAsync(recipientIds, "ReportSubmitted", new
-                {
-                    taskId = id,
-                    submissionNote = request.SubmissionNote,
-                    submittedBy = CurrentUserId
-                });
-            }
-            else if (string.Equals(request.Status, "Hoan_Thanh", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(request.Status, "Completed", StringComparison.OrdinalIgnoreCase))
-            {
-                await _realtimePublisher.PublishToUsersAsync(recipientIds, "ReportApproved", new
-                {
-                    taskId = id,
-                    ratingScore = request.RatingScore ?? request.EvaluatorScore,
-                    approvedBy = CurrentUserId
-                });
-            }
-            else if (string.Equals(request.Status, "Tu_Choi", StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(request.Status, "Rejected", StringComparison.OrdinalIgnoreCase))
-            {
-                await _realtimePublisher.PublishToUsersAsync(recipientIds, "ReportRejected", new
-                {
-                    taskId = id,
-                    reason = request.RejectionReason,
-                    rejectedBy = CurrentUserId
-                });
-            }
-
-            return Ok(new { success = true, message = "Đã cập nhật trạng thái nhiệm vụ thành công." });
+                RequestId = request.RequestId, Version = request.Version,
+                SubmissionId = request.SubmissionId, AttachmentIds = request.AttachmentIds
+            };
+            var success = await _mediator.Send(command, HttpContext.RequestAborted);
+            if (!success) return NotFound(new { success = false, error = "Không tìm thấy công việc trong phạm vi quyền của bạn." });
+            return Ok(new { success = true, data = await _mediator.Send(new GetTaskDetailQuery(id, CurrentUserId), HttpContext.RequestAborted) });
         }
-
         /// <summary>
         /// Xem trước / Tính toán điểm số hệ thống tự động (30 điểm khách quan)
         /// </summary>
         [HttpGet("{id:guid}/system-score")]
         public async Task<IActionResult> GetSystemScore([FromRoute] Guid id)
         {
-            var query = new CalculateTaskSystemScoreQuery(id);
+            var query = new CalculateTaskSystemScoreQuery(id, CurrentUserId);
             var result = await _mediator.Send(query);
             return Ok(new { success = true, data = result });
         }
@@ -246,7 +150,7 @@ namespace Quanlycongviec.Api.Controllers
         [HttpGet("{id:guid}/annotations")]
         public async Task<IActionResult> GetAnnotations([FromRoute] Guid id)
         {
-            var query = new GetTaskReviewAnnotationsQuery(id);
+            var query = new GetTaskReviewAnnotationsQuery(id, CurrentUserId);
             var result = await _mediator.Send(query);
             return Ok(new { success = true, data = result });
         }
@@ -284,9 +188,10 @@ namespace Quanlycongviec.Api.Controllers
         /// Trích xuất tác vụ tự động từ tài liệu chỉ đạo / biên bản họp thông qua AI Multi-Agent Engine
         /// </summary>
         [HttpPost("ai-extract")]
-        [Authorize(Policy = "ManagerPlus")]
+        [Authorize]
         public async Task<IActionResult> ProcessAITask([FromBody] ProcessAIStructuredTaskCommand command)
         {
+            command = command with { AssignerId = CurrentUserId };
             var result = await _mediator.Send(command);
             return Ok(new { success = true, data = result, message = "Trích xuất công việc bằng AI thành công." });
         }
@@ -295,10 +200,11 @@ namespace Quanlycongviec.Api.Controllers
         /// Điều chuyển nhiệm vụ sang cán bộ khác và cập nhật tải công chức trong PostgreSQL
         /// </summary>
         [HttpPost("{id:guid}/transfer")]
-        [Authorize(Policy = "ManagerPlus")]
+        [Authorize]
         public async Task<IActionResult> TransferTask([FromRoute] Guid id, [FromBody] TransferTaskRequest request)
         {
-            var command = new TransferTaskCommand(id, request.TargetUserId, request.Reason, CurrentUserId);
+            var command = new TransferTaskCommand(id, request.TargetUserId, request.Reason, CurrentUserId)
+            { RequestId = request.RequestId, Version = request.Version, ReviewerId = request.ReviewerId };
             var success = await _mediator.Send(command);
             if (!success) return BadRequest(new { success = false, message = "Không thể điều chuyển nhiệm vụ." });
 
@@ -322,7 +228,7 @@ namespace Quanlycongviec.Api.Controllers
         [HttpPost("{taskId:guid}/subtasks")]
         public async Task<IActionResult> CreateSubTask([FromRoute] Guid taskId, [FromBody] CreateSubTaskRequest request)
         {
-            var command = new CreateSubTaskCommand(taskId, request.Title, CurrentUserId);
+            var command = new CreateSubTaskCommand(taskId, request.Title, CurrentUserId) { RequestId = request.RequestId, Version = request.Version };
             var id = await _mediator.Send(command);
             return Ok(new { success = true, data = id, message = "Đã thêm công việc con thành công." });
         }
@@ -331,9 +237,9 @@ namespace Quanlycongviec.Api.Controllers
         /// Tích chọn hoàn thành / chưa hoàn thành công việc con
         /// </summary>
         [HttpPatch("{taskId:guid}/subtasks/{subTaskId:guid}/toggle")]
-        public async Task<IActionResult> ToggleSubTask([FromRoute] Guid taskId, [FromRoute] Guid subTaskId)
+        public async Task<IActionResult> ToggleSubTask([FromRoute] Guid taskId, [FromRoute] Guid subTaskId, [FromBody] SetChecklistRequest request)
         {
-            var command = new ToggleSubTaskCommand(subTaskId, CurrentUserId);
+            var command = new ToggleSubTaskCommand(subTaskId, CurrentUserId) { TaskItemId = taskId, RequestId = request.RequestId, Version = request.Version, IsCompleted = request.IsCompleted };
             var success = await _mediator.Send(command);
             if (!success) return BadRequest(new { success = false, message = "Không thể cập nhật công việc con." });
 
@@ -361,6 +267,7 @@ namespace Quanlycongviec.Api.Controllers
             {
                 TaskId = taskId,
                 UserId = CurrentUserId,
+                RequestId = request.RequestId,
                 Content = request.Content
             };
             var result = await _mediator.Send(command);
@@ -390,6 +297,11 @@ namespace Quanlycongviec.Api.Controllers
     public class UpdateTaskStatusRequest
     {
         public string Status { get; set; } = string.Empty;
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
+        public Guid? SubmissionId { get; set; }
+        public string? ApprovalNote { get; set; }
+        public List<Guid> AttachmentIds { get; set; } = new();
         public double? RatingScore { get; set; }
         public double? SystemScore { get; set; }
         public double? EvaluatorScore { get; set; }
@@ -408,17 +320,30 @@ namespace Quanlycongviec.Api.Controllers
 
     public class TransferTaskRequest
     {
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
+        public Guid? ReviewerId { get; set; }
         public Guid TargetUserId { get; set; }
         public string Reason { get; set; } = string.Empty;
     }
 
     public class CreateSubTaskRequest
     {
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
         public string Title { get; set; } = string.Empty;
+    }
+
+    public class SetChecklistRequest
+    {
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
+        public bool? IsCompleted { get; set; }
     }
 
     public class CreateCommentRequest
     {
+        public Guid RequestId { get; set; }
         public string Content { get; set; } = string.Empty;
     }
 

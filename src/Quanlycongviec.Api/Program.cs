@@ -18,7 +18,9 @@ using Microsoft.AspNetCore.HttpOverrides;
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 Console.InputEncoding = System.Text.Encoding.UTF8;
 
-var builder = WebApplication.CreateBuilder(args);
+// Verification of an existing database must not run the demo initializer.
+var skipSampleSeed = args.Contains("--skip-seed", StringComparer.OrdinalIgnoreCase);
+var builder = WebApplication.CreateBuilder(args.Where(arg => !string.Equals(arg, "--skip-seed", StringComparison.OrdinalIgnoreCase)).ToArray());
 
 // Options setup
 builder.Services.Configure<RatingRevisionOptions>(builder.Configuration.GetSection(RatingRevisionOptions.SectionName));
@@ -158,8 +160,9 @@ var app = builder.Build();
 app.UseForwardedHeaders();
 
 // Seed dữ liệu mẫu (5 phòng ban + roles + admin)
-using (var scope = app.Services.CreateScope())
+if (!skipSampleSeed)
 {
+    using var scope = app.Services.CreateScope();
     await DbInitializer.SeedAsync(scope.ServiceProvider);
 }
 

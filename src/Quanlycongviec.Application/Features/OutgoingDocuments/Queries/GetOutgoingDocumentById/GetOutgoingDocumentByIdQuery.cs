@@ -40,6 +40,10 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
                 .AsNoTracking()
                 .FirstOrDefaultAsync(o => o.Id == request.Id && !o.IsDeleted, cancellationToken);
             if (doc == null) return null;
+            var access = new Quanlycongviec.Application.Common.Services.WorkflowAccess(_context);
+            var actor = await access.ActorAsync(request.CurrentUserId, cancellationToken);
+            if (actor == null) return null;
+            var visibleTasks = access.Tasks(actor).Select(t => t.Id);
 
             var draftedUser = await _context.Users.FirstOrDefaultAsync(u => u.Id == doc.DraftedByUserId, cancellationToken);
             var signedUser = doc.SignedByUserId.HasValue
@@ -49,6 +53,7 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
             return new OutgoingDocumentDto
             {
                 Id = doc.Id,
+                Version = doc.Version,
                 DocumentNumber = doc.DocumentNumber,
                 DocumentType = doc.DocumentType,
                 DocumentTypeName = GetOutgoingDocumentsPaginatedQueryHandler.GetDocumentTypeName(doc.DocumentType),
@@ -65,7 +70,8 @@ namespace Quanlycongviec.Application.Features.OutgoingDocuments.Queries.GetOutgo
                 IssuedDate = doc.IssuedDate,
                 RecipientNote = doc.RecipientNote,
                 AttachmentUrl = doc.AttachmentUrl,
-                RelatedTaskItemId = doc.RelatedTaskItemId,
+                RelatedTaskItemId = await _context.TaskDocumentLinks.Where(l => l.OutgoingDocumentId == doc.Id && !l.IsDeleted && visibleTasks.Contains(l.TaskItemId))
+                    .OrderBy(l => l.CreatedAt).ThenBy(l => l.Id).Select(l => (Guid?)l.TaskItemId).FirstOrDefaultAsync(cancellationToken),
                 IsUrgent = doc.IsUrgent,
                 RejectionReason = doc.RejectionReason,
                 IsCorrectionDocument = doc.IsCorrectionDocument,

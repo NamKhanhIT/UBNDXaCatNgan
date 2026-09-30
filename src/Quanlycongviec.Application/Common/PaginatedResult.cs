@@ -6,6 +6,7 @@ namespace Quanlycongviec.Application.Common
         public int TotalCount { get; set; }
         public int Page { get; set; }
         public int PageSize { get; set; }
+        public Dictionary<string, int> Counts { get; set; } = new();
 
         public PaginatedResult() { }
 

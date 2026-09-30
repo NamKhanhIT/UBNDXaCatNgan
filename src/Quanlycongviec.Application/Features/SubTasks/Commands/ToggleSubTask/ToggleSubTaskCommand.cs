@@ -12,6 +12,10 @@ namespace Quanlycongviec.Application.Features.SubTasks.Commands.ToggleSubTask
     {
         public Guid SubTaskId { get; set; }
         public Guid CurrentUserId { get; set; }
+        public Guid RequestId { get; set; }
+        public Guid? Version { get; set; }
+        public Guid? TaskItemId { get; set; }
+        public bool? IsCompleted { get; set; }
 
         public ToggleSubTaskCommand(Guid subTaskId, Guid currentUserId = default)
         {
@@ -31,37 +35,7 @@ namespace Quanlycongviec.Application.Features.SubTasks.Commands.ToggleSubTask
             _authorizationService = authorizationService;
         }
 
-        public async Task<bool> Handle(ToggleSubTaskCommand request, CancellationToken cancellationToken)
-        {
-            var subTask = await _context.SubTasks.FirstOrDefaultAsync(st => st.Id == request.SubTaskId, cancellationToken);
-            if (subTask == null) return false;
-            if (!await _authorizationService.CanAccessTaskAsync(request.CurrentUserId, subTask.TaskItemId, cancellationToken))
-                return false;
-
-            subTask.IsCompleted = !subTask.IsCompleted;
-            subTask.UpdatedAt = DateTime.UtcNow;
-
-            // Lấy toàn bộ subtasks của task để tính lại ProgressPercentage
-            var task = await _context.TaskItems
-                .Include(t => t.SubTasks)
-                .FirstOrDefaultAsync(t => t.Id == subTask.TaskItemId, cancellationToken);
-
-            if (task != null && task.SubTasks.Count > 0)
-            {
-                var completedCount = task.SubTasks.Count(s => s.Id == subTask.Id ? subTask.IsCompleted : s.IsCompleted);
-                task.ProgressPercentage = (int)Math.Round((double)completedCount / task.SubTasks.Count * 100);
-                
-                // Nếu 100% subtask hoàn thành và task đang Todo -> chuyển InReview (Chờ duyệt)
-                if (task.ProgressPercentage >= 100 && task.Status == Domain.Enums.TaskStatusEnum.Todo)
-                {
-                    task.Status = Domain.Enums.TaskStatusEnum.InReview;
-                }
-                
-                task.UpdatedAt = DateTime.UtcNow;
-            }
-
-            await _context.SaveChangesAsync(cancellationToken);
-            return true;
-        }
+        public Task<bool> Handle(ToggleSubTaskCommand request, CancellationToken cancellationToken) =>
+            new Quanlycongviec.Application.Common.Services.TaskChecklistWorkflow(_context).SetAsync(request, cancellationToken);
     }
 }

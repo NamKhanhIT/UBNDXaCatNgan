@@ -9,8 +9,8 @@ using Quanlycongviec.Application.Common.Interfaces;
 using Quanlycongviec.Application.Features.Tasks.Commands.CreateTask;
 using Quanlycongviec.Domain.Entities;
 using Quanlycongviec.Domain.Enums;
-using Quanlycongviec.Application.Tests;
 using Quanlycongviec.Infrastructure.Persistence;
+using Quanlycongviec.Infrastructure.Services;
 using Xunit;
 
 namespace Quanlycongviec.Application.Tests.Resilience
@@ -144,19 +144,30 @@ namespace Quanlycongviec.Application.Tests.Resilience
         public async Task Tier2_03_DataMutationAndSpecialPayloads_ShouldBeSafelyHandled(string payload)
         {
             var user = new User { Username = "user_" + Guid.NewGuid().ToString("N")[..8], FullName = "Nguyễn Văn Test", Email = "test@ubnd.gov.vn" };
-            _context.Users.Add(user);
+            var department = new Department { Code = "INJECTION_TEST", Name = "Phòng kiểm thử" };
+            var leaderRole = new Role { Code = "TEST_LEADER", Name = "Lãnh đạo kiểm thử", RankLevel = 1 };
+            var officerRole = new Role { Code = "TEST_OFFICER", Name = "Chuyên viên kiểm thử", RankLevel = 5 };
+            var leader = new User { Username = "leader_" + Guid.NewGuid().ToString("N")[..8], FullName = "Lãnh đạo kiểm thử", Email = "leader@example.invalid", PrimaryDepartment = department, ActiveRoleCode = leaderRole.Code };
+            leader.UserRoles.Add(new UserRole { User = leader, Role = leaderRole, IsPrimary = true });
+            user.PrimaryDepartment = department;
+            user.ActiveRoleCode = officerRole.Code;
+            user.UserRoles.Add(new UserRole { User = user, Role = officerRole, IsPrimary = true });
+            _context.Users.AddRange(leader, user);
             await _context.SaveChangesAsync();
 
             var command = new CreateTaskCommand
             {
                 Title = payload.Length > 200 ? payload[..200] : payload,
                 Description = payload,
-                AssignerId = user.Id,
+                RequestId = Guid.NewGuid(),
+                Requirements = "Lưu nguyên nội dung kiểm thử",
+                DueDate = DateTime.UtcNow.AddDays(1),
+                AssignerId = leader.Id,
                 AssigneeId = user.Id,
                 EstimatedEffortHours = 5.0
             };
 
-            var handler = new CreateTaskCommandHandler(_context, new AllowAllTaskAuthorizationService());
+            var handler = new CreateTaskCommandHandler(_context, new TaskAuthorizationService(_context));
             var taskId = await handler.Handle(command, CancellationToken.None);
 
             // Kiểm tra TaskItem được lưu trữ an toàn trong CSDL

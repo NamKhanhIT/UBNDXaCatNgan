@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
+import { isTaskActionable, isTaskOpen, isTaskOverdue } from '../../lib/task-workflow';
 import { useAuth } from '../auth/AuthContext';
 import { getTasksApi, TaskItemDto } from '../../services/task.service';
 import { getUsersPaginatedApi, UserDto as PaginatedUserDto } from '../../services/user.service';
@@ -56,12 +57,12 @@ export function DepartmentDashboard() {
     return tasks.filter(t => (t.departmentName || '').toLowerCase().includes(kw) || tasks.length <= 5);
   }, [tasks, deptName]);
 
-  const deptActiveCount = deptTasks.filter(t => t.status === 'Dang_Xu_Ly' || t.status === 'Chua_Lam').length;
-  const deptPendingReview = deptTasks.filter(t => t.status === 'Cho_Duyet').length;
+  const deptActiveCount = deptTasks.filter(isTaskActionable).length;
+  const deptPendingReview = deptTasks.filter(t => t.status === 'InReview').length;
   const deptOverdue = deptTasks.filter(
-    t => t.status !== 'Hoan_Thanh' && t.dueDate && new Date(t.dueDate).getTime() < Date.now()
+    t => isTaskOverdue(t)
   ).length;
-  const deptCompleted = deptTasks.filter(t => t.status === 'Hoan_Thanh').length;
+  const deptCompleted = deptTasks.filter(t => t.status === 'Completed').length;
   const deptTotal = deptTasks.length;
 
   const currentDateText = formatAdministrativeDate();
@@ -168,6 +169,7 @@ export function DepartmentDashboard() {
             inProgress={deptActiveCount}
             pendingReview={deptPendingReview}
             overdue={deptOverdue}
+            cancelled={deptTasks.filter(t => t.status === 'Cancelled').length}
           />
         </ChartContainer>
 
@@ -199,7 +201,7 @@ export function DepartmentDashboard() {
             {staffList.slice(0, 4).map(staff => {
               const staffTasks = deptTasks.filter(t => t.assigneeId === staff.id || t.assigneeName === staff.fullName);
               const taskCount = staffTasks.length || 2;
-              const completedCount = staffTasks.filter(t => t.status === 'Hoan_Thanh').length;
+              const completedCount = staffTasks.filter(t => t.status === 'Completed').length;
               const isOver = taskCount >= 6;
 
               return (
@@ -280,7 +282,7 @@ export function DepartmentDashboard() {
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#92400e', fontWeight: 800 }}>
               <i className="fa-solid fa-clock" aria-hidden="true" />
-              <span>Nhiệm Vụ Đến Hạn Của Phòng ({deptTasks.filter(t => t.status !== 'Hoan_Thanh').length})</span>
+              <span>Nhiệm Vụ Đến Hạn Của Phòng ({deptTasks.filter(isTaskOpen).length})</span>
             </div>
             <Link
               href="/workcenter?tab=today"
@@ -291,7 +293,7 @@ export function DepartmentDashboard() {
           </div>
 
           <div style={{ padding: 0, overflowX: 'auto' }}>
-            {deptTasks.filter(t => t.status !== 'Hoan_Thanh').length === 0 ? (
+            {deptTasks.filter(isTaskOpen).length === 0 ? (
               <EmptyState compact title="Không có nhiệm vụ đến hạn" description="Tất cả nhiệm vụ của phòng đã hoàn tất." />
             ) : (
               <table className="data-table">
@@ -304,7 +306,7 @@ export function DepartmentDashboard() {
                 </thead>
                 <tbody>
                   {deptTasks
-                    .filter(t => t.status !== 'Hoan_Thanh')
+                    .filter(isTaskOpen)
                     .slice(0, 4)
                     .map(task => (
                       <tr key={task.id}>
