@@ -9,9 +9,9 @@ const React = require('react');
 test('discard confirmation focuses Continue and restores the draft field', () => {
   let cursor = 0; const slots = []; let effects = [];
   const document = { activeElement: null };
-  const input = { focus() { document.activeElement = input; }, isConnected: true };
-  const continueButton = { focus() { document.activeElement = continueButton; }, isConnected: true };
-  const dialog = { showModal() {}, close() {}, contains: () => true };
+  const input = { focus() { document.activeElement = input; }, isConnected: true, getClientRects:()=>[{}] };
+  const continueButton = { focus() { document.activeElement = continueButton; }, isConnected: true, getClientRects:()=>[{}] };
+  const dialog = { showModal() {}, close() {}, contains: () => true, querySelectorAll:()=>[continueButton,input] };
   const hooks = { useId: () => 'dialog-title',
     useRef(initial) { const i = cursor++; return slots[i] ||= { current: initial }; },
     useState(initial) { const i = cursor++; if(!(i in slots)) slots[i] = initial; return [slots[i], value => { slots[i] = value; }]; },
@@ -26,6 +26,11 @@ test('discard confirmation focuses Continue and restores the draft field', () =>
     effects.forEach(fn=>fn()); return tree;};
   let tree=render(); input.focus(); tree.props.onCancel({preventDefault(){}}); tree=render();
   assert.equal(document.activeElement,continueButton);
-  all(tree).find(n=>n.type==='button'&&n.props.children==='Tiếp tục chỉnh sửa').props.onClick(); render();
+  all(tree).find(n=>n.type==='button'&&n.props.children==='Tiếp tục chỉnh sửa').props.onClick(); tree=render();
+  assert.equal(document.activeElement,input);
+  let prevented=false;
+  tree.props.onKeyDown({key:'Tab',shiftKey:false,preventDefault(){prevented=true;}});
+  assert.equal(prevented,true); assert.equal(document.activeElement,continueButton);
+  tree.props.onKeyDown({key:'Tab',shiftKey:true,preventDefault(){}});
   assert.equal(document.activeElement,input);
 });

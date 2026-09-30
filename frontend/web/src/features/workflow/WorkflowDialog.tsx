@@ -35,6 +35,19 @@ export function WorkflowDialog({ title, children, onClose, dirty = false, busy =
     return () => window.removeEventListener('beforeunload', beforeUnload);
   }, [dirty]);
   return <dialog ref={dialog} className={`${styles.dialog} ${wide ? styles.wide : ''}`} aria-labelledby={titleId}
+    onKeyDown={event => {
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(dialog.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+      ) || []).filter(element => element.getClientRects().length > 0);
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (!first) { event.preventDefault(); dialog.current?.focus(); return; }
+      if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) {
+        event.preventDefault(); first.focus();
+      } else if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
+        event.preventDefault(); last.focus();
+      }
+    }}
     onCancel={event => { event.preventDefault(); close(); }} onClick={event => { if (event.target === event.currentTarget) close(); }}>
     <header className={styles.dialogHeader}>
       <h2 id={titleId}>{title}</h2>
